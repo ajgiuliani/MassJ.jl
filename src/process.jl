@@ -61,7 +61,6 @@ function savitzky_golay_filtering(scan::MScontainer, order::Int, window::Int, de
     if scan isa MSscan
         return MSscan(scan.num, scan.rt, scan.tic, scan.mz, y, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
     elseif scan isa MSscans
-
         return MSscans(scan.num, scan.rt, scan.tic, scan.mz, y, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
     end
 end
@@ -186,7 +185,6 @@ end
 Template based beak detection algorithm returning the m/z and intensity of the peaks detected
 """
 function tbpd(scan::MScontainer, model::Function,  ∆mz::Real, thres::Real)   #template based peak detection
-#function tbpd(scan::MScontainer, shape::Symbol,  R::Real, thres::Real)   #template based peak detection
     box = num2pnt(scan.mz, scan.mz[1]+0.4) - 1        # taking a box of 0.5 width m/z
     correlation = zeros(length(scan.mz))
     maxi = maximum(scan.int)
@@ -224,16 +222,8 @@ function tbpd(scan::MScontainer, model::Function,  ∆mz::Real, thres::Real)   #
             if scan isa MSscans
                 push!(peaks_s, scan.s[max_index])
             end
-          """
-            push!(peaks_mz, scan.mz[i])
-            push!(peaks_int, scan.int[i])
-            if scan isa MSscans
-                push!(peaks_s, scan.s[i])
-            end
-          """
         end
-    end
-    
+    end    
     basePeakIntensity = maximum(peaks_int)
     basePeakMz = peaks_mz[ num2pnt(peaks_int, basePeakIntensity) ]
     
