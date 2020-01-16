@@ -380,7 +380,7 @@ end
     num2pnt(x::AbstractArray, val::Real)
 General purpose utility function used to retrieve the index of an array for which the value is closest to the input.
 """
-function num2pnt(x::AbstractArray, val::Real)
+@noinline  function num2pnt(x::AbstractArray, val::Real)
     ibest = 1
     dxbest = abs(x[ibest] - val)
     for i in eachindex(x)
@@ -448,6 +448,8 @@ function convolve(a::AbstractArray, b::AbstractArray)
     if length(a) != length(b)
         pad = zeros(abs(nb - na))
         padded = vcat(v, pad)
+    else
+        padded = v
     end
     
     real(FFTViews.ifft( FFTViews.fft(padded) .* FFTViews.fft(u)))
