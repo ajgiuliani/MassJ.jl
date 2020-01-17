@@ -412,7 +412,7 @@ function savitzky_golay(int::AbstractArray, order::Int, window::Int, deriv::Int)
     end
     order_range = range(1, length=(order+1))
     half_window = Int( (window-1) / 2 )
-
+    
     b = zeros(window, order+1)
 
     for i = 0:order
@@ -424,6 +424,7 @@ function savitzky_golay(int::AbstractArray, order::Int, window::Int, deriv::Int)
     yfirst = int[1]*ones(half_window)
     ylast = int[end]*ones(half_window)
     pad = vcat(yfirst, int, ylast)
+    
     y = convolve(coefs[end:-1:1], pad)[1 + 2 * half_window : end]
    # y = conv(coefs[end:-1:1], pad)[2 * half_window + 1 : end - 2 * half_window]
     
@@ -445,7 +446,7 @@ function convolve(a::AbstractArray, b::AbstractArray)
         u=a
         v=b            # smallest array need to be padded
     end
-    if length(a) != length(b)
+    if na != nb
         pad = zeros(abs(nb - na))
         padded = vcat(v, pad)
     else
