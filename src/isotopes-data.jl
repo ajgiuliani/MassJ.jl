@@ -1,5 +1,5 @@
 """
-Data for isotopic distrubution calculation. 
+Data for isotopic distribution calculation. 
 """
 
 # User Interface.
@@ -12,7 +12,7 @@ Data structure used to store individual properties of the isotopes.
     struct Isotope
         m::Float64           # mass
         f::Float64           # natural frequency
-        logf::Float64        # logarythm of the natural frequency
+        logf::Float64        # logarithm of the natural frequency
         Z::Int               # atomic number
         A::Int               # mass number
         active::Bool         # is radioactive
@@ -415,7 +415,7 @@ const elem_U = [Isotope(238.0507920000, 0.99274071016300569070267556526232510805
                 Isotope(234.0409520000, 0.000054599923560107009460132254652364736102754250168800354004, -9.815478075212435982166425674222409725189208984375000000000000, 92, 234, true),]
 
 
-Elements = Dict(
+const Elements = Dict(
                "H"  => elem_H::Array{Isotope,1},
                "He" => elem_He::Array{Isotope,1},
                "Li" => elem_Li::Array{Isotope,1},

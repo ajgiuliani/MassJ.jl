@@ -13,7 +13,7 @@ export isotopic_distribution, masses, simulate, formula
 
 """
     masses(input::String)
-Calculates the average, monoistopic and nominal masses for the chemical formula given as an input. The result is returned in a dictionary with the following entries: "Monoiotopic", Average" and "Nominal".
+Calculates the average, monoisotopic and nominal masses for the chemical formula given as an input. The result is returned in a dictionary with the following entries: "Monoisotopic", "Average" and "Nominal".
 # Examples
 ```julia-repl
 julia> masses("C254 H377 N65 O75 S6")
@@ -31,7 +31,7 @@ end
 
 """
     masses(f::Dict{String,Int})
-Calculates the average, monoistopic and nominal masses for the chemical formula dictionary, such as prodcued by MSj.formula. The result is returned in a dictionary with the following entries: "Monoiotopic", Average" and "Nominal".
+Calculates the average, monoisotopic and nominal masses for the chemical formula dictionary, such as produced by MSj.formula. The result is returned in a dictionary with the following entries: "Monoisotopic", "Average" and "Nominal".
 # Examples
 ```julia-repl
 julia> masses("C254 H377 N65 O75 S6")
@@ -63,7 +63,7 @@ end
 
 """
     simulate(I::Array{Union{Float64, Int, String}}, ∆mz::Real; model::Symbol=:gauss, Npoints::Int=1000)
-From an isotopic distribution and a peak width returns a mass spectrum (MSScan). The number of points of the resulting mass spectrum is passed as an optional argument. Peak shape are :gauss (default), :lorentz, :voight.
+From an isotopic distribution and a peak width returns a mass spectrum (MSScan). The number of points of the resulting mass spectrum is passed as an optional argument. Peak shape are :gauss (default), :lorentz, :voigt.
 # Examples
 ```julia-repl
 julia>  a = simulate(I, 0.4)
@@ -474,79 +474,90 @@ function most_probable_isotopologue(formula::Dict{String,Int}, Elements::Dict{St
 end
 
 
-function hill_climbing(P::AbstractArray, f::Function)
+function hill_climbing(P::Vector{Int}, f)
     max_count = 5000
     counts = 0
-    Pabs = P
-    Pnext = P
+    Pabs = copy(P)
+    fPabs = f(Pabs)
     # find all neighbours
     n = fill(0, length(P))
-    if length(P) > 1
-        n[1] = -1
-        n[2] = +1
-        neighbours = unique(permutations(n) )
+    if length(P) <= 1
+        return Pabs
     end
-    imax = 0
+    n[1] = -1
+    n[2] = +1
+    neighbours = unique(permutations(n))
+    temp = similar(P)
     while counts < max_count
         counts += 1
+        imax = 0
+        fmax = fPabs
         for i in eachindex(neighbours)   # find neighbours that increase the function f
-            temp = P .+ neighbours[i] 
-            if !in(-1, temp)                 # Pnext has no negative values
-                Pnext = temp
-                if f(Pnext) >= f(P)     # Pnext is better than Plocal
-                    imax = i                   
+            temp .= P .+ neighbours[i]
+            if !any(<(0), temp)                 # no negative values
+                ft = f(temp)
+                if ft >= fmax
+                    fmax = ft
+                    imax = i
                 end
             end
         end
         if imax != 0
-            if !in(-1, P .+ neighbours[imax]  )
-                P = P .+ neighbours[imax]       # move to the best neighbour
-            end
-        end
-        
-        if f(P) > f(Pabs)         
-            Pabs = P
+            P = P .+ neighbours[imax]
+            fP = fmax
         else
             break
         end
-            
+
+        if fP > fPabs
+            Pabs = copy(P)
+            fPabs = fP
+        else
+            break
+        end
+
     end
     if counts >= max_count
-        alert("Couldn't find the most probable subisotopologue.")
+        @warn("Couldn't find the most probable subisotopologue.")
     end
     return Pabs
 end
 
 
-function subgenerator!(formula::Dict{String,Int}, D_max::Dict{String,Array{Int,1}},  V::PriorityQueue, τ::Real, Elements::Dict{String,Array{MSj.Isotope,1}})
+function subgenerator!(formula::Dict{String,Int}, D_max::Dict{String,Array{Int,1}},  V::PriorityQueue{Vector{Int},Float64}, τ::Real, Elements::Dict{String,Array{MSj.Isotope,1}})
     key = first(formula)[1]
     val = first(formula)[2]
     E = Elements[key]
     P_max = D_max[key]
     fP_max = isotopologue_probability(formula, D_max, Elements)
-    
-    f(x) = isotopologue_probability(Dict(key => val), Dict(key => x), Elements)
-    
+
+    elem_form = Dict(key => val)
+    f(x) = isotopologue_probability(elem_form, Dict(key => x), Elements)
+
     if isempty(V)
         V[P_max] = f(P_max)
     end
-    PQ = deepcopy(V)
     n = fill(0, length(P_max))
     if length(P_max) > 1                                       # ensure there at least 2 isotopes for this element
         n[1] = -1
         n[2] = +1
         neighbours = unique( permutations(n) )
+        threshold = τ * fP_max
+        # BFS from existing entries in V
+        PQ = PriorityQueue{Vector{Int},Float64}()
+        for (k, v) in V
+            PQ[k] = v
+        end
         while !isempty(PQ)
             beta = dequeue!(PQ)
             for i in eachindex(neighbours)
                 temp = beta .+ neighbours[i]
-                if !in(-1, temp)                       
-                    Pnext = temp
-                    if !haskey(V, Pnext)                      # if n not in V
-                        fPnext = f(Pnext)
-                        if fPnext >= (τ * fP_max)          # if prob above threshold
-                            V[Pnext] = fPnext                 # then keep configuration
-                            PQ[Pnext] = fPnext
+                if !any(<(0), temp)
+                    if !haskey(V, temp)                      # if not in V
+                        ftemp = f(temp)
+                        if ftemp >= threshold              # if prob above threshold
+                            V[temp] = ftemp                 # then keep configuration
+                            PQ[temp] = ftemp
                         end
                     end
                 end
@@ -556,8 +567,8 @@ function subgenerator!(formula::Dict{String,Int}, D_max::Dict{String,Array{Int,1
     V
 end
 
-function ordered_isotopologue(c_formula::Array{Pair{String,Int},1}, α::Dict{String,Array{Int,1}}, V::Array{DataStructures.PriorityQueue,1}, I::PriorityQueue, tau::Real, Elements::Dict{String,Array{MSj.Isotope,1}} ) 
-    S = Array{PriorityQueue}(undef,0)
+function ordered_isotopologue(c_formula::Array{Pair{String,Int},1}, α::Dict{String,Array{Int,1}}, V::Vector{PriorityQueue{Vector{Int},Float64}}, I::PriorityQueue{Vector{Int},Float64}, tau::Real, Elements::Dict{String,Array{MSj.Isotope,1}} )
+    S = Vector{PriorityQueue{Vector{Int},Float64}}(undef,0)
 
     i = 1
     for (key, val) in c_formula
@@ -570,11 +581,11 @@ function ordered_isotopologue(c_formula::Array{Pair{String,Int},1}, α::Dict{Str
     I = S[1]
     for i=2:length(S)
         cI = collect(I)
-        I = PriorityQueue()
+        I = PriorityQueue{Vector{Int},Float64}()
         cSi = collect(S[i])
         for el in cI
-            for j=1:length(S[i])
-                conf = (el[1]..., cSi[j][1]...)
+            for j=1:length(cSi)
+                conf = vcat(el[1], cSi[j][1])
                 prob = el[2] * cSi[j][2]
                 I[conf] = prob
             end
@@ -583,21 +594,16 @@ function ordered_isotopologue(c_formula::Array{Pair{String,Int},1}, α::Dict{Str
     V, I
 end
 
-function trim!( I::PriorityQueue, p_target::Real, summ::Real)
-    next = peek(I)
-    somme = 0.0
-    while true
-        if !isempty(I)
-            somme = sum( collect( values(I) )[2:end] )
-        end
-        if somme <= p_target
+function trim!( I::PriorityQueue{Vector{Int},Float64}, p_target::Real, summ::Real)
+    # Remove lowest-probability configurations until total <= p_target
+    while !isempty(I)
+        lowest_val = peek(I)[2]
+        remaining = summ - lowest_val
+        if remaining <= p_target
             break
         end
-        if isempty(I)
-            break
-        else
-            dequeue!(I)
-        end       
+        dequeue!(I)
+        summ = remaining
     end
     I
 end
@@ -605,11 +611,11 @@ end
 
 function isospec(formula::Dict{String,Int}, c_formula::Array{Pair{String,Int},1}, p_target::Real, tau::Real, Elements::Dict{String,Array{MSj.Isotope,1}} )
     α = most_probable_isotopologue( formula, Elements )
-    I = PriorityQueue()
+    I = PriorityQueue{Vector{Int},Float64}()
     N_elem = length(formula)
-    V = Vector{PriorityQueue}(undef,0)
+    V = Vector{PriorityQueue{Vector{Int},Float64}}(undef,0)
     for i =1:N_elem
-        push!(V, PriorityQueue())
+        push!(V, PriorityQueue{Vector{Int},Float64}())
     end
     count = 1
     summ = 0.0

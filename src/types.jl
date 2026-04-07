@@ -157,10 +157,10 @@ end
 
 
 """
-    struct SG{argT <: Int} <: MethodType   #Savinsky & Golay filtering
-Structure for multiple dispatching to Savinsky & Golay filtering, providing the order, window size and derivative to be performed.  Defaults values are provided in functions calls.
+    struct SG{argT <: Int} <: MethodType   #Savitzky-Golay filtering
+Structure for multiple dispatching to Savitzky-Golay filtering, providing the order, window size and derivative to be performed.  Defaults values are provided in functions calls.
 """
-struct SG{argT <: Int} <: MethodType   #Savinsky & Golay filtering
+struct SG{argT <: Int} <: MethodType   #Savitzky-Golay filtering
     order::argT
     window::argT
     derivative::argT
@@ -169,8 +169,8 @@ end
 
 
 """
-    struct TBPD{argT1 <: Symbol, argT2 <: Real}  <: MethodType
-Structure for multiple dispatching to Template Base Peak Detection centroiding, providing the shape of the template function, the resolution and threshold.  Defaults values are provided in functions calls.
+    struct TBPD{argT1 <: Symbol, argT2 <: Real, argT3 <: Real}  <: MethodType
+Structure for multiple dispatching to Template Based Peak Detection centroiding, providing the shape of the template function, the resolution and threshold.  Defaults values are provided in functions calls.
 """
 struct TBPD{argT1 <: Symbol, argT2 <: Real, argT3 <: Real}   <: MethodType
     shape::argT1
@@ -202,7 +202,7 @@ end
 
 """
     TopHat{argT <: Int} <: MethodType
-Structure for multiple dispatching to TopHat baseline correction. Region is used specify the dimention over which this operation performed
+Structure for multiple dispatching to TopHat baseline correction. Region is used to specify the dimension over which this operation is performed.
 """
 struct TopHat{argT <: Int} <: MethodType
     region::argT
@@ -220,7 +220,7 @@ end
 
 
 """
-    struct IPSA{argT1 <: Int, argT2 <: Real} <: MethodType
+    struct IPSA{argT1 <: Int, argT2 <: Int} <: MethodType
 Structure for multiple dispatching to iterative polynomial smoothing algorithm (IPSA) baseline correction.
 """
 struct IPSA{argT1 <: Int, argT2 <: Int} <: MethodType
@@ -229,6 +229,41 @@ struct IPSA{argT1 <: Int, argT2 <: Int} <: MethodType
     IPSA(width::argT1,maxiter::argT2) where{argT1, argT2} = new{argT1, argT2}(width, maxiter)
 end
 
+
+"""
+    struct UniDec <: MethodType
+Structure for multiple dispatching to UniDec deconvolution algorithm.
+"""
+struct UniDec  <: MethodType
+    UniDec() = new()
+end
+
+
+"""
+    struct Charges <: MethodType
+Structure for multiple dispatching to UniDec charge deconvolution algorithm.
+"""
+@with_kw struct Charges <: MethodType
+    adduct::String
+    range::Tuple{Int,Int}
+    width::Int = 1
+end
+
+
+
+"""
+    struct Masses <: MethodType
+Structure for multiple dispatching to UniDec mass deconvolution algorithm.
+"""
+@with_kw struct Masses <: MethodType
+    adduct::String
+    range::Tuple{Int,Int}
+    width::Int = 1
+end
+
+
+
+    
 
 
 

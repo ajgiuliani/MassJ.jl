@@ -8,7 +8,6 @@ Processing functions submodule.
 export smooth, centroid, baseline_correction
 
 
-# Mass spectra
 """
     smooth(scan::MScontainer; method::MethodType=SG(5, 9))
 Smooth the intensity of the input data and returns a similar structure.
@@ -49,7 +48,7 @@ end
 
 """
     savitzky_golay_filtering(scan::MSj.MScontainer, order::Int, window::Int, deriv::Int)
-Savinsky and Golay filtering of mz and int data within the MSscan(s) container.
+Savitzky-Golay filtering to remove the high frequency noise of int data within the MSscan(s) container.
 """
 function savitzky_golay_filtering(scan::MScontainer, order::Int, window::Int, deriv::Int)
     y = savitzky_golay(scan.int, order, window, deriv)
@@ -139,7 +138,7 @@ function centroid(scans::Vector{MSscan}; method::MethodType=SNRA(1., 100) )
 end
 
 """
-    snra(scan::MScontainer, thres::Real, region::Int
+    snra(scan::MScontainer, thres::Real, region::Int)
 Signal to Noise Ratio Analysis method returning the m/z and intensity of the peaks detected.
 """
 function snra(scan::MScontainer, thres::Real, region::Int)
@@ -182,7 +181,7 @@ end
     
 """
     tbpd(scan::MSj.MScontainer, shape::Symbol,  R::Real, thres::Real)
-Template based beak detection algorithm returning the m/z and intensity of the peaks detected
+Template based peak detection algorithm returning the m/z and intensity of the peaks detected.
 """
 function tbpd(scan::MScontainer, model::Function,  ∆mz::Real, thres::Real)   #template based peak detection
     box = num2pnt(scan.mz, scan.mz[1]+0.4) - 1        # taking a box of 0.5 width m/z
@@ -232,56 +231,6 @@ function tbpd(scan::MScontainer, model::Function,  ∆mz::Real, thres::Real)   #
     elseif scan isa MSscan
         return MSscan(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
     end
-end
-
-
-"""
-    gauss(x::Float64, p::Vector{Float64})
-Gaussian shape function used by the TBPD method
-"""
-function gauss(x::Float64, p::AbstractArray)
-    # Gaussian shape function
-    # width            = p[1]
-    # x0               = p[2]
-    # height           = p[3]
-    # background level = p[4]
-    # model(x, p) = p[4] + p[3] * exp(- ( (x-p[2])/p[1] )^2)
-    return  p[4] + p[3] * exp(- ( (x-p[2])/p[1] )^2)
-end
-
-"""
-    lorentz(x::Float64, p::Vector{Float64})
-Cauchy-Lorentz shape function used by the TBPD method
-"""
-function lorentz(x::Float64, p::AbstractArray)
-    # Lorentzian shape function
-    # width            = p[1]
-    # x0               = p[2]
-    # height           = p[3]
-    # background level = p[4]
-    # model(x, p) = p[4] + (p[3] / ( p[1] * (x-p[2])^2) )
-    return p[4] + p[3]*π*p[1]/(π*p[1] + ( (x - p[2]) / p[1])^2)
-end
-
-"""
-    voigt(x::Float64, p::Vector{Float64})
-Pseudo-Voigt profile function used by the TBPD method
-"""
-function voigt(x::Float64, p::AbstractArray)
-    # pseudo-voigt profile
-    # width            = p[1]
-    # x0               = p[2]
-    # height           = p[3]
-    # background level = p[4]
-    
-    γg = p[1] / (2.0 * sqrt(log(2.0)))
-    γl = p[1] / 2.0
-    γ = (γg^5 + 2.69269 * γg^4 * γl + 2.42843 * γg^3 * γl^2 + 4.47163 * γg^2 * γl^3 + 0.07842 * γg * γl^4 + γl^5)^(1/5)
-    η = 1.36603 *(γl / γ) - 0.47719 * (γl / γ)^2 + 0.11116 * (γl / γ)^3
-
-    L(x, Γ,x0) = (1/ (π *  Γ)) / ((x-x0)^2 + Γ^2)
-    G(x,Γ,x0) = exp( -( (x-x0)^2) /  Γ^2 ) / (Γ * sqrt(π))
-   return  p[4] + p[3]  * ( η * L(x,γ,p[2]) + (1 - η) * G(x,γ,p[2]) ) 
 end
 
 

@@ -28,7 +28,7 @@ end
 
 """
     /(a::MSscans, N::Real)
-Divide in the intenisty, tic and variance of a MSscans by a number.
+Divide the intensity, tic and variance of a MSscans by a number.
 ```julia-repl
 julia> a / 1.0e2
 MSj.MSscans(1, 0.1384, 50819.5, [140. ....
@@ -52,7 +52,7 @@ end
 
 """
     *(a::MSscans, N::Real)
-Multiply in the intenisty, tic and variance of a MSscans by a number.
+Multiply the intensity, tic and variance of a MSscans by a number.
 ```julia-repl
 julia> a * 1.0e2
 MSj.MSscans(1, 0.1384, 50819.5, [140. ....
@@ -64,7 +64,7 @@ end
 
 """
     *(N::Real, a::MScontainer)
-Commutation of multiplication of number with MSscontainer.
+Commutation of multiplication of number with MScontainer.
 """
 function *(N::Real, a::MScontainer)
     return a * N
@@ -90,12 +90,12 @@ function *(a::MScontainer, b::MScontainer)
     mz  = Vector{Float64}(undef,0)
     
     if length(a.mz) > length(b.mz)
-        extrap = LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
+        extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
         int = a.int .* [extrap(x) for x in a.mz ]
         mz = a.mz
       
     elseif length(a.mz) < length(b.mz)
-        extrap = LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
+        extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
         int = [extrap(x) for x in b.mz ] .* b.int
         mz = b.mz
             
@@ -136,29 +136,29 @@ function -(a::MScontainer, b::MScontainer)
     mz   = Vector{Float64}(undef,0)
     
     if length(a.mz) > length(b.mz)
-        extrap = LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
+        extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
         int = a.int - [extrap(x) for x in a.mz ]
         mz = a.mz
         if a isa MSscans
             if b isa MSscans
-                extrap2 = LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
+                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
                 s = a.s + [extrap2(x) for x in a.mz]
             else
                 s = a.s
             end
         elseif a isa MSscan
             if b isa MSscans
-                extrap2 = LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
+                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
                 s = [extrap2(x) for x in a.mz]
             end            
         end
 
     elseif length(a.mz) < length(b.mz)
-        extrap = LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
+        extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
         int = [extrap(x) for x in b.mz ] - b.int
         mz = b.mz
         if a isa MSscans
-            extrap2 = LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
+            extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
             if b isa MSscans
                 s = [extrap2(x) for x in b.mz] + b.s
             else
@@ -219,29 +219,29 @@ function +(a::MScontainer, b::MScontainer)
     mz  = Vector{Float64}(undef,0)
     
     if length(a.mz) > length(b.mz)
-        extrap = LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
+        extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
         int = a.int + [extrap(x) for x in a.mz ]
         mz = a.mz
         if a isa MSscans
             if b isa MSscans
-                extrap2 = LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
+                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
                 s = a.s + [extrap2(x) for x in a.mz]
             else
                 s = a.s
             end
         elseif a isa MSscan
             if b isa MSscans
-                extrap2 = LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
+                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
                 s = [extrap2(x) for x in a.mz]
             end            
         end
       
     elseif length(a.mz) < length(b.mz)
-        extrap = LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
+        extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
         int = [extrap(x) for x in b.mz ] + b.int
         mz = b.mz
         if a isa MSscans
-            extrap2 = LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
+            extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
             if b isa MSscans
                 s = [extrap2(x) for x in b.mz] + b.s
             else
@@ -305,7 +305,7 @@ function avg(a::MScontainer, b::MScontainer)
     
     if length(a.mz) > length(b.mz)
         # interpolating b.int to the a.mz values and adding the result to a.int
-        extrap = LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
+        extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
 #        int = a.int + [extrap(x) for x in a.mz]
         mz = a.mz
         if a isa MSscans
@@ -318,11 +318,11 @@ function avg(a::MScontainer, b::MScontainer)
         end
     elseif length(a.mz) < length(b.mz)
         # interpoling a.int to the b.mz values and adding the result to b.int
-        extrap = LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
+        extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
 #        int = [extrap(x) for x in b.mz] + b.int
         mz = b.mz
         if a isa MSscans
-            extrap2 = LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
+            extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
             m = [extrap(x) for x in b.mz]  + (b.int -[extrap(x) for x in b.mz] ) / (length(a.num)+1 )
             s = [extrap2(x) for x in b.mz] + (b.int - m) .* (b.int - [extrap(x) for x in b.mz ])
 #            s = ([extrap2(x) for x in b.mz] .* [extrap2(x) for x in b.mz]) + (b.int - m) .* (b.int - [extrap(x) for x in b.mz ])
@@ -395,8 +395,79 @@ end
 
 
 """
+    findnearest(X::AbstractArray, val::Real)
+Returns the index of an ordered array for which the value is closest to the input.
+"""
+function findnearest(X::AbstractArray, val::Real)
+    if val > X[end]
+        return length(X)
+    elseif val < X[1]
+        return 1
+    end    
+    lo = 1
+    hi = length(X)
+    while lo <= hi
+        mid = div(hi + lo, 2)
+        if val < X[mid]
+            hi = mid - 1
+        elseif val > X[mid]
+            lo = mid + 1
+        else
+            return mid
+        end
+    end
+    return X[lo] - val < val - X[hi] ? lo : hi
+    
+end
+
+"""
+    bracketnearest(X::AbstractArray, val::Real)
+Returns a tuple with the two indices for which the X values bracket the input value. Requires an ordered list. 
+"""
+function bracketnearest(X::AbstractArray, val::Real)
+    if val > X[end]
+        return length(X), NaN
+    elseif val < X[1]
+        return NaN, 1
+    end    
+    lo = 1
+    hi = length(X)
+    while lo <= hi
+        mid = div(hi + lo, 2)
+        if val < X[mid]
+            hi = mid - 1
+        elseif val > X[mid]
+            lo = mid + 1
+        else
+            return (mid, mid)
+        end
+    end
+    return lo < hi ? (lo,hi) : (hi,lo)    
+end
+
+
+"""
+     lin_interp(x0::Real, x1::Real, y0::Real, y1::Real, x::Real)
+Linear interpolation between the (x0,y0) and (x1, y1). Returns the y value at x.
+"""
+function lin_interp(x0::Real, x1::Real, y0::Real, y1::Real, x::Real)
+    return (y0 * (x1 - x) + y1 * (x -x0)) / (x1 - x0)
+end
+
+
+"""
+     lerp(v0::Real, v1::Real, t::Real)
+Linear interpolation between the (v0,v0) for t in the [0,1] range. Ref: https://en.wikipedia.org/wiki/Linear_interpolation
+
+"""
+function lerp(v0::Real, v1::Real, t::Real)
+    return (1 - t) * v0 + t * v1
+end
+
+
+"""
     savitzky_golay(int::AbstractArray, order::Int, window::Int, deriv::Int)
-Savinsky and Golay filter removes high frequency noise from data. Parameters:
+Savitzky-Golay filter removes high frequency noise from data. Parameters:
     int::AbstractArray
     order::Int   order of the polynomial
     window::Int  length of the window, has to be an odd number
@@ -427,7 +498,7 @@ function savitzky_golay(int::AbstractArray, order::Int, window::Int, deriv::Int)
     
     y = convolve(coefs[end:-1:1], pad)[1 + 2 * half_window : end]
    # y = conv(coefs[end:-1:1], pad)[2 * half_window + 1 : end - 2 * half_window]
-    
+    m
     return y
 end
 
@@ -458,15 +529,160 @@ end
 
 
 """
+    function direct_convolution(s::AbstractArray, r::AbstractArray; mode::String="constant", cval::Real=0.0, origin::Int=0)
+Convolve arrays s (signal) and r (response) using the direct algorithm. Supports constant filling mode.
+"""
+@noinline function direct_convolution(s::AbstractArray, r::AbstractArray; mode::String="constant", cval::Real=0.0, origin::Int=0)
+    ns = length(s)        # signal
+    nr = length(r)        # response function
+    
+    if mode == "constant"
+        pad = fill(cval, nr)
+    else 
+        error("Filling mode unsupported")
+    end
+        
+    padded = vcat(pad, s, pad)
+    #c = zeros(length(padded))
+    c = zeros(ns + nr + nr)
+    
+     @simd for i=nr:nr+ns
+        for j=1:nr
+            @inbounds c[i] += padded[i+nr-j-origin] * r[nr-j+1]
+        end
+    end
+    return c[nr:end-(nr+1)] ./= sum(r)
+end
+
+
+"""
+    gauss(x::Real, p::AbstractArray)
+Gaussian shape function.
+"""
+function gauss(x::Real, p::AbstractArray)
+    # Gaussian shape function
+    # FWHM             = p[1]
+    # x0               = p[2]
+    # height           = p[3]
+    # background level = p[4]
+    # model(x, p) = p[4] + p[3] * exp(- ( (x-p[2])^2/(2.0 * (p[1] / 2.3548)^2) ) )
+
+    return p[4] + p[3] * exp(- ( (x-p[2])^2/(2.0 * (p[1] / 2.3548)^2) ) )
+end
+
+
+"""
+    gauss(x::AbstractArray, p::AbstractArray)
+Gaussian shape function.
+"""
+function gauss(x::AbstractArray, p::AbstractArray)
+    # Gaussian shape function
+    # FWHM             = p[1]
+    # x0               = p[2]
+    # height           = p[3]
+    # background level = p[4]
+    # model(x, p) = p[4] + p[3] * exp(- ( (x-p[2])^2/(2.0 * (p[1] / 2.3548)^2) ) )
+
+    return @.  p[4] + p[3] * exp(- ( (x-p[2])^2/(2.0 * (p[1] / 2.3548)^2) ) )
+end
+
+"""
+    lorentz(x::Real, p::AbstractArray)
+Cauchy-Lorentz shape function.
+"""
+function lorentz(x::Real, p::AbstractArray)
+    # Lorentzian shape function
+    # width            = p[1]
+    # x0               = p[2]
+    # height           = p[3]
+    # background level = p[4]
+    # model(x, p) = p[4] + p[3]  / (1.0 + ((x - p[2])/(p[1]/2.0))^2 )
+    
+    return p[4] + p[3]  / (1.0 + ((x - p[2])/(p[1]/2.0))^2 )
+    
+end
+
+"""
+    lorentz(x::AbstractArray, p::AbstractArray)
+Cauchy-Lorentz shape function.
+"""
+function lorentz(x::AbstractArray, p::AbstractArray)
+    # Lorentzian shape function
+    # width            = p[1]
+    # x0               = p[2]
+    # height           = p[3]
+    # background level = p[4]
+    # model(x, p) = p[4] + p[3]  / (1.0 + ((x - p[2])/(p[1]/2.0))^2 )
+    
+    return @. p[4] + p[3]  / (1.0 + ((x - p[2])/(p[1]/2.0))^2 )
+    
+end
+
+"""
+    voigt(x::AbstractArray, p::AbstractArray)
+Pseudo-Voigt profile function used by the TBPD method.
+"""
+function voigt(x::AbstractArray, p::AbstractArray)
+    # pseudo-voigt profile
+    # width            = p[1]
+    # x0               = p[2]
+    # height           = p[3]
+    # background level = p[4]
+    
+    γg = p[1] / (2.0 * sqrt(log(2.0)))
+    γl = p[1] / 2.0
+    γ = (γg^5 + 2.69269 * γg^4 * γl + 2.42843 * γg^3 * γl^2 + 4.47163 * γg^2 * γl^3 + 0.07842 * γg * γl^4 + γl^5)^(1/5)
+
+    η = 1.36603 *(γl / γ) - 0.47719 * (γl / γ)^2 + 0.11116 * (γl / γ)^3
+    η = 1.36603 * 0.5 - 0.47719 * (0.5)^2 + 0.11116 * (0.5)^3
+    
+
+    L(x, Γ,x0) = (1/ (π *  Γ)) / ((x-x0)^2 + Γ^2)
+    G(x,Γ,x0) = exp( -( (x-x0)^2) /  Γ^2 ) / (Γ * sqrt(π))
+   #return  p[4] + 4.0 * p[3]  * (  (1 - η) * G(x,γ,p[2]) ) #
+   #return  p[4] +  p[3]  * ( (1 - η) * G(x,γ,p[2]) ) 
+   return @. p[4] +  p[3]  * ( η * L(x,γ,p[2]) + (1 - η) * G(x,γ,p[2]) ) 
+end
+
+
+"""
+    voigt(x::Real, p::AbstractArray)
+Pseudo-Voigt profile function used by the TBPD method.
+"""
+function voigt(x::Real, p::AbstractArray)
+    # pseudo-voigt profile
+    # width            = p[1]
+    # x0               = p[2]
+    # height           = p[3]
+    # background level = p[4]
+    
+    γg = p[1] / (2.0 * sqrt(log(2.0)))
+    γl = p[1] / 2.0
+    γ = (γg^5 + 2.69269 * γg^4 * γl + 2.42843 * γg^3 * γl^2 + 4.47163 * γg^2 * γl^3 + 0.07842 * γg * γl^4 + γl^5)^(1/5)
+
+    η = 1.36603 *(γl / γ) - 0.47719 * (γl / γ)^2 + 0.11116 * (γl / γ)^3
+    η = 1.36603 * 0.5 - 0.47719 * (0.5)^2 + 0.11116 * (0.5)^3
+    
+
+    L(x, Γ,x0) = (1/ (π *  Γ)) / ((x-x0)^2 + Γ^2)
+    G(x,Γ,x0) = exp( -( (x-x0)^2) /  Γ^2 ) / (Γ * sqrt(π))
+   #return  p[4] + 4.0 * p[3]  * (  (1 - η) * G(x,γ,p[2]) ) #
+   #return  p[4] +  p[3]  * ( (1 - η) * G(x,γ,p[2]) ) 
+   return  p[4] +  p[3]  * ( η * L(x,γ,p[2]) + (1 - η) * G(x,γ,p[2]) ) 
+end
+
+
+
+"""
     morpholaplace(input::AbstractArray, region::Int)
-Perfoms morphological Laplacian of the input array, as defined by the addition of the dilatation and the erosion of the input array.
+Performs morphological Laplacian of the input array, as defined by the addition of the dilatation and the erosion of the input array.
 """
 morpholaplace(input::AbstractArray, region::Int) = dilatation(input, region) + erosion(input, region)
 
 
 """
     morphogradient(input::AbstractArray, region::Int)
-Perfoms morphological Gradient of the input array, defined by the difference between the dilatation and the erosion of the input array.
+Performs morphological gradient of the input array, defined by the difference between the dilatation and the erosion of the input array.
 """
 morphogradient(input::AbstractArray, region::Int) = dilatation(input, region) - erosion(input, region)
 
@@ -493,7 +709,7 @@ opening(input::AbstractArray, region::Int) = dilatation(erosion(input, region), 
 
 
 """
-    closing(input::AbstractArray, region::Int
+    closing(input::AbstractArray, region::Int)
 Performs the morphological closing of the input Array, which is defined as the erosion of the dilatation of the input.
 """
 closing(input::AbstractArray, region::Int) = erosion(dilatation(input, region), region)
