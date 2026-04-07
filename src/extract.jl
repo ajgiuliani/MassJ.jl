@@ -11,50 +11,57 @@ export extract
 
 """
     extract(filename::String, arguments::FilterType...)
-Search for scans matching the argument MS level and returns an array of matching MSscans otherwise returns an ErrorException: "No matching spectra found."
+Returns a `Vector{MSscan}` containing the scans that match the given [`FilterType`](@ref) conditions. Without arguments, returns all scans.
+
+Supported file formats: mzXML, mzML, MGF.
+
 # Examples
 ```julia-repl
-julia> sub_set = extract("test.mzxml")
-6-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-julia> sub_set = extract("test.mzxml", MSj.Level(2) )      # extract MS/MS spectra
-MSj.MSscan(2, 0.7307, 9727.2, [345.083, 345.167, 345.25, 345.333, 345.417, 345.5, 345.583, 345.667, 345.75, 345.833  …  1999.25, 1999.33, 1999.42, 1999.5, 1999.58 ....
- MSj.MSscan(5, 4.3442, 12203.5, [345.083, 345.167, 345.25, 345.333, 345.417, 345.5, 345.583, 345.667, 345.75, 345.833  …  1999.25, 1999.33, 1999.42, 1999.5, 1999.58, ....
+julia> sub_set = extract("test.mzXML", MSj.Level(2))
+2-element Array{MSj.MSscan,1}:
+ MSj.MSscan(2, 0.7307, 9727.2, ...)
+ MSj.MSscan(5, 4.3442, 12203.5, ...)
+
+julia> sub_set = extract("test.mzML", MSj.Level(1))
+1-element Array{MSj.MSscan,1}:
+ MSj.MSscan(1, 0.5, 19000.0, ...)
 ```
 """
 function extract(filename::String, arguments::FilterType...)
-    index = Set{Int}()
     extension = split(filename, ".")[end]
-    
-    if Unicode.normalize(extension, casefold=true) == "mzxml"
-        # MZ
+    ext = Unicode.normalize(extension, casefold=true)
+
+    if ext == "mzxml"
+        index = Set{Int}()
         xdoc = parse_file(filename)
         xroot = root(xdoc)
         if name(xroot) != "mzXML"
             ErrorException("Not an mzXML file.")
-        end        
-        msRun = find_element(xroot, "msRun")    
+        end
+        msRun = find_element(xroot, "msRun")
         scanCount = parse(Int, attribute(msRun, "scanCount"))
 
         index = Set( i for i in 1:scanCount )
-        
+
         for el in arguments
             subindex = filter(msRun, el)
             index = intersect(index, subindex)
         end
 
-#    elseif Unicode.normalize(extension, casefold=true) == "ascii"
-#        error("msfilter not supported for Bruker ascii")
+        free(xdoc)
+        indices = sort([ i for i in index])
+        if length(indices) >= 1
+            return build_subset(filename, indices)
+        else
+            ErrorException("No matching spectra.")
+        end
+
+    elseif ext == "mzml" || ext == "mgf"
+        scans = load(filename)
+        return extract(scans, arguments...)
+
     else
         ErrorException("File format not supported.")
-    end
-
-    free(xdoc)
-    indices = sort([ i for i in index])
-    if length(indices) >= 1
-        return build_subset(filename, indices)
-    else
-        ErrorException("No matching spectra.")
     end
 end
 

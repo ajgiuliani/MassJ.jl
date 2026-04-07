@@ -483,7 +483,175 @@ function test_interpolation_import()
 end
 
 
+function test_mzml()
+    @testset "mzML format" begin
+        # info
+        inf = MSj.info("test.mzML")
+        @test any(contains(s, "3 scans") for s in inf)
+        @test any(contains(s, "MS1+") for s in inf)
+        @test any(contains(s, "MS2+") for s in inf)
+
+        inf_v = MSj.info("test.mzML", verbose=true)
+        @test any(contains(s, "test.raw") for s in inf_v)
+        @test any(contains(s, "LTQ FT") for s in inf_v)
+
+        # load all
+        scans = MSj.load("test.mzML")
+        @test length(scans) == 3
+        @test eltype(scans) == MSj.MSscan
+
+        # Scan 1: MS1+, profile, rt=0.5 min
+        s1 = scans[1]
+        @test s1.level == 1
+        @test s1.rt ≈ 0.5
+        @test s1.polarity == "+"
+        @test s1.spectrumType == :profile
+        @test s1.tic ≈ 19000.0
+        @test s1.basePeakMz ≈ 400.0
+        @test s1.basePeakIntensity ≈ 8000.0
+        @test s1.precursor ≈ 0.0
+        @test s1.chargeState == 0
+        @test length(s1.mz) == 5
+        @test s1.mz ≈ [100.0, 200.0, 300.0, 400.0, 500.0]
+        @test s1.int ≈ [1000.0, 5000.0, 3000.0, 8000.0, 2000.0]
+
+        # Scan 2: MS2+ CID, centroid, rt=1.0 min (60s converted)
+        s2 = scans[2]
+        @test s2.level == 2
+        @test s2.rt ≈ 1.0
+        @test s2.polarity == "+"
+        @test s2.spectrumType == :centroid
+        @test s2.precursor ≈ 400.0
+        @test s2.chargeState == 2
+        @test s2.activationMethod == "CID"
+        @test s2.collisionEnergy ≈ 25.0
+        @test length(s2.mz) == 4
+        @test s2.mz ≈ [110.0, 150.0, 200.0, 250.0]
+
+        # Scan 3: MS2+ HCD
+        s3 = scans[3]
+        @test s3.level == 2
+        @test s3.rt ≈ 1.5
+        @test s3.precursor ≈ 500.0
+        @test s3.chargeState == 3
+        @test s3.activationMethod == "HCD"
+        @test s3.collisionEnergy ≈ 30.0
+        @test length(s3.mz) == 3
+
+        # retention_time
+        rt = MSj.retention_time("test.mzML")
+        @test length(rt) == 3
+        @test rt ≈ [0.5, 1.0, 1.5]
+
+        # chromatogram (TIC)
+        chrom = MSj.chromatogram("test.mzML")
+        @test length(chrom.rt) == 3
+        @test chrom.rt ≈ [0.5, 1.0, 1.5]
+        @test chrom.ic ≈ [19000.0, 4800.0, 2100.0]
+        @test chrom.maxic ≈ 19000.0
+
+        # chromatogram with filter
+        chrom2 = MSj.chromatogram("test.mzML", MSj.Level(2))
+        @test length(chrom2.rt) == 2
+
+        # chromatogram base peak
+        chrom_bp = MSj.chromatogram("test.mzML", method=MSj.BasePeak())
+        @test chrom_bp.ic ≈ [8000.0, 2000.0, 1200.0]
+
+        # extract
+        ms2 = MSj.extract("test.mzML", MSj.Level(2))
+        @test length(ms2) == 2
+        @test ms2[1].precursor ≈ 400.0
+        @test ms2[2].precursor ≈ 500.0
+
+        # average
+        avg = MSj.average("test.mzML", MSj.Level(2))
+        @test avg isa MSj.MSscans
+
+        # New fields present
+        @test s1.mobilityType == :none
+        @test s1.driftTime ≈ -1.0
+        @test s1.compensationVoltage ≈ 0.0
+        @test s1.metadata isa Dict{String,Any}
+    end
+end
+
+
+function test_mgf()
+    @testset "MGF format" begin
+        # info
+        inf = MSj.info("test.mgf")
+        @test inf[1] == "3 scans"
+        @test any(contains(s, "400.0") for s in inf)
+        @test any(contains(s, "500.0") for s in inf)
+        @test any(contains(s, "600.0") for s in inf)
+
+        # load all
+        scans = MSj.load("test.mgf")
+        @test length(scans) == 3
+        @test eltype(scans) == MSj.MSscan
+
+        # Scan 1
+        s1 = scans[1]
+        @test s1.num == 1        # sequential index
+        @test s1.rt ≈ 0.5       # 30s / 60
+        @test s1.level == 2      # MGF default
+        @test s1.precursor ≈ 400.0
+        @test s1.chargeState == 2
+        @test s1.polarity == "+"
+        @test s1.spectrumType == :centroid
+        @test s1.tic ≈ 4800.0   # sum of intensities
+        @test s1.basePeakMz ≈ 150.0
+        @test s1.basePeakIntensity ≈ 2000.0
+        @test length(s1.mz) == 4
+        @test s1.mz ≈ [110.0, 150.0, 200.0, 250.0]
+        @test s1.int ≈ [500.0, 2000.0, 1500.0, 800.0]
+        @test s1.metadata["title"] == "Spectrum 1, scan 101"
+
+        # Scan 2
+        s2 = scans[2]
+        @test s2.num == 2
+        @test s2.rt ≈ 1.0
+        @test s2.precursor ≈ 500.0
+        @test s2.chargeState == 3
+
+        # Scan 3
+        s3 = scans[3]
+        @test s3.num == 3
+        @test s3.precursor ≈ 600.0
+        @test s3.chargeState == 1
+        @test length(s3.mz) == 4
+
+        # retention_time
+        rt = MSj.retention_time("test.mgf")
+        @test length(rt) == 3
+        @test rt ≈ [0.5, 1.0, 1.5]
+
+        # chromatogram
+        chrom = MSj.chromatogram("test.mgf")
+        @test length(chrom.rt) == 3
+        @test chrom.maxic ≈ 4800.0
+
+        # extract (filter by precursor)
+        sub = MSj.extract("test.mgf", MSj.Precursor(500.0))
+        @test length(sub) == 1
+        @test sub[1].precursor ≈ 500.0
+
+        # average
+        avg = MSj.average("test.mgf")
+        @test avg isa MSj.MSscans
+
+        # New MSscan fields
+        @test s1.mobilityType == :none
+        @test s1.driftTime ≈ -1.0
+        @test s1.compensationVoltage ≈ 0.0
+    end
+end
+
+
 tests()
 test_isotopes()
 test_deconvolution()
 test_interpolation_import()
+test_mzml()
+test_mgf()

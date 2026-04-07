@@ -13,75 +13,137 @@ abstract type MScontainer  end
 
 """
     struct MSscan <: MScontainer
-Data structure used to store individual mass spectrometry scans organized following the structure of mzXML files.
+Data structure used to store individual mass spectrometry scans.
 
-    struct MSscan <: MScontainer      
-        num::Int                          # num
-        rt::Float64                       # retentionTime
-        tic::Float64                      # totIonCurrent
-        mz::Vector{Float64}               # m/z
-        int::Vector{Float64}              # intensity
-        level::Int                        # msLevel
-        basePeakMz::Float64               # basePeakMz
-        basePeakIntensity::Float64        # basePeakIntensity
-        precursor::Float64                # precursorMz
-        polarity::String                  # polarity
-        activationMethod::String          # activationMethod
-        collisionEnergy::Float64          # collisionEnergy
+    struct MSscan <: MScontainer
+        num::Int                          # scan number
+        rt::Float64                       # retention time
+        tic::Float64                      # total ion current
+        mz::Vector{Float64}              # m/z values
+        int::Vector{Float64}             # intensity values
+        level::Int                        # MS level
+        basePeakMz::Float64              # base peak m/z
+        basePeakIntensity::Float64       # base peak intensity
+        precursor::Float64               # precursor m/z
+        polarity::String                 # polarity
+        activationMethod::String         # activation method
+        collisionEnergy::Float64         # collision energy
+        chargeState::Int                 # precursor charge state (0 = unknown)
+        spectrumType::Symbol             # :centroid, :profile, or :unknown
+        driftTime::Float64               # ion mobility drift time or 1/K0 (-1.0 = not present)
+        compensationVoltage::Float64     # FAIMS/DMS compensation voltage (0.0 = not present)
+        mobilityType::Symbol             # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
+        metadata::Dict{String,Any}       # additional format-specific metadata
     end
-
 
 """
 struct MSscan <: MScontainer
-    num::Int                          # num
-    rt::Float64                       # retentionTime
-    tic::Float64                      # totIonCurrent
-    mz::Vector{Float64}               # m/z
-    int::Vector{Float64}              # intensity
-    level::Int                        # msLevel
-    basePeakMz::Float64               # basePeakMz
-    basePeakIntensity::Float64        # basePeakIntensity
-    precursor::Float64                # precursorMz
-    polarity::String                  # polarity
-    activationMethod::String          # activationMethod
-    collisionEnergy::Float64          # collisionEnergy
+    num::Int                          # scan number
+    rt::Float64                       # retention time
+    tic::Float64                      # total ion current
+    mz::Vector{Float64}              # m/z values
+    int::Vector{Float64}             # intensity values
+    level::Int                        # MS level
+    basePeakMz::Float64              # base peak m/z
+    basePeakIntensity::Float64       # base peak intensity
+    precursor::Float64               # precursor m/z
+    polarity::String                 # polarity
+    activationMethod::String         # activation method
+    collisionEnergy::Float64         # collision energy
+    chargeState::Int                 # precursor charge state (0 = unknown)
+    spectrumType::Symbol             # :centroid, :profile, or :unknown
+    driftTime::Float64               # ion mobility drift time or 1/K0 (-1.0 = not present)
+    compensationVoltage::Float64     # FAIMS/DMS compensation voltage (0.0 = not present)
+    mobilityType::Symbol             # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
+    metadata::Dict{String,Any}       # additional format-specific metadata
+
+    # Full constructor with all 18 fields
+    function MSscan(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
+                    precursor, polarity, activationMethod, collisionEnergy,
+                    chargeState, spectrumType, driftTime, compensationVoltage,
+                    mobilityType, metadata)
+        new(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
+            precursor, polarity, activationMethod, collisionEnergy,
+            chargeState, spectrumType, driftTime, compensationVoltage,
+            mobilityType, metadata)
+    end
+
+    # Backward-compatible constructor with original 12 fields
+    function MSscan(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
+                    precursor, polarity, activationMethod, collisionEnergy)
+        new(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
+            precursor, polarity, activationMethod, collisionEnergy,
+            0, :unknown, -1.0, 0.0, :none, Dict{String,Any}())
+    end
 end
 
 """
     struct MSscans  <: MScontainer
-Data structure designed to store mass spectra obtained after filtering operation along with the history of these operation.
+Data structure designed to store mass spectra obtained after filtering operation along with the history of these operations.
 
-    struct MSscans  <: MScontainer        
-        num::Vector{Int}                  # num
-        rt::Vector{Float64}               # retentionTime
-        tic::Float64                      # totIonCurrent
-        mz::Vector{Float64}               # m/z
-        int::Vector{Float64}              # intensity
-        level::Vector{Int}                # msLevel
-        basePeakMz::Float64               # basePeakMz
-        basePeakIntensity::Float64        # basePeakIntensity
-        precursor::Vector{Float64}        # precursorMz
-        polarity::Vector{String}          # polarity
-        activationMethod::Vector{String}  # activationMethod
-        collisionEnergy::Vector{Float64}  # collisionEnergy
+    struct MSscans  <: MScontainer
+        num::Vector{Int}                  # scan numbers
+        rt::Vector{Float64}               # retention times
+        tic::Float64                      # total ion current
+        mz::Vector{Float64}               # m/z values
+        int::Vector{Float64}              # intensity values
+        level::Vector{Int}                # MS levels
+        basePeakMz::Float64               # base peak m/z
+        basePeakIntensity::Float64        # base peak intensity
+        precursor::Vector{Float64}        # precursor m/z values
+        polarity::Vector{String}          # polarities
+        activationMethod::Vector{String}  # activation methods
+        collisionEnergy::Vector{Float64}  # collision energies
         s::Vector{Float64}                # variance
+        chargeState::Vector{Int}          # precursor charge states (0 = unknown)
+        spectrumType::Symbol              # :centroid, :profile, or :unknown
+        driftTime::Vector{Float64}        # ion mobility drift times or 1/K0 (-1.0 = not present)
+        compensationVoltage::Vector{Float64} # FAIMS/DMS compensation voltages (0.0 = not present)
+        mobilityType::Symbol              # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
+        metadata::Dict{String,Any}        # additional format-specific metadata
     end
 
 """
 struct MSscans  <: MScontainer
-    num::Vector{Int}                  # num
-    rt::Vector{Float64}               # retentionTime
-    tic::Float64                      # totIonCurrent
-    mz::Vector{Float64}               # m/z
-    int::Vector{Float64}              # intensity
-    level::Vector{Int}                # msLevel
-    basePeakMz::Float64               # basePeakMz
-    basePeakIntensity::Float64        # basePeakIntensity
-    precursor::Vector{Float64}        # precursorMz
-    polarity::Vector{String}          # polarity
-    activationMethod::Vector{String}  # activationMethod
-    collisionEnergy::Vector{Float64}  # collisionEnergy
+    num::Vector{Int}                  # scan numbers
+    rt::Vector{Float64}               # retention times
+    tic::Float64                      # total ion current
+    mz::Vector{Float64}               # m/z values
+    int::Vector{Float64}              # intensity values
+    level::Vector{Int}                # MS levels
+    basePeakMz::Float64               # base peak m/z
+    basePeakIntensity::Float64        # base peak intensity
+    precursor::Vector{Float64}        # precursor m/z values
+    polarity::Vector{String}          # polarities
+    activationMethod::Vector{String}  # activation methods
+    collisionEnergy::Vector{Float64}  # collision energies
     s::Vector{Float64}                # variance
+    chargeState::Vector{Int}          # precursor charge states (0 = unknown)
+    spectrumType::Symbol              # :centroid, :profile, or :unknown
+    driftTime::Vector{Float64}        # ion mobility drift times or 1/K0 (-1.0 = not present)
+    compensationVoltage::Vector{Float64} # FAIMS/DMS compensation voltages (0.0 = not present)
+    mobilityType::Symbol              # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
+    metadata::Dict{String,Any}        # additional format-specific metadata
+
+    # Full constructor with all 19 fields
+    function MSscans(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
+                     precursor, polarity, activationMethod, collisionEnergy, s,
+                     chargeState, spectrumType, driftTime, compensationVoltage,
+                     mobilityType, metadata)
+        new(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
+            precursor, polarity, activationMethod, collisionEnergy, s,
+            chargeState, spectrumType, driftTime, compensationVoltage,
+            mobilityType, metadata)
+    end
+
+    # Backward-compatible constructor with original 13 fields
+    function MSscans(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
+                     precursor, polarity, activationMethod, collisionEnergy, s)
+        new(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
+            precursor, polarity, activationMethod, collisionEnergy, s,
+            fill(0, length(num)), :unknown, fill(-1.0, length(num)),
+            fill(0.0, length(num)), :none, Dict{String,Any}())
+    end
 end
 
 
@@ -102,6 +164,43 @@ struct Chromatogram  <: MScontainer
     maxic::Float64
 end
 
+
+"""
+    struct Mobilogram <: MScontainer
+Data structure used to retrieve ion mobility data (intensity vs drift time or 1/K0).
+
+    struct Mobilogram <: MScontainer
+        dt::Vector{Float64}               # drift time or 1/K0 values
+        ic::Vector{Float64}               # ion current
+        maxic::Float64                    # maximum ion current
+        mobilityType::Symbol              # :DTIMS, :TIMS, :TWIMS, or :none
+    end
+
+"""
+struct Mobilogram <: MScontainer
+    dt::Vector{Float64}
+    ic::Vector{Float64}
+    maxic::Float64
+    mobilityType::Symbol
+end
+
+
+"""
+    struct Ionogram <: MScontainer
+Data structure used to retrieve differential mobility data (intensity vs compensation voltage).
+
+    struct Ionogram <: MScontainer
+        cv::Vector{Float64}               # compensation voltage values
+        ic::Vector{Float64}               # ion current
+        maxic::Float64                    # maximum ion current
+    end
+
+"""
+struct Ionogram <: MScontainer
+    cv::Vector{Float64}
+    ic::Vector{Float64}
+    maxic::Float64
+end
 
 
 ### Methods
@@ -353,5 +452,23 @@ struct Precursor{argT <: Union{Real, AbstractVector{<:Real} }} <: FilterType
    arg::argT
    #field = "precursorMz"
    Precursor(arg::argT) where{argT} = new{argT}(arg)
+end
+
+"""
+    struct DriftTime{argT <: Union{Real, AbstractVector{<:Real} }} <: FilterType
+Dispatch filter to ion mobility drift time or 1/K0 values.
+"""
+struct DriftTime{argT <: Union{Real, AbstractVector{<:Real} }} <: FilterType
+   arg::argT
+   DriftTime(arg::argT) where{argT} = new{argT}(arg)
+end
+
+"""
+    struct CompensationVoltage{argT <: Union{Real, AbstractVector{<:Real} }} <: FilterType
+Dispatch filter to FAIMS/DMS compensation voltage.
+"""
+struct CompensationVoltage{argT <: Union{Real, AbstractVector{<:Real} }} <: FilterType
+   arg::argT
+   CompensationVoltage(arg::argT) where{argT} = new{argT}(arg)
 end
 
