@@ -97,7 +97,7 @@ end
 
 """
     load_mzxml_all(filename::String)
-Load an entire an mzxml file, and return the  
+Load an entire an mzxml file. 
 """
 function load_mzxml_all(filename::String)
     xdoc = parse_file(filename)
@@ -125,8 +125,8 @@ function load_mzxml_all(filename::String)
 end
 
 """
-    load_mzxml(filename::String, index::Int
-Load from an mzxml file the scan num that match the input index
+    load_mzxml(filename::String, index::Int)
+Load from an mzxml file the scan num that matches the input index.
 """
 function load_mzxml(filename::String, index::Int)
     xdoc = parse_file(filename)
@@ -239,7 +239,7 @@ end
 
 """
     retention_time(msRun::XMLElement)
-From an XMLE element returns the retention time.
+From an XMLElement returns the retention time.
 """
 function retention_time(msRun::XMLElement)
     rt  = Vector{Float64}(undef,0)
