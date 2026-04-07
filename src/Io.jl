@@ -68,6 +68,9 @@ function load(filename::String)
 
     if Unicode.normalize(extension, casefold=true) == "mzxml"
         return load_mzxml_all(filename)
+        
+    elseif Unicode.normalize(extension, casefold=true) == "txt"
+        return load_txt_all(filename)
 
 #    elseif Unicode.normalize(extension, casefold=true) == "ascii"
 #        #println("loading ascii file...")
