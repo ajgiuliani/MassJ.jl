@@ -31,6 +31,9 @@ julia> ]
 ```
 
 
-## Supported file format
+## Supported file formats
 -----------
   - mzXML
+  - mzML (PSI standard)
+  - MGF (Mascot Generic Format)
+  - TXT (plain text peak lists)

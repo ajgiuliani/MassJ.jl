@@ -26,6 +26,8 @@ MSj.MScontainer
 MSj.MSscan
 MSj.MSscans
 MSj.Chromatogram
+MSj.Mobilogram
+MSj.Ionogram
 MSj.Isotope
 ```
 
@@ -58,7 +60,8 @@ MSj.Polarity
 MSj.Activation_Method
 MSj.Activation_Energy
 MSj.Precursor
-MSj.Isotopes
+MSj.DriftTime
+MSj.CompensationVoltage
 ```
 
 ## I/O
@@ -76,7 +79,7 @@ MSj.average(filename::String, arguments::FilterType...; stats::Bool=true)
 
 ### mzXML
 ---------
-Interface to the mzxml file format
+Interface to the mzXML file format.
 
 ```@docs
 MSj.info_mzxml
@@ -84,7 +87,6 @@ MSj.load_mzxml_all
 MSj.load_mzxml
 MSj.load_mzxml_spectrum
 MSj.retention_time(msRun::XMLElement)
-MSj.average(filename::String, arguments::FilterType...; stats::Bool=true
 MSj.filter(msRun::XMLElement, argument::Level{<:Int})
 MSj.filter(msRun::XMLElement, argument::Level{<:AbstractVector})
 MSj.filter(msRun::XMLElement, argument::Scan{<:Int})
@@ -103,6 +105,32 @@ MSj.filter(msRun::XMLElement, argument::Activation_Method{<:String})
 MSj.filter(msRun::XMLElement, argument::Activation_Method{<:AbstractVector})
 MSj.extracted_chromatogram(filename::String, indices::Vector{Int},method::MethodType)
 MSj.composite_spectra(filename::String, indices::Vector{Int}, stats::Bool)
+```
+
+### mzML
+---------
+Interface to the mzML file format (PSI standard). Uses the same binary decoding pipeline as mzXML (Codecs, Libz) but with little-endian byte order and separate m/z and intensity arrays.
+
+```@docs
+MSj.info_mzml
+MSj.load_mzml_all
+MSj.load_mzml
+MSj.load_mzml_spectrum
+MSj.retention_time_mzml
+MSj.find_mzml_root
+MSj.get_cv_param
+MSj.get_cv_value
+MSj.has_cv_param
+```
+
+### MGF
+--------
+Interface to the MGF (Mascot Generic Format) file format. Text-based format for centroided MS/MS peak lists.
+
+```@docs
+MSj.load_mgf_all
+MSj.build_mgf_scan
+MSj.info_mgf
 ```
 
 
@@ -149,7 +177,7 @@ MSj.smooth(scan::MScontainer; method::MethodType=SG(5, 9, 0))
 MSj.smooth(scans::Vector{MSscan}; method::MethodType=SG(5, 9, 0))
 MSj.savitzky_golay_filtering(scan::MScontainer, order::Int, window::Int, deriv::Int)
 MSj.centroid(scan::MScontainer; method::MethodType=SNRA(1., 100) )
-MSj.centroid(scans::Vector{MSscan}; method::MethodType=SNRA(1., 100) 
+MSj.centroid(scans::Vector{MSscan}; method::MethodType=SNRA(1., 100))
 MSj.snra(scan::MScontainer, thres::Real, region::Int)
 MSj.tbpd(scan::MScontainer, model::Function,  ∆mz::Real, thres::Real)
 MSj.gauss(x::Float64, p::Vector{Float64})

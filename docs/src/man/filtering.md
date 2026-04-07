@@ -26,16 +26,18 @@ Without any argument the [`average`](@ref) function averages the entire content 
 
 The [`average`](@ref) and [`chromatogram`](@ref) functions may takes arguments to select specific fields of interest within the data and operate on them. The argument belongs to the [`MSj.FilterType`](@ref). Their properties are listed below:
 
-| FilterType            | Description       | Arguments                                | Specificity            |
-|-----------------------|-------------------|------------------------------------------|------------------------|
-| MSj.Scan              | Scan num          | Int, Vector{Int}                         | average, chromatogram |
-| MSj.Level             | MS level          | Int, Vector{Int}                         | average, chromatogram |
-| MSj.Polarity          | Polarity          | String, Vector{String}                   | average, chromatogram |
-| MSj.Activation_Method | Activation method | String, Vector{String}                   | average, chromatogram |
-| MSj.Activation_Energy | Activation energy | Real, Vector{Real}                       | average, chromatogram |
-| MSj.Precursor         | Precursor _m/z_   | Real, Vector{Real}                       | average, chromatogram |
-| MSj.RT                | Retention time    | Real, Vector{Real}, Vector{Vector{Real}} | average               |
-| MSj.IC                | Ion current       | Vector{Real}                             | average               |
+| FilterType                 | Description           | Arguments                                | Specificity            |
+|----------------------------|-----------------------|------------------------------------------|------------------------|
+| MSj.Scan                   | Scan num              | Int, Vector{Int}                         | average, chromatogram |
+| MSj.Level                  | MS level              | Int, Vector{Int}                         | average, chromatogram |
+| MSj.Polarity               | Polarity              | String, Vector{String}                   | average, chromatogram |
+| MSj.Activation_Method      | Activation method     | String, Vector{String}                   | average, chromatogram |
+| MSj.Activation_Energy      | Activation energy     | Real, Vector{Real}                       | average, chromatogram |
+| MSj.Precursor              | Precursor _m/z_       | Real, Vector{Real}                       | average, chromatogram |
+| MSj.RT                     | Retention time        | Real, Vector{Real}, Vector{Vector{Real}} | average               |
+| MSj.IC                     | Ion current           | Vector{Real}                             | average               |
+| MSj.DriftTime              | Ion mobility drift time | Real, Vector{Real}                     | average, chromatogram |
+| MSj.CompensationVoltage    | FAIMS/DMS CV          | Real, Vector{Real}                       | average, chromatogram |
 
 
 
