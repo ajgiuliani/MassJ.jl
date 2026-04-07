@@ -36,4 +36,6 @@ julia> ]
   - mzXML
   - mzML (PSI standard)
   - MGF (Mascot Generic Format)
+  - MSP (NIST Mass Spectral Library)
+  - imzML (Imaging Mass Spectrometry)
   - TXT (plain text peak lists)

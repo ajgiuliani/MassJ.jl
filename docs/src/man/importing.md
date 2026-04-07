@@ -2,7 +2,7 @@
 
 The [`load`](@ref) function reads a mass spectrometry file and returns a `Vector{MSscan}`. The file format is automatically determined from the extension.
 
-Supported file formats: mzXML, mzML, MGF, TXT.
+Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
 ```julia-repl
 julia> scans = load("test.mzXML")
@@ -18,6 +18,16 @@ julia> scans = load("test.mzML")
 julia> scans = load("test.mgf")
 3-element Array{MSj.MSscan,1}:
  MSj.MSscan(1, 0.5, 4800.0, ...)
+...
+
+julia> scans = load("library.msp")
+3-element Array{MSj.MSscan,1}:
+ MSj.MSscan(1, 0.0, 178600.0, ...)
+...
+
+julia> scans = load("sample.imzML")
+10000-element Array{MSj.MSscan,1}:
+ MSj.MSscan(1, 0.0, 8000.0, ...)
 ...
 ```
 
@@ -42,6 +52,12 @@ The mzML reader supports the PSI (Proteomics Standards Initiative) standard form
 
 ### MGF
 The MGF (Mascot Generic Format) reader loads centroided peak lists. Each `BEGIN IONS`...`END IONS` block becomes one `MSscan`. The `PEPMASS` field sets the precursor m/z, `CHARGE` sets the charge state, and `RTINSECONDS` is converted to minutes. The `TITLE` and original `SCANS` values are stored in the `metadata` dictionary.
+
+### MSP
+The MSP reader loads spectra from NIST Mass Spectral Library files used by NIST, MoNA, MassBank, and GNPS. Each entry starts with `Name:` and contains metadata fields (e.g. `Precursor_mz`, `Ion_mode`, `Collision_energy`, `Formula`, `InChIKey`) followed by `Num Peaks:` and the peak list. Both one-pair-per-line and semicolon-separated formats are supported. Rich metadata (name, formula, MW, InChIKey, CAS#, DB#, precursor type, comments) is stored in the `metadata` dictionary of each scan.
+
+### imzML
+The imzML reader loads imaging mass spectrometry data. The format consists of an XML metadata file (`.imzML`) following the mzML schema with IMS-specific CV terms for spatial coordinates, and a companion binary data file (`.ibd`) in the same directory. Both continuous and processed storage modes are supported. Spatial coordinates (x, y, and optionally z) are stored in the `metadata` dictionary as `"position_x"`, `"position_y"`, and `"position_z"`. The `info` function also reports image dimensions. Binary data supports 32-bit and 64-bit precision with optional zlib compression.
 
 ### TXT
 The TXT reader loads a single spectrum from a two-column whitespace-separated file (m/z and intensity).

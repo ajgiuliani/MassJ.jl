@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mzML xmlns="http://psi.hupo.org/ms/mzml" version="1.1.1">
+  <cvList count="3">
+    <cv id="MS" fullName="Proteomics Standards Initiative Mass Spectrometry Ontology" version="4.1.30" URI="https://raw.githubusercontent.com/HUPO-PSI/psi-ms-CV/master/psi-ms.obo"/>
+    <cv id="UO" fullName="Unit Ontology" version="12:10:2011" URI="http://obo.cvs.sourceforge.net"/>
+    <cv id="IMS" fullName="Imaging Mass Spectrometry Ontology" version="1.1.0" URI="https://raw.githubusercontent.com/imzML/imzML/master/imagingMS.obo"/>
+  </cvList>
+  <fileDescription>
+    <fileContent>
+      <cvParam cvRef="IMS" accession="IMS:1000031" name="processed" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000080" name="universally unique identifier" value="{01020304-0506-0708-090a-0b0c0d0e0f10}"/>
+    </fileContent>
+  </fileDescription>
+  <softwareList count="1">
+    <software id="MSj" version="0.3.1"/>
+  </softwareList>
+  <instrumentConfigurationList count="1">
+    <instrumentConfiguration id="IC1"/>
+  </instrumentConfigurationList>
+  <dataProcessingList count="1">
+    <dataProcessing id="dp1">
+      <processingMethod order="0" softwareRef="MSj"/>
+    </dataProcessing>
+  </dataProcessingList>
+  <run id="run1" defaultInstrumentConfigurationRef="IC1">
+    <spectrumList count="4" defaultDataProcessingRef="dp1">
+        <spectrum index="0" id="spectrum=1" defaultArrayLength="3">
+  <cvParam cvRef="MS" accession="MS:1000579" name="MS1 spectrum" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="1"/>
+  <cvParam cvRef="MS" accession="MS:1000130" name="positive scan" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000128" name="profile spectrum" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000285" name="total ion current" value="8000.0"/>
+  <scanList count="1">
+    <scan>
+      <cvParam cvRef="IMS" accession="IMS:1000050" name="position x" value="1"/>
+      <cvParam cvRef="IMS" accession="IMS:1000051" name="position y" value="1"/>
+    </scan>
+  </scanList>
+  <binaryDataArrayList count="2">
+    <binaryDataArray encodedLength="0">
+      <cvParam cvRef="MS" accession="MS:1000514" name="m/z array" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000101" name="external data" value="true"/>
+      <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="16"/>
+      <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="3"/>
+      <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="24"/>
+      <binary/>
+    </binaryDataArray>
+    <binaryDataArray encodedLength="0">
+      <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000521" name="32-bit float" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000101" name="external data" value="true"/>
+      <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="40"/>
+      <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="3"/>
+      <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="12"/>
+      <binary/>
+    </binaryDataArray>
+  </binaryDataArrayList>
+</spectrum>
+        <spectrum index="1" id="spectrum=2" defaultArrayLength="3">
+  <cvParam cvRef="MS" accession="MS:1000579" name="MS1 spectrum" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="1"/>
+  <cvParam cvRef="MS" accession="MS:1000130" name="positive scan" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000128" name="profile spectrum" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000285" name="total ion current" value="7800.0"/>
+  <scanList count="1">
+    <scan>
+      <cvParam cvRef="IMS" accession="IMS:1000050" name="position x" value="2"/>
+      <cvParam cvRef="IMS" accession="IMS:1000051" name="position y" value="1"/>
+    </scan>
+  </scanList>
+  <binaryDataArrayList count="2">
+    <binaryDataArray encodedLength="0">
+      <cvParam cvRef="MS" accession="MS:1000514" name="m/z array" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000101" name="external data" value="true"/>
+      <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="52"/>
+      <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="3"/>
+      <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="24"/>
+      <binary/>
+    </binaryDataArray>
+    <binaryDataArray encodedLength="0">
+      <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000521" name="32-bit float" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000101" name="external data" value="true"/>
+      <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="76"/>
+      <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="3"/>
+      <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="12"/>
+      <binary/>
+    </binaryDataArray>
+  </binaryDataArrayList>
+</spectrum>
+        <spectrum index="2" id="spectrum=3" defaultArrayLength="2">
+  <cvParam cvRef="MS" accession="MS:1000579" name="MS1 spectrum" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="1"/>
+  <cvParam cvRef="MS" accession="MS:1000130" name="positive scan" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000128" name="profile spectrum" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000285" name="total ion current" value="8000.0"/>
+  <scanList count="1">
+    <scan>
+      <cvParam cvRef="IMS" accession="IMS:1000050" name="position x" value="1"/>
+      <cvParam cvRef="IMS" accession="IMS:1000051" name="position y" value="2"/>
+    </scan>
+  </scanList>
+  <binaryDataArrayList count="2">
+    <binaryDataArray encodedLength="0">
+      <cvParam cvRef="MS" accession="MS:1000514" name="m/z array" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000101" name="external data" value="true"/>
+      <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="88"/>
+      <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="2"/>
+      <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="16"/>
+      <binary/>
+    </binaryDataArray>
+    <binaryDataArray encodedLength="0">
+      <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000521" name="32-bit float" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000101" name="external data" value="true"/>
+      <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="104"/>
+      <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="2"/>
+      <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="8"/>
+      <binary/>
+    </binaryDataArray>
+  </binaryDataArrayList>
+</spectrum>
+        <spectrum index="3" id="spectrum=4" defaultArrayLength="3">
+  <cvParam cvRef="MS" accession="MS:1000579" name="MS1 spectrum" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="1"/>
+  <cvParam cvRef="MS" accession="MS:1000130" name="positive scan" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000128" name="profile spectrum" value=""/>
+  <cvParam cvRef="MS" accession="MS:1000285" name="total ion current" value="8500.0"/>
+  <scanList count="1">
+    <scan>
+      <cvParam cvRef="IMS" accession="IMS:1000050" name="position x" value="2"/>
+      <cvParam cvRef="IMS" accession="IMS:1000051" name="position y" value="2"/>
+    </scan>
+  </scanList>
+  <binaryDataArrayList count="2">
+    <binaryDataArray encodedLength="0">
+      <cvParam cvRef="MS" accession="MS:1000514" name="m/z array" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000101" name="external data" value="true"/>
+      <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="112"/>
+      <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="3"/>
+      <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="24"/>
+      <binary/>
+    </binaryDataArray>
+    <binaryDataArray encodedLength="0">
+      <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000521" name="32-bit float" value=""/>
+      <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>
+      <cvParam cvRef="IMS" accession="IMS:1000101" name="external data" value="true"/>
+      <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="136"/>
+      <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="3"/>
+      <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="12"/>
+      <binary/>
+    </binaryDataArray>
+  </binaryDataArrayList>
+</spectrum>
+    </spectrumList>
+  </run>
+</mzML>

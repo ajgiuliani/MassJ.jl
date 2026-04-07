@@ -1,0 +1,40 @@
+Name: Caffeine
+Precursor_mz: 195.0877
+Precursor_type: [M+H]+
+Spectrum_type: MS2
+Ion_mode: Positive
+Collision_energy: 20
+Formula: C8H10N4O2
+MW: 194
+InChIKey: RYYVLZVUVIJVGH-UHFFFAOYSA-N
+DB#: MSP001
+Comments: test spectrum 1
+Num Peaks: 5
+42.0338 1200
+69.0447 3500
+110.0713 8900
+138.0662 45000
+195.0877 120000
+
+Name: Aspirin
+Precursor_mz: 179.0344
+Precursor_type: [M-H]-
+Spectrum_type: MS2
+Ion_mode: Negative
+Collision_energy: 15
+Formula: C9H8O4
+MW: 180
+CAS#: 50-78-2
+Num Peaks: 3
+93.0346 5000
+121.0295 3000
+137.0244 15000
+
+Name: Glucose
+Spectrum_type: MS1
+Ion_mode: Positive
+Formula: C6H12O6
+MW: 180
+Num Peaks: 4
+180.0634 8000; 181.0668 900;
+182.0701 50; 183.0735 5;

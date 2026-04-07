@@ -14,7 +14,7 @@ export info, load, chromatogram, average
     info(filename::String; verbose::Bool = false)
 Reads the content of a mass spectrometry file and returns a `Vector{String}` containing the number of scans and the different scan types described by their MS level, polarity and, for MS/MS data, the precursor m/z followed by the activation method and collision energy. Each entry is unique, providing a summary of the input file. With `verbose = true`, the function also returns instrument metadata (parentFile, manufacturer, model, ionisation, mass analyzer, detector, software, data processing) when available.
 
-Supported file formats: mzXML, mzML, MGF.
+Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 
 # Examples
 ```julia-repl
@@ -31,6 +31,13 @@ julia> info("test.mzML")
  "MS1+"
  "MS2+ 400.0  CID(CE=25.0)"
  "MS2+ 500.0  HCD(CE=30.0)"
+
+julia> info("library.msp")
+4-element Array{String,1}:
+ "3 scans"
+ "MS2+ 195.0877"
+ "MS2- 179.0344"
+ "MS1+"
 ```
 """
 function info(filename::String; verbose::Bool = false)
@@ -44,6 +51,10 @@ function info(filename::String; verbose::Bool = false)
         return info_mzml(filename, info, verbose)
     elseif ext == "mgf"
         return info_mgf(filename, info, verbose)
+    elseif ext == "msp"
+        return info_msp(filename, info, verbose)
+    elseif ext == "imzml"
+        return info_imzml(filename, info, verbose)
     else
         return ErrorException("File format not supported.")
     end
@@ -55,7 +66,7 @@ end
     load(filename::String)
 Loads the mass spectra from a file and returns a `Vector{MSscan}` where each element contains one scan. The function dispatches to the appropriate reader based on the file extension.
 
-Supported file formats: mzXML, mzML, MGF, TXT.
+Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
 # Examples
 ```julia-repl
@@ -70,6 +81,14 @@ julia> scans = load("test.mzML")
 julia> scans = load("test.mgf")
 3-element Array{MSj.MSscan,1}:
  MSj.MSscan(1, 0.5, 4800.0, ...)
+
+julia> scans = load("library.msp")
+3-element Array{MSj.MSscan,1}:
+ MSj.MSscan(1, 0.0, 178600.0, ...)
+
+julia> scans = load("sample.imzML")
+10000-element Array{MSj.MSscan,1}:
+ MSj.MSscan(1, 0.0, 8000.0, ...)
 ```
 """
 function load(filename::String)
@@ -82,6 +101,10 @@ function load(filename::String)
         return load_mzml_all(filename)
     elseif ext == "mgf"
         return load_mgf_all(filename)
+    elseif ext == "msp"
+        return load_msp_all(filename)
+    elseif ext == "imzml"
+        return load_imzml_all(filename)
     elseif ext == "txt"
         return load_txt_all(filename)
     else
@@ -95,7 +118,7 @@ end
     retention_time(filename::String)
 Returns a `Vector{Float64}` with the retention times (in minutes) of each scan in the file.
 
-Supported file formats: mzXML, mzML, MGF.
+Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 
 # Examples
 ```julia-repl
@@ -126,8 +149,8 @@ function retention_time(filename::String)
         free(xdoc)
     elseif ext == "mzml"
         rt = retention_time_mzml(filename)
-    elseif ext == "mgf"
-        scans = load_mgf_all(filename)
+    elseif ext == "mgf" || ext == "msp" || ext == "imzml"
+        scans = load(filename)
         rt = [s.rt for s in scans]
     else
         ErrorException("File format not supported.")
@@ -165,7 +188,7 @@ Returns a [`Chromatogram`](@ref) holding the retention time (rt), the ion curren
 
 The data may be filtered using [`FilterType`](@ref) arguments: `Level(N)`, `Precursor(mz)`, `Activation_Method("method")`, `Activation_Energy(ce)`, `Polarity("+")`, `Scan(n)`, `RT([t1,t2])`, `IC([min,max])`.
 
-Supported file formats: mzXML, mzML, MGF.
+Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 
 # Examples
 ```julia-repl
@@ -211,7 +234,7 @@ function chromatogram(filename::String, filters::FilterType...; method::MethodTy
             ErrorException("No matching spectra.")
         end
 
-    elseif ext == "mzml" || ext == "mgf"
+    elseif ext in ("mzml", "mgf", "msp", "imzml")
         # Load all scans and delegate to the Vector{MSscan} method
         scans = load(filename)
         return chromatogram(scans, filters...; method=method)
@@ -263,7 +286,7 @@ end
     average(filename::String, arguments::FilterType...; stats::Bool=true)
 Returns the average mass spectrum as an [`MSscans`](@ref) container, along with the sample standard deviation of the intensities when `stats=true` (default). The data may be filtered using [`FilterType`](@ref) arguments.
 
-Supported file formats: mzXML, mzML, MGF.
+Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 
 # Examples
 ```julia-repl
@@ -308,7 +331,7 @@ function average(filename::String, arguments::FilterType...; stats::Bool=true)
             ErrorException("No matching spectra.")
         end
 
-    elseif ext == "mzml" || ext == "mgf"
+    elseif ext in ("mzml", "mgf", "msp", "imzml")
         scans = load(filename)
         return average(scans, arguments...; stats=stats)
 

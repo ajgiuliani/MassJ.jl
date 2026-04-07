@@ -133,6 +133,26 @@ MSj.build_mgf_scan
 MSj.info_mgf
 ```
 
+### MSP
+--------
+Interface to the MSP (NIST Mass Spectral Library) file format. Text-based format used by NIST, MoNA, MassBank, and GNPS for spectral libraries.
+
+```@docs
+MSj.load_msp_all
+MSj.build_msp_scan
+MSj.info_msp
+```
+
+### imzML
+----------
+Interface to the imzML file format for imaging mass spectrometry. Consists of an XML metadata file (`.imzML`) and a companion binary data file (`.ibd`). Supports both continuous and processed storage modes, and stores spatial coordinates in the metadata dictionary.
+
+```@docs
+MSj.load_imzml_all
+MSj.load_imzml_spectrum
+MSj.info_imzml
+```
+
 
 ## Filtering
 ```@docs

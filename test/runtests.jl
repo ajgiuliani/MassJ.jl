@@ -649,9 +649,171 @@ function test_mgf()
 end
 
 
+function test_msp()
+    @testset "MSP format" begin
+        # info
+        inf = MSj.info("test.msp")
+        @test inf[1] == "3 scans"
+        @test any(contains(s, "MS2+") for s in inf)
+        @test any(contains(s, "MS2-") for s in inf)
+        @test any(contains(s, "MS1+") for s in inf)
+
+        inf_v = MSj.info("test.msp", verbose=true)
+        @test any(contains(s, "Caffeine") for s in inf_v)
+        @test any(contains(s, "Aspirin") for s in inf_v)
+
+        # load all
+        scans = MSj.load("test.msp")
+        @test length(scans) == 3
+        @test eltype(scans) == MSj.MSscan
+
+        # Scan 1: Caffeine MS2+
+        s1 = scans[1]
+        @test s1.num == 1
+        @test s1.level == 2
+        @test s1.polarity == "+"
+        @test s1.precursor ≈ 195.0877
+        @test s1.collisionEnergy ≈ 20.0
+        @test s1.spectrumType == :centroid
+        @test length(s1.mz) == 5
+        @test s1.mz ≈ [42.0338, 69.0447, 110.0713, 138.0662, 195.0877]
+        @test s1.int ≈ [1200.0, 3500.0, 8900.0, 45000.0, 120000.0]
+        @test s1.basePeakMz ≈ 195.0877
+        @test s1.basePeakIntensity ≈ 120000.0
+        @test s1.tic ≈ sum(s1.int)
+        @test s1.metadata["name"] == "Caffeine"
+        @test s1.metadata["formula"] == "C8H10N4O2"
+        @test s1.metadata["inchikey"] == "RYYVLZVUVIJVGH-UHFFFAOYSA-N"
+        @test s1.metadata["db_id"] == "MSP001"
+        @test s1.metadata["comments"] == "test spectrum 1"
+
+        # Scan 2: Aspirin MS2-
+        s2 = scans[2]
+        @test s2.num == 2
+        @test s2.level == 2
+        @test s2.polarity == "-"
+        @test s2.precursor ≈ 179.0344
+        @test s2.collisionEnergy ≈ 15.0
+        @test length(s2.mz) == 3
+        @test s2.metadata["name"] == "Aspirin"
+        @test s2.metadata["cas"] == "50-78-2"
+
+        # Scan 3: Glucose MS1+ (semicolon format)
+        s3 = scans[3]
+        @test s3.num == 3
+        @test s3.level == 1
+        @test s3.polarity == "+"
+        @test s3.precursor ≈ 0.0
+        @test length(s3.mz) == 4
+        @test s3.mz ≈ [180.0634, 181.0668, 182.0701, 183.0735]
+        @test s3.int ≈ [8000.0, 900.0, 50.0, 5.0]
+        @test s3.metadata["name"] == "Glucose"
+
+        # retention_time
+        rt = MSj.retention_time("test.msp")
+        @test length(rt) == 3
+        @test all(rt .≈ 0.0)  # no RT in MSP test file
+
+        # chromatogram
+        chrom = MSj.chromatogram("test.msp")
+        @test length(chrom.rt) == 3
+
+        # extract
+        ms2_pos = MSj.extract("test.msp", MSj.Polarity("+"), MSj.Level(2))
+        @test length(ms2_pos) == 1
+        @test ms2_pos[1].metadata["name"] == "Caffeine"
+
+        ms2_neg = MSj.extract("test.msp", MSj.Polarity("-"))
+        @test length(ms2_neg) == 1
+        @test ms2_neg[1].metadata["name"] == "Aspirin"
+
+        # average
+        avg = MSj.average("test.msp", MSj.Level(2))
+        @test avg isa MSj.MSscans
+    end
+end
+
+
+function test_imzml()
+    @testset "imzML format" begin
+        # info
+        inf = MSj.info("test.imzML")
+        @test any(contains(s, "4 spectra") for s in inf)
+        @test any(contains(s, "MS1+") for s in inf)
+
+        inf_v = MSj.info("test.imzML", verbose=true)
+        @test any(contains(s, "processed") for s in inf_v)
+        @test any(contains(s, "2 x 2") for s in inf_v)
+
+        # load all
+        scans = MSj.load("test.imzML")
+        @test length(scans) == 4
+        @test eltype(scans) == MSj.MSscan
+
+        # Scan 1: position (1,1)
+        s1 = scans[1]
+        @test s1.num == 1
+        @test s1.level == 1
+        @test s1.polarity == "+"
+        @test s1.spectrumType == :profile
+        @test s1.tic ≈ 8000.0
+        @test length(s1.mz) == 3
+        @test s1.mz ≈ [100.0, 200.0, 300.0]
+        @test s1.int ≈ [1000.0, 5000.0, 2000.0]
+        @test s1.metadata["position_x"] == 1
+        @test s1.metadata["position_y"] == 1
+
+        # Scan 2: position (2,1)
+        s2 = scans[2]
+        @test s2.num == 2
+        @test s2.tic ≈ 7800.0
+        @test s2.mz ≈ [100.0, 200.0, 300.0]
+        @test s2.int ≈ [800.0, 3000.0, 4000.0]
+        @test s2.metadata["position_x"] == 2
+        @test s2.metadata["position_y"] == 1
+
+        # Scan 3: position (1,2), 2 peaks
+        s3 = scans[3]
+        @test s3.num == 3
+        @test length(s3.mz) == 2
+        @test s3.mz ≈ [150.0, 250.0]
+        @test s3.int ≈ [2000.0, 6000.0]
+        @test s3.metadata["position_x"] == 1
+        @test s3.metadata["position_y"] == 2
+
+        # Scan 4: position (2,2)
+        s4 = scans[4]
+        @test s4.num == 4
+        @test length(s4.mz) == 3
+        @test s4.mz ≈ [150.0, 250.0, 350.0]
+        @test s4.int ≈ [1500.0, 4000.0, 3000.0]
+        @test s4.metadata["position_x"] == 2
+        @test s4.metadata["position_y"] == 2
+
+        # retention_time
+        rt = MSj.retention_time("test.imzML")
+        @test length(rt) == 4
+
+        # chromatogram
+        chrom = MSj.chromatogram("test.imzML")
+        @test length(chrom.rt) == 4
+
+        # extract
+        all_scans = MSj.extract("test.imzML", MSj.Level(1))
+        @test length(all_scans) == 4
+
+        # average
+        avg = MSj.average("test.imzML")
+        @test avg isa MSj.MSscans
+    end
+end
+
+
 tests()
 test_isotopes()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
 test_mgf()
+test_msp()
+test_imzml()

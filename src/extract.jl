@@ -13,7 +13,7 @@ export extract
     extract(filename::String, arguments::FilterType...)
 Returns a `Vector{MSscan}` containing the scans that match the given [`FilterType`](@ref) conditions. Without arguments, returns all scans.
 
-Supported file formats: mzXML, mzML, MGF.
+Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 
 # Examples
 ```julia-repl
@@ -25,6 +25,10 @@ julia> sub_set = extract("test.mzXML", MSj.Level(2))
 julia> sub_set = extract("test.mzML", MSj.Level(1))
 1-element Array{MSj.MSscan,1}:
  MSj.MSscan(1, 0.5, 19000.0, ...)
+
+julia> sub_set = extract("library.msp", MSj.Polarity("+"))
+1-element Array{MSj.MSscan,1}:
+ MSj.MSscan(1, 0.0, 178600.0, ...)
 ```
 """
 function extract(filename::String, arguments::FilterType...)
@@ -56,7 +60,7 @@ function extract(filename::String, arguments::FilterType...)
             ErrorException("No matching spectra.")
         end
 
-    elseif ext == "mzml" || ext == "mgf"
+    elseif ext in ("mzml", "mgf", "msp", "imzml")
         scans = load(filename)
         return extract(scans, arguments...)
 
