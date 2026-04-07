@@ -49,4 +49,36 @@ The `:lorentz` profile fits better Fourrier Transform mass spectra. The `:voigt`
 centroid(scan, method = MSj.TBPD(:lorentz, 1000., 0.1)
 centroid(scan, method = MSj.TBPD(:voight,  1000., 0.1)
 ```
-	
+
+## Deconvolution
+Charge state deconvolution is performed using the [`deconv`](@ref) function. It implements the [UniDec](https://doi.org/10.1021/acs.analchem.5b00140) algorithm to deconvolve multiply charged mass spectra into zero-charge mass spectra.
+
+The function operates on `MSscan` or `MSscans` objects and returns an object of the same type with the deconvolved mass spectrum.
+
+```julia
+deconv(scan, Charges(adduct="H", range=(1,10)))
+```
+
+The `Charges` method type specifies:
+- `adduct`: the adduct ion formula (e.g. `"H"` for protonation, `"Na"` for sodiation)
+- `range`: the charge state range as a tuple `(min, max)`
+- `width`: the charge state filter width (default 1)
+
+Optional keyword arguments control the peak shape model and convergence:
+- `FWHM`: full width at half maximum of the peaks (in Da). If not provided, it is auto-detected from the base peak.
+- `R`: mass resolving power at m/z 500. Providing `R` overrides auto-detection (`FWHM = 500/R`). Do not provide both `R` and `FWHM`.
+- `shape`: peak shape function — `:gauss`, `:lorentz`, `:voigt` or `:autoguess` (default). When set to `:autoguess`, the best shape is determined by comparing the correlation of the base peak with Gaussian and Lorentzian profiles.
+- `maxiter`: maximum number of iterations (default 250).
+- `tol`: convergence tolerance for the iterative procedure (default 1e-06).
+
+```julia
+# Auto-detect peak shape and FWHM
+deconv_data = deconv(scans, Charges(adduct="H", range=(1,10)))
+
+# Specify resolving power and wider charge filter
+deconv_data = deconv(scans, Charges(adduct="H", range=(5,15), width=2), R=5000)
+
+# Specify explicit FWHM and Gaussian peak shape
+deconv_data = deconv(scans, Charges(adduct="H", range=(1,10)), FWHM=0.5, shape=:gauss)
+```
+

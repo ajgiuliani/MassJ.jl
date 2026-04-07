@@ -42,6 +42,9 @@ MSj.SNRA
 MSj.TopHat
 MSj.LOESS
 MSj.IPSA
+MSj.UniDec
+MSj.Charges
+MSj.Masses
 ```
 
 ### Filters
@@ -168,6 +171,12 @@ MSj.ipsa(scans::Vector{MSscan}, width::Real, maxiter::Int)
 ----------------
 No functions yet. To be added.
 
+
+## Deconvolution
+----------------
+```@docs
+MSj.deconv
+```
 
 ## Simulations
 -------------

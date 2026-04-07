@@ -49,3 +49,27 @@ struct MSscans  <: MScontainer
 end
 ```
 The [`MSj.MSscans`](@ref) structure is very similar to the [`MSj.MSscan`](@ref) one, except that the fields `num`, `rt`, `precursor`, `polarity`, `activationMethod` and `collisionEnergy` are vectors. The idea is to keep track of the *history* of the operations that have led to this result. For example, if a `MSscans` element is the result of the addition of two individual scans such as scans[1] + scans[2], then the `num`field of resulting `MSscans` is an array [1, 2]. The same applies to the retention time, precursor m/z, polarity, activation method and collision energy fields.
+
+## Deconvolution method types
+
+The deconvolution functions use dedicated method types to dispatch to the appropriate algorithm. These types are subtypes of [`MSj.MethodType`](@ref).
+
+[`MSj.UniDec`](@ref) is a marker type for the UniDec deconvolution algorithm.
+
+[`MSj.Charges`](@ref) specifies charge deconvolution parameters:
+```julia
+@with_kw struct Charges <: MethodType
+    adduct::String                # adduct ion formula (e.g. "H", "Na")
+    range::Tuple{Int,Int}         # charge state range (min, max)
+    width::Int = 1                # charge state filter width
+end
+```
+
+[`MSj.Masses`](@ref) specifies mass deconvolution parameters:
+```julia
+@with_kw struct Masses <: MethodType
+    adduct::String                # adduct ion formula
+    range::Tuple{Int,Int}         # mass range
+    width::Int = 1                # mass filter width
+end
+```

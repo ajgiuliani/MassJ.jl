@@ -44,7 +44,13 @@ The following isotopes are recognized by MSj.formula:
 - 32S  for ``{}^{32}S_{16}``
 - 34S  for ``{}^{34}S_{16}``
 
-The elements are stored in a dictionary called MSj.Elements. Each key of the MSj.Elements points to an `Array` of [`MSj.Isotope`](@ref), which is a structure used to stored the different properties of the isotopes:
+The `formula` function is also exported as a public function and can be called directly:
+```julia
+julia> f = formula("C6H14")
+Dict("C" => 6,"H" => 14)
+```
+
+The elements are stored in a constant dictionary called `MSj.Elements`. Each key of the `MSj.Elements` points to an `Array` of [`MSj.Isotope`](@ref), which is a structure used to stored the different properties of the isotopes:
 ```julia
 struct Isotope
     m::Float64           # mass

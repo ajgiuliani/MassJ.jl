@@ -11,4 +11,6 @@ The functions below are exported:
 - [`isotopic_distribution`](@ref)
 - [`masses`](@ref)
 - [`simulate`](@ref)
+- [`deconv`](@ref)
+- [`formula`](@ref)
 
