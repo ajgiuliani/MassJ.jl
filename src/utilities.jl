@@ -18,7 +18,7 @@ export avg, num2pnt
 Divide the intensity and the tic data of a MSscan by a number.
 ```julia-repl
 julia> scans[1] / 1.0e2
-MSj.MSscan(1, 0.1384, 50819.5, [140. ....
+MassJ.MSscan(1, 0.1384, 50819.5, [140. ....
 ```
 """
 function /(a::MSscan, N::Real)
@@ -31,7 +31,7 @@ end
 Divide the intensity, tic and variance of a MSscans by a number.
 ```julia-repl
 julia> a / 1.0e2
-MSj.MSscans(1, 0.1384, 50819.5, [140. ....
+MassJ.MSscans(1, 0.1384, 50819.5, [140. ....
 ```
 """
 function /(a::MSscans, N::Real)
@@ -43,7 +43,7 @@ end
 Multiply the intensity and the tic data of a MSscan by a number.
 ```julia-repl
 julia> scans[1] * 1.0e2
-MSj.MSscan(1, 0.1384, 50819.5, [140. ....
+MassJ.MSscan(1, 0.1384, 50819.5, [140. ....
 ```
 """
 function *(a::MSscan, N::Real)
@@ -55,7 +55,7 @@ end
 Multiply the intensity, tic and variance of a MSscans by a number.
 ```julia-repl
 julia> a * 1.0e2
-MSj.MSscans(1, 0.1384, 50819.5, [140. ....
+MassJ.MSscans(1, 0.1384, 50819.5, [140. ....
 ```
 """
 function *(a::MSscans, N::Real)
@@ -76,7 +76,7 @@ end
 Multiplication of mass spectra elementwise.
 ```julia-repl
 julia> a * b
-MSj.MSscans([2, 5], [0.7307, 4.344
+MassJ.MSscans([2, 5], [0.7307, 4.344
 ```
 """
 function *(a::MScontainer, b::MScontainer)
@@ -122,7 +122,7 @@ end
 Substraction of mass spectra elementwise. Negative scan num refers the 'b' MScontainer.
 ```julia-repl
 julia> a - b
-MSj.MSscans([1, 4], [0.1384, 3.7578, -0.1384, -3.7578]...
+MassJ.MSscans([1, 4], [0.1384, 3.7578, -0.1384, -3.7578]...
 ```
 """
 function -(a::MScontainer, b::MScontainer)
@@ -205,7 +205,7 @@ end
 Addition of mass spectra elementwise.
 ```julia-repl
 julia> scans[1] - scans[2]
-MSj.MSscans([1, 2], [0.1384, 0.7307]
+MassJ.MSscans([1, 2], [0.1384, 0.7307]
 ```
 """
 function +(a::MScontainer, b::MScontainer)
@@ -289,8 +289,8 @@ end
     avg(a::MScontainer, b::MScontainer)
 Returns the average of the input mass spectra and compute the variance using an incremental Welford algorithm.
 ```julia-repl
-julia> MSj.avg(scans[1], scans[4])
-MSj.MSscans([1, 4], [0.1384, 3.7578], ....
+julia> MassJ.avg(scans[1], scans[4])
+MassJ.MSscans([1, 4], [0.1384, 3.7578], ....
 ```
 """
 function avg(a::MScontainer, b::MScontainer)

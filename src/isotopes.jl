@@ -31,7 +31,7 @@ end
 
 """
     masses(f::Dict{String,Int})
-Calculates the average, monoisotopic and nominal masses for the chemical formula dictionary, such as produced by MSj.formula. The result is returned in a dictionary with the following entries: "Monoisotopic", "Average" and "Nominal".
+Calculates the average, monoisotopic and nominal masses for the chemical formula dictionary, such as produced by MassJ.formula. The result is returned in a dictionary with the following entries: "Monoisotopic", "Average" and "Nominal".
 # Examples
 ```julia-repl
 julia> masses("C254 H377 N65 O75 S6")
@@ -67,7 +67,7 @@ From an isotopic distribution and a peak width returns a mass spectrum (MSScan).
 # Examples
 ```julia-repl
 julia>  a = simulate(I, 0.4)
-MSj.MSscan(1, 0.0, 30898.192348114364, [5727.102517458742 ..., "", "", 0.0)
+MassJ.MSscan(1, 0.0, 30898.192348114364, [5727.102517458742 ..., "", "", 0.0)
 ```
 """
 function simulate(I::Array{Union{Float64, Int, String}}, ∆mz::Real; model::Symbol=:gauss , Npoints::Int=1000)
@@ -105,7 +105,7 @@ function simulate(I::Array{Union{Float64, Int, String}}, ∆mz::Real; model::Sym
 end
 
 """
-    isotopic_distribution(input::String, p_target::Real; charge::Int = +1, tau::Real = 0.1, Elements::Dict{String,Array{MSj.Isotope,1}} = MSj.Elements)
+    isotopic_distribution(input::String, p_target::Real; charge::Int = +1, tau::Real = 0.1, Elements::Dict{String,Array{MassJ.Isotope,1}} = MassJ.Elements)
 Calculates the isotopic distribution of input formula for which the overall probabilities equals p_target using the isospec algorithm. The charge state is entered as an optional argument. The peaks detection threshold tau is by default set to 10%.
 # Examples
 ```julia-repl
@@ -135,13 +135,13 @@ Dict("S" => 6,"C" => 254,"N" => 65,"H" => 377,"O" => 75)
  819.23       0.0276323       251       3       5       1       0       0       65       0       75       0       0       377      0    
 ```
 """
-function isotopic_distribution(input::String, p_target::Real; charge::Int = +1, tau::Real = 0.1, Elements::Dict{String,Array{MSj.Isotope,1}} = MSj.Elements)
+function isotopic_distribution(input::String, p_target::Real; charge::Int = +1, tau::Real = 0.1, Elements::Dict{String,Array{MassJ.Isotope,1}} = MassJ.Elements)
     f = formula(input)
     println(f)
     isotopic_distribution(formula(input), p_target, charge = charge, tau = tau)
 end
 
-function isotopic_distribution(form::Dict{String,Int}, p_target::Real; charge::Int = +1, tau::Real = 0.1, Elements::Dict{String,Array{MSj.Isotope,1}} = MSj.Elements)
+function isotopic_distribution(form::Dict{String,Int}, p_target::Real; charge::Int = +1, tau::Real = 0.1, Elements::Dict{String,Array{MassJ.Isotope,1}} = MassJ.Elements)
     c_form = collect(form)
     sort_formula(x) = 
         begin 
@@ -214,7 +214,7 @@ function formula(formula::String)
                     prev = (i:i+1)
                 end
             end
-            if haskey(MSj.Elements, temp)                                   # valid element --> looking for numbers 
+            if haskey(MassJ.Elements, temp)                                   # valid element --> looking for numbers 
                 if last(prev) == length(formula)                                # last element
                     if !haskey(form_dict, formula[prev])                           # already found ?
                         form_dict[formula[prev]] = 1                               # no --> indice = 1
@@ -272,7 +272,7 @@ function formula(formula::String)
                         l += 1
                     end                    
                     prev = formula[j:l]
-                    if haskey(MSj.Elements, prev)               # element found
+                    if haskey(MassJ.Elements, prev)               # element found
                         j=l
                         if occursin(r"[)]", formula[j+1:j+1])        # no indice after element --> indice = 1
                             next = "1"
@@ -326,7 +326,7 @@ function formula(formula::String)
                     elseif occursin(r"[)]", formula[j+1:j+1])               # last element before )
                         next = "1"
                     end
-                    if haskey(MSj.Elements, prev)                             # element found
+                    if haskey(MassJ.Elements, prev)                             # element found
 
                         if !haskey(form_dict, prev)                           # already found ?
                             form_dict[prev] = parse(Int,next) * mult         # no --> indice
@@ -349,7 +349,7 @@ end
 
 
 
-function isotopologue_probability(formula::Dict{String,Int}, distri::Dict{String,Array{Int,1}}, Elements::Dict{String,Array{MSj.Isotope,1}})
+function isotopologue_probability(formula::Dict{String,Int}, distri::Dict{String,Array{Int,1}}, Elements::Dict{String,Array{MassJ.Isotope,1}})
     p = 1.0                                                                                        # isotopologue probability
     Natoms = sum(collect(values(formula)))
     if Natoms < 20
@@ -361,7 +361,7 @@ function isotopologue_probability(formula::Dict{String,Int}, distri::Dict{String
     
 end
 
-function low_masses(formula::Dict{String,Int}, distri::Dict{String,Array{Int,1}}, Elements::Dict{String,Array{MSj.Isotope,1}})
+function low_masses(formula::Dict{String,Int}, distri::Dict{String,Array{Int,1}}, Elements::Dict{String,Array{MassJ.Isotope,1}})
     p = 1.0
     for (key, val) in formula
         E = Elements[key]
@@ -382,7 +382,7 @@ function low_masses(formula::Dict{String,Int}, distri::Dict{String,Array{Int,1}}
     p = Float64(p)                            # returns mass and probability for the input isotopologue
 end
 
-function high_masses(formula::Dict{String,Int}, distri::Dict{String,Array{Int,1}}, Elements::Dict{String,Array{MSj.Isotope,1}})
+function high_masses(formula::Dict{String,Int}, distri::Dict{String,Array{Int,1}}, Elements::Dict{String,Array{MassJ.Isotope,1}})
     # log (factorial(val) ) - Somme log(factorial(distri[key])) + somme(distri[key] * log(E[i].f) )
     log_p = 0.0
     for (key,val) in formula
@@ -420,7 +420,7 @@ function stirling(n::Int)
 end
 
 
-function isotopologue_mass(c_formula::Array{Pair{String,Int},1}, distri::Dict{String,Array{Int,1}}, Elements::Dict{String,Array{MSj.Isotope,1}})
+function isotopologue_mass(c_formula::Array{Pair{String,Int},1}, distri::Dict{String,Array{Int,1}}, Elements::Dict{String,Array{MassJ.Isotope,1}})
     m = 0.0                                      # isotopologue mass
     for (key, val) in c_formula
         E = Elements[key]
@@ -435,7 +435,7 @@ function isotopologue_mass(c_formula::Array{Pair{String,Int},1}, distri::Dict{St
 end
 
 
-function most_probable_isotopologue(formula::Dict{String,Int}, Elements::Dict{String,Array{MSj.Isotope,1}})
+function most_probable_isotopologue(formula::Dict{String,Int}, Elements::Dict{String,Array{MassJ.Isotope,1}})
     distri=Dict{String,Array{Int,1}}()        
     # enter hill climbing
     for (key, val) in formula
@@ -524,7 +524,7 @@ function hill_climbing(P::Vector{Int}, f)
 end
 
 
-function subgenerator!(formula::Dict{String,Int}, D_max::Dict{String,Array{Int,1}},  V::PriorityQueue{Vector{Int},Float64}, τ::Real, Elements::Dict{String,Array{MSj.Isotope,1}})
+function subgenerator!(formula::Dict{String,Int}, D_max::Dict{String,Array{Int,1}},  V::PriorityQueue{Vector{Int},Float64}, τ::Real, Elements::Dict{String,Array{MassJ.Isotope,1}})
     key = first(formula)[1]
     val = first(formula)[2]
     E = Elements[key]
@@ -567,7 +567,7 @@ function subgenerator!(formula::Dict{String,Int}, D_max::Dict{String,Array{Int,1
     V
 end
 
-function ordered_isotopologue(c_formula::Array{Pair{String,Int},1}, α::Dict{String,Array{Int,1}}, V::Vector{PriorityQueue{Vector{Int},Float64}}, I::PriorityQueue{Vector{Int},Float64}, tau::Real, Elements::Dict{String,Array{MSj.Isotope,1}} )
+function ordered_isotopologue(c_formula::Array{Pair{String,Int},1}, α::Dict{String,Array{Int,1}}, V::Vector{PriorityQueue{Vector{Int},Float64}}, I::PriorityQueue{Vector{Int},Float64}, tau::Real, Elements::Dict{String,Array{MassJ.Isotope,1}} )
     S = Vector{PriorityQueue{Vector{Int},Float64}}(undef,0)
 
     i = 1
@@ -609,7 +609,7 @@ function trim!( I::PriorityQueue{Vector{Int},Float64}, p_target::Real, summ::Rea
 end
 
 
-function isospec(formula::Dict{String,Int}, c_formula::Array{Pair{String,Int},1}, p_target::Real, tau::Real, Elements::Dict{String,Array{MSj.Isotope,1}} )
+function isospec(formula::Dict{String,Int}, c_formula::Array{Pair{String,Int},1}, p_target::Real, tau::Real, Elements::Dict{String,Array{MassJ.Isotope,1}} )
     α = most_probable_isotopologue( formula, Elements )
     I = PriorityQueue{Vector{Int},Float64}()
     N_elem = length(formula)

@@ -17,18 +17,18 @@ Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 
 # Examples
 ```julia-repl
-julia> sub_set = extract("test.mzXML", MSj.Level(2))
-2-element Array{MSj.MSscan,1}:
- MSj.MSscan(2, 0.7307, 9727.2, ...)
- MSj.MSscan(5, 4.3442, 12203.5, ...)
+julia> sub_set = extract("test.mzXML", MassJ.Level(2))
+2-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(2, 0.7307, 9727.2, ...)
+ MassJ.MSscan(5, 4.3442, 12203.5, ...)
 
-julia> sub_set = extract("test.mzML", MSj.Level(1))
-1-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.5, 19000.0, ...)
+julia> sub_set = extract("test.mzML", MassJ.Level(1))
+1-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.5, 19000.0, ...)
 
-julia> sub_set = extract("library.msp", MSj.Polarity("+"))
-1-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.0, 178600.0, ...)
+julia> sub_set = extract("library.msp", MassJ.Polarity("+"))
+1-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.0, 178600.0, ...)
 ```
 """
 function extract(filename::String, arguments::FilterType...)
@@ -90,14 +90,14 @@ Search for scans matching the argument MS level and returns an array of matching
 # Examples
 ```julia-repl
 julia> scans = load("test.mzxml")                          # load mass spectra
-6-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ...
+6-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ...
 julia> sub_set = extract(scans)                            # extract a sub_set without conditions returns the original data
-6-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-julia> sub_set = extract(scans, MSj.Level(2) )      # extract MS/MS spectra
-MSj.MSscan(2, 0.7307, 9727.2, [345.083, 345.167, 345.25, 345.333, 345.417, 345.5, 345.583, 345.667, 345.75, 345.833  …  1999.25, 1999.33, 1999.42, 1999.5, 1999.58 ....
- MSj.MSscan(5, 4.3442, 12203.5, [345.083, 345.167, 345.25, 345.333, 345.417, 345.5, 345.583, 345.667, 345.75, 345.833  …  1999.25, 1999.33, 1999.42, 1999.5, 1999.58, ....
+6-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
+julia> sub_set = extract(scans, MassJ.Level(2) )      # extract MS/MS spectra
+MassJ.MSscan(2, 0.7307, 9727.2, [345.083, 345.167, 345.25, 345.333, 345.417, 345.5, 345.583, 345.667, 345.75, 345.833  …  1999.25, 1999.33, 1999.42, 1999.5, 1999.58 ....
+ MassJ.MSscan(5, 4.3442, 12203.5, [345.083, 345.167, 345.25, 345.333, 345.417, 345.5, 345.583, 345.667, 345.75, 345.833  …  1999.25, 1999.33, 1999.42, 1999.5, 1999.58, ....
 ```
 
 """

@@ -1,11 +1,11 @@
-using Documenter, MSj
+using Documenter, MassJ
 
 makedocs(
     format = Documenter.HTML(
         # Use clean URLs, unless built as a "local" build
         #prettyurls = !("local" in ARGS),
         prettyurls = get(ENV, "CI", nothing) == "true",
-        canonical = "https://ajgiuliani.github.io/MSj.jl/stable/",
+        canonical = "https://ajgiuliani.github.io/MassJ.jl/stable/",
         assets = ["assets/favicon.ico"],
         analytics = "UA-132913317-2",
     ),    
@@ -13,9 +13,9 @@ makedocs(
     #build   = "build",
     #clean   = false,
     #doctest = true,
-    modules = [MSj],
+    modules = [MassJ],
     highlightsig = true,
-    sitename="MSj.jl",
+    sitename="MassJ.jl",
     authors = "Alexandre Giuliani",
 
     pages = [
@@ -23,7 +23,7 @@ makedocs(
         "Tutorials"                        => Any[
             "The Julia language"           => "tutos/julia.md",
             "Jupyer notebooks"             => "tutos/jupyter.md",
-            "MSj"                          => "tutos/MSj.md",
+            "MassJ"                          => "tutos/MassJ.md",
             ],
         "Manual"                           => Any[
             "Introduction"                 => "man/introduction.md",
@@ -44,7 +44,7 @@ makedocs(
 )
 
 deploydocs(
-    repo = "github.com/ajgiuliani/MSj.jl.git",
+    repo = "github.com/ajgiuliani/MassJ.jl.git",
     target = "build",
     branch = "gh-pages",
     devbranch = "master",

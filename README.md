@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center"> MS<sup>j</sup>.jl  </h1>
+  <h1 align="center"> MassJ.jl  </h1>
 </p>
 <p align="center">
   <img align="center" src="docs/src/assets/logo.png" width="400" height="200" />
@@ -11,31 +11,31 @@
 
 
 ##
-[![Build Status](https://travis-ci.org/ajgiuliani/MSj.jl.svg?branch=master)](https://travis-ci.org/ajgiuliani/MSj.jl)
-[![Coverage Status](https://coveralls.io/repos/github/ajgiuliani/MSj.jl/badge.svg?branch=master)](https://coveralls.io/github/ajgiuliani/MSj.jl?branch=master)
-[![codecov](https://codecov.io/gh/ajgiuliani/MSj.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/ajgiuliani/MSj.jl)
-[![](https://img.shields.io/badge/docs-stable-blue.svg)](https://ajgiuliani.github.io/MSj.jl/stable)
-[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ajgiuliani.github.io/MSj.jl/dev/)
+[![Build Status](https://travis-ci.org/ajgiuliani/MassJ.jl.svg?branch=master)](https://travis-ci.org/ajgiuliani/MassJ.jl)
+[![Coverage Status](https://coveralls.io/repos/github/ajgiuliani/MassJ.jl/badge.svg?branch=master)](https://coveralls.io/github/ajgiuliani/MassJ.jl?branch=master)
+[![codecov](https://codecov.io/gh/ajgiuliani/MassJ.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/ajgiuliani/MassJ.jl)
+[![](https://img.shields.io/badge/docs-stable-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/stable)
+[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/dev/)
 
 ## Installation
 This package is unregistered. It can be installed either with the Julia package manager.
 From the Julia REPL, type `]` to enter the Pkg REPL mode and run:
 ```julia
-(v1.3) pkg> add https://github.com/ajgiuliani/MSj.jl
+(v1.3) pkg> add https://github.com/ajgiuliani/MassJ.jl
 ```
 or using the package API:
 
 ```julia
 using Pkg
-Pkg.add(PackageSpec(url="https://github.com/ajgiuliani/MSj.jl"))
+Pkg.add(PackageSpec(url="https://github.com/ajgiuliani/MassJ.jl"))
 ```
 
 ## Documentation
-Documentation is available [here](https://ajgiuliani.github.io/MSj.jl/stable).
+Documentation is available [here](https://ajgiuliani.github.io/MassJ.jl/stable).
 
 
 ## Usage
-MS<sup>j</sup> is a package for loading, processing and plotting mass spectrometry data. It provides the following functionalities:
+MassJ is a package for loading, processing and plotting mass spectrometry data. It provides the following functionalities:
 
     Getting information on the file
     Load a file
@@ -59,12 +59,12 @@ data = load("path/to/file")
 
 And averaged as follow:
 ```julia
-ms1 = average(data, MSj.Level(1))                   # full MS scans
-ms2 = average(data, MSj.Level(2))                   # MS2 spectra
-ms3 = average(data, MSj.Activation_Method("CID"))   # CID spectra
+ms1 = average(data, MassJ.Level(1))                   # full MS scans
+ms2 = average(data, MassJ.Level(2))                   # MS2 spectra
+ms3 = average(data, MassJ.Activation_Method("CID"))   # CID spectra
 ```
 
-See the [documentation](https://ajgiuliani.github.io/MSj.jl/stable) for additional information.
+See the [documentation](https://ajgiuliani.github.io/MassJ.jl/stable) for additional information.
 
 ## Supported file format
 * mzxml

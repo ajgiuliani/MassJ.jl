@@ -6,35 +6,35 @@ Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
 ```julia-repl
 julia> scans = load("test.mzXML")
-6-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.1384, 5.08195e6, ...)
+6-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.1384, 5.08195e6, ...)
 ...
 
 julia> scans = load("test.mzML")
-3-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.5, 19000.0, ...)
+3-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.5, 19000.0, ...)
 ...
 
 julia> scans = load("test.mgf")
-3-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.5, 4800.0, ...)
+3-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.5, 4800.0, ...)
 ...
 
 julia> scans = load("library.msp")
-3-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.0, 178600.0, ...)
+3-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.0, 178600.0, ...)
 ...
 
 julia> scans = load("sample.imzML")
-10000-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.0, 8000.0, ...)
+10000-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.0, 8000.0, ...)
 ...
 ```
 
 Individual scans may be retrieved from the array the usual way:
 ```julia-repl
 julia> scans[1]
-MSj.MSscan(1, 0.1384, 5.08195e6, ...)
+MassJ.MSscan(1, 0.1384, 5.08195e6, ...)
 
 julia> scans[1].mz
 22320-element Array{Float64,1}:
@@ -64,17 +64,17 @@ The TXT reader loads a single spectrum from a two-column whitespace-separated fi
 
 ## Chromatograms
 
-Chromatograms may be retrieved from a file and imported in [`MSj.Chromatogram`](@ref):
+Chromatograms may be retrieved from a file and imported in [`MassJ.Chromatogram`](@ref):
 ```julia-repl
 julia> chromatogram("test.mzML")
-MSj.Chromatogram([0.5, 1.0, 1.5], [19000.0, 4800.0, 2100.0], 19000.0)
+MassJ.Chromatogram([0.5, 1.0, 1.5], [19000.0, 4800.0, 2100.0], 19000.0)
 ```
 
 ## Retention time
 
-The function [`MSj.retention_time`](@ref) reads the retention times from a file and returns a `Vector{Float64}` in minutes.
+The function [`MassJ.retention_time`](@ref) reads the retention times from a file and returns a `Vector{Float64}` in minutes.
 ```julia-repl
-julia> MSj.retention_time("test.mzML")
+julia> MassJ.retention_time("test.mzML")
 3-element Array{Float64,1}:
   0.5
   1.0

@@ -5,9 +5,9 @@ From a molecular formula, it is possible to :
 - simulate a mass spectrum providing and isotopic distribution and a peak width.
 
 ## Parsing a chemical formula
-The private function [`MSj.formula`](@ref) takes an input string representing a chemical formula, such as "CH4", counts the number of atoms in the formula and returns a [dictionary](https://docs.julialang.org/en/v1/base/collections/#Dictionaries-1). 
+The private function [`MassJ.formula`](@ref) takes an input string representing a chemical formula, such as "CH4", counts the number of atoms in the formula and returns a [dictionary](https://docs.julialang.org/en/v1/base/collections/#Dictionaries-1). 
 ```julia
-MSj.formula("CH3Br")
+MassJ.formula("CH3Br")
 Dict("Br" => 1,"C" => 1,"H" => 3)
 Dict{String,Int64} with 3 entries:
   "Br" => 1
@@ -15,23 +15,23 @@ Dict{String,Int64} with 3 entries:
   "H"  => 3
 ```
 In the previous example, the dictionary had three elements corresponding to the three atomic species found in the "CH3Br" formula. The "Br" key has the value 1, the "C" key has also 1 and the "H" key has a value equals to 3. The output of this function will be used by all the other functions, which will calculate properties from it.
-The  [`MSj.formula`](@ref) function accepts stoichiometric regular molecular formulas as well as more developed forms. For hexane the following entries "C6H14", "CH3CH2CH2CH2CH2CH3" or "CH3(CH2)4CH3" are equivalents. 
+The  [`MassJ.formula`](@ref) function accepts stoichiometric regular molecular formulas as well as more developed forms. For hexane the following entries "C6H14", "CH3CH2CH2CH2CH2CH3" or "CH3(CH2)4CH3" are equivalents. 
 ```julia
-MSj.formula("C6H14");
+MassJ.formula("C6H14");
 Dict("C" => 6,"H" => 14)
-MSj.formula("CH3CH2CH2CH2CH2CH3");
+MassJ.formula("CH3CH2CH2CH2CH2CH3");
 Dict("C" => 6,"H" => 14)
-MSj.formula("CH3(CH2)4CH3");
+MassJ.formula("CH3(CH2)4CH3");
 Dict("C" => 6,"H" => 14)
 ```
 The indices found after a parenthesis are used to multiply the elements inside the parenthesis. If no indices are found after ")", then the group is not multiply.
 The parenthesis are also used to specify an isotope, for example, consider ethane isotopically labelled with carbon 13:
 ```julia
-MSj.formula("CH3(13C)H3");
+MassJ.formula("CH3(13C)H3");
 Dict("C" => 1,"13C" => 1,"H" => 6)
 ```
 These expressions are equivalent: "CH3(13C)H3", "CH3(13CH3)", "C(13C)H6".
-The following isotopes are recognized by MSj.formula:
+The following isotopes are recognized by MassJ.formula:
 - 1H   for ``{}^1H_{1}`` (protium)
 - 2H   for ``{}^2H_{2}`` (deuterium)
 - D    is equivalent to 2H
@@ -50,7 +50,7 @@ julia> f = formula("C6H14")
 Dict("C" => 6,"H" => 14)
 ```
 
-The elements are stored in a constant dictionary called `MSj.Elements`. Each key of the `MSj.Elements` points to an `Array` of [`MSj.Isotope`](@ref), which is a structure used to stored the different properties of the isotopes:
+The elements are stored in a constant dictionary called `MassJ.Elements`. Each key of the `MassJ.Elements` points to an `Array` of [`MassJ.Isotope`](@ref), which is a structure used to stored the different properties of the isotopes:
 ```julia
 struct Isotope
     m::Float64           # mass
@@ -63,18 +63,18 @@ end
 ```
 The isotopes are sorted by natural frequency. Hence, for instance, the first sulfur isotope is ``{}^{32}S_{16}`` with a natural frenquency of 0.995 followed by  ``{}^{34}S_{16}`` with 0.043, etc.
 ```julia
-julia> E = MSj.Elements["S"]
-4-element Array{MSj.Isotope,1}:
- MSj.Isotope(31.9720711741, 0.9498500119990401, -0.051451188958515866, 16, 32, false)
- MSj.Isotope(33.96786703, 0.04252059835213182, -3.157766653355949, 16, 34, false)
- MSj.Isotope(32.9714589101, 0.00751939844812415, -4.890269137820559, 16, 33, false)
- MSj.Isotope(35.9670812, 0.00010999120070394368, -9.115110188972029, 16, 36, false)
+julia> E = MassJ.Elements["S"]
+4-element Array{MassJ.Isotope,1}:
+ MassJ.Isotope(31.9720711741, 0.9498500119990401, -0.051451188958515866, 16, 32, false)
+ MassJ.Isotope(33.96786703, 0.04252059835213182, -3.157766653355949, 16, 34, false)
+ MassJ.Isotope(32.9714589101, 0.00751939844812415, -4.890269137820559, 16, 33, false)
+ MassJ.Isotope(35.9670812, 0.00010999120070394368, -9.115110188972029, 16, 36, false)
 ```
 The first element of the array, is the most naturally abundant isotope. The properties of the isotopes may be accessed by:
 ```julia
-julia> E = MSj.Elements["S"];
+julia> E = MassJ.Elements["S"];
 julia> E[1]                            # returns the most abundant isotope of sulfur
-MSj.Isotope(31.9720711741, 0.9498500119990401, -0.051451188958515866, 16, 32, false)
+MassJ.Isotope(31.9720711741, 0.9498500119990401, -0.051451188958515866, 16, 32, false)
 julia> E[2].f                          # returns natural abundance of the second most abundant istotope of sulfur.
 0.04252059835213182
 ```
@@ -114,7 +114,7 @@ The public function [`isotopic_distribution`](@ref) calculates the isotopic dist
 - target probability: `Real` number 
 - charge: optional argument `Int`, by default = +1
 - tau: optional `Real` number set by default to 0.1
-- the elements dictionary: set by default to `MSj.Elements`.
+- the elements dictionary: set by default to `MassJ.Elements`.
 
 The calculations is based on the implementation of the [`isospec`](https://doi.org/10.1021/acs.analchem.6b01459) algorithm.  Briefly, the algorithm search for the small set of [`isotopologues`](https://en.wikipedia.org/wiki/Isotopologue) for which the total abundance is equal to the target probability. The calculation return a vector with all the configurations found. The first column gives the masses, the second column the probabilities of the configurations, and the following columns gives the configurations, such as:
 ```julia

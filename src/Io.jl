@@ -71,24 +71,24 @@ Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 # Examples
 ```julia-repl
 julia> scans = load("test.mzXML")
-6-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.1384, 5.08195e6, ...)
+6-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.1384, 5.08195e6, ...)
 
 julia> scans = load("test.mzML")
-3-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.5, 19000.0, ...)
+3-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.5, 19000.0, ...)
 
 julia> scans = load("test.mgf")
-3-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.5, 4800.0, ...)
+3-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.5, 4800.0, ...)
 
 julia> scans = load("library.msp")
-3-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.0, 178600.0, ...)
+3-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.0, 178600.0, ...)
 
 julia> scans = load("sample.imzML")
-10000-element Array{MSj.MSscan,1}:
- MSj.MSscan(1, 0.0, 8000.0, ...)
+10000-element Array{MassJ.MSscan,1}:
+ MassJ.MSscan(1, 0.0, 8000.0, ...)
 ```
 """
 function load(filename::String)
@@ -193,12 +193,12 @@ Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 # Examples
 ```julia-repl
 julia> chrom = chromatogram("test.mzXML")
-MSj.Chromatogram([0.1384, ...], [5.08195e6, ...], 5.08195e6)
+MassJ.Chromatogram([0.1384, ...], [5.08195e6, ...], 5.08195e6)
 
-julia> chrom = chromatogram("test.mzML", method = MSj.BasePeak())
-MSj.Chromatogram([0.5, 1.0, 1.5], [8000.0, 2000.0, 1200.0], 8000.0)
+julia> chrom = chromatogram("test.mzML", method = MassJ.BasePeak())
+MassJ.Chromatogram([0.5, 1.0, 1.5], [8000.0, 2000.0, 1200.0], 8000.0)
 
-julia> chrom = chromatogram("test.mzXML", MSj.Level(1), method = MSj.∆MZ([500,5]))
+julia> chrom = chromatogram("test.mzXML", MassJ.Level(1), method = MassJ.∆MZ([500,5]))
 ```
 """
 function chromatogram(filename::String, filters::FilterType...; method::MethodType=TIC())
@@ -246,16 +246,16 @@ end
 
 """
     chromatogram(scans::Vector{MSscan}, filters::FilterType...; method::MethodType=TIC())
-Returns the retention time and the total ion current by default for all the mass spectra within the Array of mass spectrum container MSscan. Alternatively, other options may be supplied such as method = MSj.BasePeak, which returs the base peak intensity, method = MSj.∆MZ([500,5]), which returns the ion current for the range mz = 500 ± 5, or method = MSj.MZ([200,1000]) which return the ion current in the range from m/z 200 to m/z 1000.  The data may be filtered by ms level, precursor mass, activation methods, etc, using the arguments MSj.Level(N), MSj.Precursor(mz), MSj.Activation_Method("method")...
+Returns the retention time and the total ion current by default for all the mass spectra within the Array of mass spectrum container MSscan. Alternatively, other options may be supplied such as method = MassJ.BasePeak, which returs the base peak intensity, method = MassJ.∆MZ([500,5]), which returns the ion current for the range mz = 500 ± 5, or method = MassJ.MZ([200,1000]) which return the ion current in the range from m/z 200 to m/z 1000.  The data may be filtered by ms level, precursor mass, activation methods, etc, using the arguments MassJ.Level(N), MassJ.Precursor(mz), MassJ.Activation_Method("method")...
 # Examples
 ```julia-repl
 julia> rt, ic = chromatogram("test.mzxml")
 ([0.1384  …  60.4793], [4.74795e6  …  17.4918])
-julia> rt, ic = chromatogram("test.mzxml", method = MSj.BasePeak() )
+julia> rt, ic = chromatogram("test.mzxml", method = MassJ.BasePeak() )
 ([0.1384  …  60.4793], [102558.0  …  1.23181])
-julia> rt, ic = chromatogram("test.mzxml", method = MSj.∆MZ([500,5]) )
+julia> rt, ic = chromatogram("test.mzxml", method = MassJ.∆MZ([500,5]) )
 ([0.1384  …  60.4793], [46036.6  …  14.2529])
-julia> rt, ic = chromatogram("test.mzxml", method = MSj.MZ([200,1000]))
+julia> rt, ic = chromatogram("test.mzxml", method = MassJ.MZ([200,1000]))
 ([0.1384  …  60.4793], [4.74795e6  …  17.4918])
 ```
 """
@@ -291,13 +291,13 @@ Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 # Examples
 ```julia-repl
 julia> spectrum = average("test.mzXML")
-MSj.MSscans([1, 2, 3, ...
+MassJ.MSscans([1, 2, 3, ...
 
-julia> spectrum = average("test.mzML", MSj.Level(2))
-MSj.MSscans([2, 3], ...
+julia> spectrum = average("test.mzML", MassJ.Level(2))
+MassJ.MSscans([2, 3], ...
 
-julia> spectrum = average("test.mzXML", MSj.Precursor(1255.5), MSj.RT([1, 60]))
-MSj.MSscans([2, 5, 8, 11], ...
+julia> spectrum = average("test.mzXML", MassJ.Precursor(1255.5), MassJ.RT([1, 60]))
+MassJ.MSscans([2, 5, 8, 11], ...
 ```
 """
 function average(filename::String, arguments::FilterType...; stats::Bool=true)
@@ -343,19 +343,19 @@ end
 
 """
     average(scans::Vector{MSscan}, arguments::FilterType...; stats::Bool=true)
-Returns the average mass spectrum container (MSscans) along with the sample standard deviation of the intensities with stats=true (default) for all the mass spectra within the Array of mass spectrum container MSscan.. The data may be filtered by level, precursor mass, activation methods, etc, using the arguments MSj.Level(N), MSj.Precursor(mz), MSj.Activation_Method("method"), or any combination of these arguments.
+Returns the average mass spectrum container (MSscans) along with the sample standard deviation of the intensities with stats=true (default) for all the mass spectra within the Array of mass spectrum container MSscan.. The data may be filtered by level, precursor mass, activation methods, etc, using the arguments MassJ.Level(N), MassJ.Precursor(mz), MassJ.Activation_Method("method"), or any combination of these arguments.
 # Examples
 ```julia-repl
 julia> spectrum = average("test.mzxml")
-MSj.MSscans([1, 2, 3 ....
-julia> spectrum = average("test.mzxml", MSj.Level(1) )
-MSj.MSscans([1, 4, 7, 10,
-julia> spectrum = average("test.mzxml", MSj.Precursor(1255.5) )
-MSj.MSscans([2, 5, 8, 11, ...
-julia> spectrum = average("test.mzxml", MSj.Activation_Method("PQD") )
-MSj.MSscans([3, 6, 9, 12, 15,
-julia> spectrum = average("test.mzxml", MSj.Activation_Method("PQD"), MSj.Polarity("+"), MSj.RT([10,20]))
-MSj.MSscans([9, 12, 15, 18], ...
+MassJ.MSscans([1, 2, 3 ....
+julia> spectrum = average("test.mzxml", MassJ.Level(1) )
+MassJ.MSscans([1, 4, 7, 10,
+julia> spectrum = average("test.mzxml", MassJ.Precursor(1255.5) )
+MassJ.MSscans([2, 5, 8, 11, ...
+julia> spectrum = average("test.mzxml", MassJ.Activation_Method("PQD") )
+MassJ.MSscans([3, 6, 9, 12, 15,
+julia> spectrum = average("test.mzxml", MassJ.Activation_Method("PQD"), MassJ.Polarity("+"), MassJ.RT([10,20]))
+MassJ.MSscans([9, 12, 15, 18], ...
 ```
 """
 function average(scans::Vector{MSscan}, arguments::FilterType...; stats::Bool=true)

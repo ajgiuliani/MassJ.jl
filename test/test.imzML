@@ -12,14 +12,14 @@
     </fileContent>
   </fileDescription>
   <softwareList count="1">
-    <software id="MSj" version="0.3.1"/>
+    <software id="MassJ" version="0.3.1"/>
   </softwareList>
   <instrumentConfigurationList count="1">
     <instrumentConfiguration id="IC1"/>
   </instrumentConfigurationList>
   <dataProcessingList count="1">
     <dataProcessing id="dp1">
-      <processingMethod order="0" softwareRef="MSj"/>
+      <processingMethod order="0" softwareRef="MassJ"/>
     </dataProcessing>
   </dataProcessingList>
   <run id="run1" defaultInstrumentConfigurationRef="IC1">

@@ -20,8 +20,8 @@ codecov: true
 coveralls: true
 
 after_success:
-- julia -e 'using Pkg; cd(Pkg.dir("MSJ")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
-- julia -e 'using Pkg; cd(Pkg.dir("MSJ")); Pkg.add("Coverage"); using Coverage; Coveralls.submit(process_folder())'
+- julia -e 'using Pkg; cd(Pkg.dir("MassJ")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
+- julia -e 'using Pkg; cd(Pkg.dir("MassJ")); Pkg.add("Coverage"); using Coverage; Coveralls.submit(process_folder())'
 
 jobs:
   include:

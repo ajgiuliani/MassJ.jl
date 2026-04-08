@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MSj.jl is a Julia package for loading, processing, and analyzing mass spectrometry data. It supports mzXML and TXT file formats and provides signal processing, isotopic distribution calculations, charge/mass deconvolution, and plotting capabilities.
+MassJ.jl is a Julia package for loading, processing, and analyzing mass spectrometry data. It supports mzXML and TXT file formats and provides signal processing, isotopic distribution calculations, charge/mass deconvolution, and plotting capabilities.
 
 ## Common Commands
 
@@ -13,7 +13,7 @@ MSj.jl is a Julia package for loading, processing, and analyzing mass spectromet
 cd test && julia runtests.jl
 
 # Run tests via Pkg
-julia -e 'using Pkg; Pkg.test("MSj")'
+julia -e 'using Pkg; Pkg.test("MassJ")'
 
 # Build documentation
 julia --project=docs/ -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
@@ -25,7 +25,7 @@ julia -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd()))'
 
 ## Architecture
 
-### Module structure (`src/MSj.jl`)
+### Module structure (`src/MassJ.jl`)
 
 The main module includes files in a specific order — **ordering matters** because later files depend on types/functions from earlier ones:
 
@@ -39,7 +39,7 @@ The main module includes files in a specific order — **ordering matters** beca
 8. **isotopes.jl** + isotopes-data.jl — Formula parsing, mass calculation, isotopic distributions
 9. **deconvolution.jl** — Charge/mass deconvolution
 10. **txt.jl** — Plain text file loader
-11. **plots.jl** — `MSj.plots` submodule with Plots.jl recipes
+11. **plots.jl** — `MassJ.plots` submodule with Plots.jl recipes
 
 ### Type system (dispatch-driven design)
 

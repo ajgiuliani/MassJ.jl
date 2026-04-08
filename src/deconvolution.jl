@@ -22,11 +22,11 @@ Returns the result of the deconvolution of an MSscan(s) object using the UniDec 
 # Examples
 ```julia-repl
 julia> deconv_data = deconv(scans, Charges(adduct="H", range=(1,10)))
-MSj.MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
+MassJ.MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
 ```
 ```julia-repl
 julia> deconv_data = deconv(scans, Charges(adduct="H", range=(5,15), width=2), R=5000)
-MSj.MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
+MassJ.MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
 ```
 """
 function deconv(scan::MScontainer, method::Charges; FWHM::Real = -1, R::Real = -1, shape::Symbol =:autoguess, maxiter::Int = 250, tol::Real = 1e-06)
@@ -93,11 +93,11 @@ function _resolve_shape(scan::MScontainer, shape::Symbol)
         println("Found $model peak shape.")
         return model
     elseif shape == :gauss
-        return MSj.gauss
+        return MassJ.gauss
     elseif shape == :lorentz
-        return MSj.lorentz
+        return MassJ.lorentz
     elseif shape == :voigt
-        return MSj.voigt
+        return MassJ.voigt
     else
         error("Unknown shape. Please choose between :gauss, :lorentz, :voigt or :autoguess (default)")
     end
@@ -205,7 +205,7 @@ Charge state averaging filter. For each charge state, computes the geometric mea
                     for k in eachindex(mz)
                         new_mz = new_mass(mz[k], e, i, ma)
                         if new_mz >= a && new_mz <= b
-                            i0, i1 = MSj.bracketnearest(mz, new_mz)
+                            i0, i1 = MassJ.bracketnearest(mz, new_mz)
                             new_int = lerp(f[e+i, i0], f[e+i, i1], (new_mz - mz[i0]) / (mz[i1] - mz[i0]))
                             if new_int > thres
                                 @inbounds ln[k] += log(new_int)
@@ -269,14 +269,14 @@ function autoguess_shape(scan::MScontainer)
     i0 = num2pnt(scan.mz, m0)
     i1 = num2pnt(scan.mz, m1)
     p0 = [w, scan.basePeakMz, scan.basePeakIntensity, 0.0]
-    y = MSj.gauss(scan.mz[i0:i1], p0)
+    y = MassJ.gauss(scan.mz[i0:i1], p0)
     var_gauss = Statistics.cor(scan.int[i0:i1], y)
-    y = MSj.lorentz(scan.mz[i0:i1], p0)
+    y = MassJ.lorentz(scan.mz[i0:i1], p0)
     var_lor = Statistics.cor(scan.int[i0:i1], y)
     if var_gauss >= var_lor
-        model = MSj.gauss
+        model = MassJ.gauss
     else
-        model = MSj.lorentz
+        model = MassJ.lorentz
     end
 end
 

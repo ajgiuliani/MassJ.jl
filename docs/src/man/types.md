@@ -1,7 +1,7 @@
 # Data types
-The main data type of the package is the abstract type [`MSj.MScontainer`](@ref).
+The main data type of the package is the abstract type [`MassJ.MScontainer`](@ref).
 
-Mass spectrometry scans are stored in the following structure, which is a subtype of [`MSj.MScontainer`](@ref).
+Mass spectrometry scans are stored in the following structure, which is a subtype of [`MassJ.MScontainer`](@ref).
 ```julia
 struct MSscan <: MScontainer
     num::Int                          # scan number
@@ -27,7 +27,7 @@ end
 
 A backward-compatible constructor accepting the original 12 fields is provided. The 6 new fields (`chargeState`, `spectrumType`, `driftTime`, `compensationVoltage`, `mobilityType`, `metadata`) default to neutral values (0, `:unknown`, -1.0, 0.0, `:none`, empty dict).
 
-Another subtype, [`MSj.Chromatogram`](@ref), is used to store the retention time, the ionic current and the maximum value of the ion current.
+Another subtype, [`MassJ.Chromatogram`](@ref), is used to store the retention time, the ionic current and the maximum value of the ion current.
 
 ```julia
 struct Chromatogram  <: MScontainer
@@ -41,7 +41,7 @@ end
 
 Two additional container types are provided for ion mobility data:
 
-[`MSj.Mobilogram`](@ref) stores drift time vs intensity data (analogous to a chromatogram for ion mobility):
+[`MassJ.Mobilogram`](@ref) stores drift time vs intensity data (analogous to a chromatogram for ion mobility):
 ```julia
 struct Mobilogram <: MScontainer
     dt::Vector{Float64}               # drift time or 1/K0 values
@@ -51,7 +51,7 @@ struct Mobilogram <: MScontainer
 end
 ```
 
-[`MSj.Ionogram`](@ref) stores compensation voltage vs intensity data (for FAIMS/DMS differential mobility):
+[`MassJ.Ionogram`](@ref) stores compensation voltage vs intensity data (for FAIMS/DMS differential mobility):
 ```julia
 struct Ionogram <: MScontainer
     cv::Vector{Float64}               # compensation voltage values
@@ -62,7 +62,7 @@ end
 
 ## Averaged spectra
 
-Combination of mass spectra requires another subtype of [`MSj.MScontainer`](@ref) called [`MSj.MSscans`](@ref) (notice the ending s).
+Combination of mass spectra requires another subtype of [`MassJ.MScontainer`](@ref) called [`MassJ.MSscans`](@ref) (notice the ending s).
 
 ```julia
 struct MSscans  <: MScontainer
@@ -87,17 +87,17 @@ struct MSscans  <: MScontainer
     metadata::Dict{String,Any}        # additional format-specific metadata
 end
 ```
-The [`MSj.MSscans`](@ref) structure is similar to [`MSj.MSscan`](@ref), except that the fields `num`, `rt`, `precursor`, `polarity`, `activationMethod`, `collisionEnergy`, `chargeState`, `driftTime`, and `compensationVoltage` are vectors. This design keeps track of the *history* of the operations. For example, if an `MSscans` element is the result of the addition of two individual scans such as `scans[1] + scans[2]`, then the `num` field of the resulting `MSscans` is `[1, 2]`.
+The [`MassJ.MSscans`](@ref) structure is similar to [`MassJ.MSscan`](@ref), except that the fields `num`, `rt`, `precursor`, `polarity`, `activationMethod`, `collisionEnergy`, `chargeState`, `driftTime`, and `compensationVoltage` are vectors. This design keeps track of the *history* of the operations. For example, if an `MSscans` element is the result of the addition of two individual scans such as `scans[1] + scans[2]`, then the `num` field of the resulting `MSscans` is `[1, 2]`.
 
 A backward-compatible constructor accepting the original 13 fields is provided. The 6 new fields default to neutral values.
 
 ## Deconvolution method types
 
-The deconvolution functions use dedicated method types to dispatch to the appropriate algorithm. These types are subtypes of [`MSj.MethodType`](@ref).
+The deconvolution functions use dedicated method types to dispatch to the appropriate algorithm. These types are subtypes of [`MassJ.MethodType`](@ref).
 
-[`MSj.UniDec`](@ref) is a marker type for the UniDec deconvolution algorithm.
+[`MassJ.UniDec`](@ref) is a marker type for the UniDec deconvolution algorithm.
 
-[`MSj.Charges`](@ref) specifies charge deconvolution parameters:
+[`MassJ.Charges`](@ref) specifies charge deconvolution parameters:
 ```julia
 @with_kw struct Charges <: MethodType
     adduct::String                # adduct ion formula (e.g. "H", "Na")
@@ -106,7 +106,7 @@ The deconvolution functions use dedicated method types to dispatch to the approp
 end
 ```
 
-[`MSj.Masses`](@ref) specifies mass deconvolution parameters:
+[`MassJ.Masses`](@ref) specifies mass deconvolution parameters:
 ```julia
 @with_kw struct Masses <: MethodType
     adduct::String                # adduct ion formula

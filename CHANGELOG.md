@@ -1,4 +1,4 @@
-# MSj.jl changelog
+# MassJ.jl changelog
 
 ## Version `v0.3.1`
 
@@ -8,7 +8,7 @@
 
 * ![Fix][badge-bugfix] Bug fix in mzXML loading: some mzXML contains a precursorMz entry without any ActivationMethod field. A test to ActivationMethod has been added in mzxml.jl.
 
-* ![BREAKING][badge-breaking] ![Enhancement][badge-enhancement] Renaming to `MSj.jl`. This short name should be easier to remember (as it refers to MSn).
+* ![BREAKING][badge-breaking] ![Enhancement][badge-enhancement] Renaming to `MassJ.jl`. This short name should be easier to remember (as it refers to MSn).
 
 
 ## Version `v0.3.0`

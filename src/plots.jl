@@ -10,13 +10,13 @@ module plots
 using Plots, RecipesBase   # used for plotting
 
 
-using MSj:MScontainer
-using MSj:Chromatogram
-using MSj:MSscan
-using MSj:MSscans
+using MassJ:MScontainer
+using MassJ:Chromatogram
+using MassJ:MSscan
+using MassJ:MSscans
 
 """
-    normalisation(ms::MSj.MScontainer)
+    normalisation(ms::MassJ.MScontainer)
 Normalization function for plotting mass spectra in relative intensity.
 """
 function normalisation(ms::MScontainer)
@@ -25,7 +25,7 @@ function normalisation(ms::MScontainer)
 end
 
 """
-    normalisation(cr::MSj.Chromatogram)
+    normalisation(cr::MassJ.Chromatogram)
 Normalization function for plotting chromatograms in raltive intensity.
 """
 function normalisation(cr::Chromatogram)
@@ -34,7 +34,7 @@ function normalisation(cr::Chromatogram)
 end
 
 """
-    scaling(cr::MSj.Chromatogram)
+    scaling(cr::MassJ.Chromatogram)
 Scaling function to display retention times of chromatograms in minutes instead of seconds.
 """
 function scaling(cr::Chromatogram)
@@ -62,7 +62,7 @@ Allows plotting directly mass spectra MSscan. The defaults relative intensity pl
 end
 
 """
-    g(ms::MSj.MSscans; method = :relative)
+    g(ms::MassJ.MSscans; method = :relative)
 Allows plotting directly mass spectra MSscans. The defaults relative intensity plotting may be changed by setting method = :absolute.
 """
 @recipe function g(ms::MSscans; method = :relative) 
@@ -82,7 +82,7 @@ end
 
 
 """
-    h(cr::MSj.Chromatogram; method = :relative) 
+    h(cr::MassJ.Chromatogram; method = :relative) 
 Allows plotting directly chromatograms. The defaults relative intensity plotting may be changed by setting method = :absolute.
 """
 @recipe function h(cr::Chromatogram; method = :relative) 

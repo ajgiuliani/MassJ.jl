@@ -17,8 +17,8 @@
       </sourceFileList>
     </fileDescription>
     <softwareList count="1">
-      <software id="MSj" version="0.3.1">
-        <cvParam cvRef="MS" accession="MS:1000799" name="custom unreleased software tool" value="MSj.jl test generator"/>
+      <software id="MassJ" version="0.3.1">
+        <cvParam cvRef="MS" accession="MS:1000799" name="custom unreleased software tool" value="MassJ.jl test generator"/>
       </software>
     </softwareList>
     <instrumentConfigurationList count="1">
@@ -39,7 +39,7 @@
     </instrumentConfigurationList>
     <dataProcessingList count="1">
       <dataProcessing id="dp1">
-        <processingMethod order="0" softwareRef="MSj">
+        <processingMethod order="0" softwareRef="MassJ">
           <cvParam cvRef="MS" accession="MS:1000544" name="Conversion to mzML" value=""/>
         </processingMethod>
       </dataProcessing>

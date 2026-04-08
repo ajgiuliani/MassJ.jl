@@ -1,18 +1,18 @@
-using MSj, Test
+using MassJ, Test
 using Plots
 using DataStructures
 
 function tests()
     @testset "Subset of tests"  begin
-        inf = MSj.info("test.mzXML", verbose = true)
+        inf = MassJ.info("test.mzXML", verbose = true)
         @test inf[1] == "parentFile: test.raw"                                         #1
         @test inf[9] == "6 scans"                                                      #2
         @test inf[10] == "MS1+"                                                        #3
         @test inf[11] == "MS2+ 1255.5  CID(CE=18)"                                     #4
         @test inf[12] == "MS3+ 902.33  PQD(CE=35)"                                     #5
 
-        scans = MSj.load("test.mzXML")
-        @test eltype(scans)              == MSj.MSscan                                 #6
+        scans = MassJ.load("test.mzXML")
+        @test eltype(scans)              == MassJ.MSscan                                 #6
         @test length(scans)              == 6                                          #7
         @test scans[1].num               == 1                                          #8
         @test scans[2].level             == 2                                          #9
@@ -21,76 +21,76 @@ function tests()
         @test scans[3].collisionEnergy   == 35.0                                       #12
         @test size(scans[1].int, 1)      == 22320                                      #13
 
-        rt = MSj.retention_time("test.mzXML")
+        rt = MassJ.retention_time("test.mzXML")
         @test length(rt) == 6                                                          #14
 
-        cr = MSj.chromatogram("test.mzXML", method = MSj.TIC() )
+        cr = MassJ.chromatogram("test.mzXML", method = MassJ.TIC() )
         @test length(cr.rt) == 6                                                       #15
 
-        cr = MSj.chromatogram("test.mzXML", method = MSj.MZ([0, 500]))
+        cr = MassJ.chromatogram("test.mzXML", method = MassJ.MZ([0, 500]))
         @test length(cr.rt) == 6                                                       #16
 
-        cr = MSj.chromatogram("test.mzXML", method = MSj.∆MZ([1000, 1]))
+        cr = MassJ.chromatogram("test.mzXML", method = MassJ.∆MZ([1000, 1]))
         @test length(cr.rt) == 6                                                       #17
 
-        cr = MSj.chromatogram("test.mzXML", method = MSj.BasePeak())
+        cr = MassJ.chromatogram("test.mzXML", method = MassJ.BasePeak())
         @test length(cr.rt) == 6                                                       #18
 
-        cr = MSj.chromatogram("test.mzXML", MSj.Polarity("+"), MSj.Scan(2),MSj.Precursor(1255.5), MSj.Activation_Energy(18), MSj.Activation_Method("CID"), MSj.Level(2) )
+        cr = MassJ.chromatogram("test.mzXML", MassJ.Polarity("+"), MassJ.Scan(2),MassJ.Precursor(1255.5), MassJ.Activation_Energy(18), MassJ.Activation_Method("CID"), MassJ.Level(2) )
         @test length(cr.rt) == 1                                                       #19
 
-        rt = MSj.retention_time(scans)
+        rt = MassJ.retention_time(scans)
         @test length(rt) == 6                                                          #20
 
-        cr = MSj.chromatogram(scans, method = MSj.TIC() )
+        cr = MassJ.chromatogram(scans, method = MassJ.TIC() )
         @test length(cr.rt) == 6                                                       #21
 
-        cr = MSj.chromatogram(scans, method = MSj.MZ([0, 500]))
+        cr = MassJ.chromatogram(scans, method = MassJ.MZ([0, 500]))
         @test length(cr.rt) == 6                                                       #22
 
-        cr = MSj.chromatogram(scans, method = MSj.∆MZ([1000, 1]))
+        cr = MassJ.chromatogram(scans, method = MassJ.∆MZ([1000, 1]))
         @test length(cr.rt) == 6                                                       #23
 
-        cr = MSj.chromatogram(scans, method = MSj.BasePeak())
+        cr = MassJ.chromatogram(scans, method = MassJ.BasePeak())
         @test length(cr.rt) == 6                                                       #24
 
-        cr = MSj.chromatogram(scans, MSj.Polarity("+"),MSj.Scan(2),MSj.Precursor(1255.5),MSj.Activation_Energy(18),MSj.Activation_Method("CID"),MSj.Level(2) )
+        cr = MassJ.chromatogram(scans, MassJ.Polarity("+"),MassJ.Scan(2),MassJ.Precursor(1255.5),MassJ.Activation_Energy(18),MassJ.Activation_Method("CID"),MassJ.Level(2) )
         @test (cr.rt, cr.ic) == ([0.7307], [9727.2])                                   #25
 
-        cr = MSj.chromatogram(scans, MSj.Polarity(["+"]),MSj.Scan([2,3]),MSj.Precursor([1255.5, 902.33]),MSj.Activation_Energy([18, 35]),MSj.Activation_Method(["CID", "PQD"]),MSj.Level([2, 3]) )
+        cr = MassJ.chromatogram(scans, MassJ.Polarity(["+"]),MassJ.Scan([2,3]),MassJ.Precursor([1255.5, 902.33]),MassJ.Activation_Energy([18, 35]),MassJ.Activation_Method(["CID", "PQD"]),MassJ.Level([2, 3]) )
         @test (cr.rt, cr.ic) == ([0.7307, 2.1379], [9727.2, 11.3032])                  #26
 
-        ms = MSj.average("test.mzXML")
+        ms = MassJ.average("test.mzXML")
         @test length(ms.num) == 6                                                      #27
 
-        ms = MSj.average("test.mzXML", MSj.Polarity("+"),MSj.Scan(2),MSj.Precursor(1255.5),MSj.Activation_Energy(18),MSj.Activation_Method("CID"),MSj.RT(1),MSj.IC([0, 1e4]))
-        @test ms isa MSj.MSscan                                                        #28
+        ms = MassJ.average("test.mzXML", MassJ.Polarity("+"),MassJ.Scan(2),MassJ.Precursor(1255.5),MassJ.Activation_Energy(18),MassJ.Activation_Method("CID"),MassJ.RT(1),MassJ.IC([0, 1e4]))
+        @test ms isa MassJ.MSscan                                                        #28
         @test ms.num == 2                                                              #29
 
-        ms = MSj.average(scans)
+        ms = MassJ.average(scans)
         @test length(ms.num) == 6                                                      #30
 
-        ms = MSj.average(scans, MSj.Polarity("+"),MSj.Scan(2),MSj.Precursor(1255.5),MSj.Activation_Energy(18),MSj.Activation_Method("CID"),MSj.RT(1),MSj.IC([0, 1e4]))
-        @test ms isa MSj.MSscan                                                        #31
+        ms = MassJ.average(scans, MassJ.Polarity("+"),MassJ.Scan(2),MassJ.Precursor(1255.5),MassJ.Activation_Energy(18),MassJ.Activation_Method("CID"),MassJ.RT(1),MassJ.IC([0, 1e4]))
+        @test ms isa MassJ.MSscan                                                        #31
         @test ms.num == 2                                                              #32
 
-        ms = MSj.average(scans, MSj.Polarity(["+"]),MSj.Scan([2,3]),MSj.Precursor([1255.5, 902.33]),MSj.Activation_Energy([18, 35]),MSj.Activation_Method(["CID", "PQD"]),MSj.RT([1,2]),MSj.IC([0, 1e4]))
-        @test ms isa MSj.MSscans                                                       #33
+        ms = MassJ.average(scans, MassJ.Polarity(["+"]),MassJ.Scan([2,3]),MassJ.Precursor([1255.5, 902.33]),MassJ.Activation_Energy([18, 35]),MassJ.Activation_Method(["CID", "PQD"]),MassJ.RT([1,2]),MassJ.IC([0, 1e4]))
+        @test ms isa MassJ.MSscans                                                       #33
         @test ms.num == [2, 3]                                                         #34
 
-        ms = MSj.average("test.mzXML", MSj.RT( [[1,2], [2,3]] ), stats = false )
-        @test ms isa MSj.MSscans                                                       #35
+        ms = MassJ.average("test.mzXML", MassJ.RT( [[1,2], [2,3]] ), stats = false )
+        @test ms isa MassJ.MSscans                                                       #35
         @test ms.num == [2, 3, 4]                                                      #36
 
-        ms = MSj.average("test.mzXML", MSj.Polarity(["+"]),MSj.Scan([2,3]),MSj.Precursor([1255.5, 902.33]),MSj.Activation_Method(["CID", "PQD"]),MSj.RT([1,2]),MSj.IC([0, 1e4]))   #MSj.Activation_Energy([18., 35.]),
-        @test ms isa MSj.MSscans                                                       #37
+        ms = MassJ.average("test.mzXML", MassJ.Polarity(["+"]),MassJ.Scan([2,3]),MassJ.Precursor([1255.5, 902.33]),MassJ.Activation_Method(["CID", "PQD"]),MassJ.RT([1,2]),MassJ.IC([0, 1e4]))   #MassJ.Activation_Energy([18., 35.]),
+        @test ms isa MassJ.MSscans                                                       #37
         @test ms.num == [2, 3]                                                         #38
 
-        cr = MSj.chromatogram("test.mzXML", MSj.Polarity(["+"]),MSj.Scan([2,3]),MSj.Precursor([1255.5, 902.33]),MSj.Activation_Method(["CID", "PQD"]),MSj.Level([2, 3]) )   #MSj.Activation_Energy([18.0, 35.0]),
+        cr = MassJ.chromatogram("test.mzXML", MassJ.Polarity(["+"]),MassJ.Scan([2,3]),MassJ.Precursor([1255.5, 902.33]),MassJ.Activation_Method(["CID", "PQD"]),MassJ.Level([2, 3]) )   #MassJ.Activation_Energy([18.0, 35.0]),
         @test length(cr.rt) == 2                                                       #39
 
-        ms = MSj.average(scans, MSj.RT( [[1,2], [2,3]] ), stats = false )
-        @test ms isa MSj.MSscans                                                       #40
+        ms = MassJ.average(scans, MassJ.RT( [[1,2], [2,3]] ), stats = false )
+        @test ms isa MassJ.MSscans                                                       #40
         @test ms.num == [2, 3, 4]                                                      #41
 
         a = scans[1] / 2.
@@ -132,47 +132,47 @@ function tests()
         b = scans[1] + scans[4]
         @test b.num == [1,4]                                                           #54
 
-        a = MSj.avg(scans[1], scans[2])
+        a = MassJ.avg(scans[1], scans[2])
         @test a.num == [1,2]                                                           #55
 
-        a = MSj.avg(scans[1], scans[4])
+        a = MassJ.avg(scans[1], scans[4])
         @test a.num == [1,4]                                                           #56
 
-        info = MSj.info("test64.mzXML")
+        info = MassJ.info("test64.mzXML")
         @test info[2] == "MS1-"                                                        #57
 
-        scans = MSj.load("test64.mzXML")
-        @test eltype(scans)              == MSj.MSscan                                 #58
+        scans = MassJ.load("test64.mzXML")
+        @test eltype(scans)              == MassJ.MSscan                                 #58
 
-        info = MSj.info("test.mzXMLM")
+        info = MassJ.info("test.mzXMLM")
         @test info.msg == "File format not supported."                                 #59
 
-        scans = MSj.load("test.mzXMLL")
+        scans = MassJ.load("test.mzXMLL")
         @test info.msg == "File format not supported."                                 #60
 
-        scans = MSj.load("bad1.mzXML")
+        scans = MassJ.load("bad1.mzXML")
         @test scans.msg == "Not an mzXML file."                                        #61
 
-        scans = MSj.info("bad1.mzXML")
+        scans = MassJ.info("bad1.mzXML")
         @test scans.msg == "Not an mzXML file."                                        #62
 
-        scans = MSj.load("bad2.mzXML")
+        scans = MassJ.load("bad2.mzXML")
         @test scans[1].num == 0                                                        #63
 
-        scans = MSj.load("bad3.mzXML")
+        scans = MassJ.load("bad3.mzXML")
         @test scans[1].num == scans[2].num == 0                                        #64
 
-        cr = MSj.chromatogram("test.mzXML", method = MSj.∆MZ([1, 2]))
+        cr = MassJ.chromatogram("test.mzXML", method = MassJ.∆MZ([1, 2]))
         @test cr.msg == "Bad mz ± ∆mz values."                                         #65
 
-        cr = MSj.chromatogram(scans, method = MSj.∆MZ([1, 2]))
+        cr = MassJ.chromatogram(scans, method = MassJ.∆MZ([1, 2]))
         @test cr.msg == "Bad mz ± ∆mz values."                                         #66
 
-        scans = MSj.load("test.mzXML")
-        @test MSj.smooth(scans[1], method = MSj.SG(7,15,0)) isa MSj.MSscan             #67
+        scans = MassJ.load("test.mzXML")
+        @test MassJ.smooth(scans[1], method = MassJ.SG(7,15,0)) isa MassJ.MSscan             #67
 
-        a = MSj.avg(scans[1], scans[4])
-        @test MSj.smooth(a) isa MSj.MSscans                                            #68
+        a = MassJ.avg(scans[1], scans[4])
+        @test MassJ.smooth(a) isa MassJ.MSscans                                            #68
 
         a = scans[1] * scans[4]
         @test a.num == [1,4]                                                           #69
@@ -183,104 +183,104 @@ function tests()
         a = (scans[1] + scans[4]) - (scans[1] - scans[4])
         @test a.num == [1, 4]                                                          #71
 
-        a = scans[1] + MSj.avg(scans[2], scans[5])
+        a = scans[1] + MassJ.avg(scans[2], scans[5])
         @test a.num == [1, 2, 5]                                                       #72
 
-        a = MSj.smooth(scans[1], method = MSj.SG(5,9,0))
+        a = MassJ.smooth(scans[1], method = MassJ.SG(5,9,0))
         @test a.num == 1                                                               #73
 
-       a = MSj.centroid(scans[1], method = MSj.TBPD(:gauss, 4500., 0.2))               #74
+       a = MassJ.centroid(scans[1], method = MassJ.TBPD(:gauss, 4500., 0.2))               #74
        @test length(a.int) == 957
 
        @test typeof(plot(scans[1], method = :relative)) == Plots.Plot{Plots.GRBackend} #75
        @test typeof(plot(scans[1], method = :absolute)) == Plots.Plot{Plots.GRBackend} #76
 
-       a = MSj.avg(scans[2], scans[5])
+       a = MassJ.avg(scans[2], scans[5])
        @test typeof(plot( a, method = :relative )) == Plots.Plot{Plots.GRBackend}      #77
        @test typeof(plot( a, method = :absolute )) == Plots.Plot{Plots.GRBackend}      #78
 
-       cr = MSj.chromatogram(scans)
+       cr = MassJ.chromatogram(scans)
        @test typeof(plot( cr, method = :relative )) == Plots.Plot{Plots.GRBackend}     #79
        @test typeof(plot( cr, method = :absolute )) == Plots.Plot{Plots.GRBackend}     #80
 
-       a = MSj.centroid(scans[1], method = MSj.TBPD(:voigt, 4500., 0.2))
+       a = MassJ.centroid(scans[1], method = MassJ.TBPD(:voigt, 4500., 0.2))
        @test length(a.int) == 961                                                      #81
 
-       a = MSj.centroid(scans[1], method = MSj.TBPD(:lorentz, 4500., 0.2))
+       a = MassJ.centroid(scans[1], method = MassJ.TBPD(:lorentz, 4500., 0.2))
        @test length(a.int) == 964                                                      #82
 
-       a = MSj.centroid(scans[1], method = MSj.TBPD(:other, 4500., 0.2))
+       a = MassJ.centroid(scans[1], method = MassJ.TBPD(:other, 4500., 0.2))
        @test a.msg == "Unsupported peak profile. Use :gauss, :lorentz or :voigt."      #83
 
-       a = MSj.centroid(scans[1], method = MSj.SNRA(1., 100))
+       a = MassJ.centroid(scans[1], method = MassJ.SNRA(1., 100))
        @test length(a.int) == 109                                                      #84
 
-       s1 = MSj.extract(scans, MSj.Activation_Energy([18,35]))
+       s1 = MassJ.extract(scans, MassJ.Activation_Energy([18,35]))
        @test length(s1) == 4                                                           #85
 
-       s1 = MSj.extract("test.mzXML", MSj.Activation_Energy(18))
+       s1 = MassJ.extract("test.mzXML", MassJ.Activation_Energy(18))
        @test length(s1) == 2                                                           #86
 
-       s1 = MSj.extract(scans, MSj.Scan(1))
+       s1 = MassJ.extract(scans, MassJ.Scan(1))
        @test length(s1) == 1                                                           #87
 
-       s1 = MSj.extract("test.mzXML", MSj.Scan(1))
+       s1 = MassJ.extract("test.mzXML", MassJ.Scan(1))
        @test length(s1) == 1                                                           #88
 
-       bs = MSj.baseline_correction(scans, method = MSj.TopHat(1))
+       bs = MassJ.baseline_correction(scans, method = MassJ.TopHat(1))
        @test length(bs) == 6                                                           #89
 
-       bs = MSj.baseline_correction(scans[1], method = MSj.TopHat(1))
+       bs = MassJ.baseline_correction(scans[1], method = MassJ.TopHat(1))
        @test length(bs.int) == length(scans[1].int)                                    #90
 
-       c = MSj.centroid(scans, method = MSj.TBPD(:gauss, 4500., 0.2)) ;
-       bs = MSj.baseline_correction( c, method = MSj.LOESS(3))
+       c = MassJ.centroid(scans, method = MassJ.TBPD(:gauss, 4500., 0.2)) ;
+       bs = MassJ.baseline_correction( c, method = MassJ.LOESS(3))
        @test length(bs) == 6                                                           #91
 
-       bs = MSj.baseline_correction(c[1], method = MSj.LOESS(3))
+       bs = MassJ.baseline_correction(c[1], method = MassJ.LOESS(3))
        @test length(bs.int) == length(c[1].int)                                        #92
 
-       bs = MSj.baseline_correction(scans, method = MSj.IPSA(51,100))
+       bs = MassJ.baseline_correction(scans, method = MassJ.IPSA(51,100))
        @test length(bs) == 6                                                           #93
 
-       bs = MSj.baseline_correction(scans[1], method = MSj.IPSA(51,100))
+       bs = MassJ.baseline_correction(scans[1], method = MassJ.IPSA(51,100))
        @test length(bs.int) == length(scans[1].int)                                    #94
 
-       a = MSj.smooth(scans, method = MSj.SG(5,9,0))
+       a = MassJ.smooth(scans, method = MassJ.SG(5,9,0))
        @test length(a) == 6                                                            #95
 
-       c = MSj.centroid(scans, method = MSj.TBPD(:lorentz, 4500., 0.2)) ;
-       d = MSj.centroid(scans, method = MSj.TBPD(:voigt, 4500., 0.2)) ;
+       c = MassJ.centroid(scans, method = MassJ.TBPD(:lorentz, 4500., 0.2)) ;
+       d = MassJ.centroid(scans, method = MassJ.TBPD(:voigt, 4500., 0.2)) ;
        @test length(c) == length(d)                                                    #96
 
-       a = MSj.centroid(scans[3], method = MSj.SNRA(1., 100))
+       a = MassJ.centroid(scans[3], method = MassJ.SNRA(1., 100))
        @test length(a.int) == 0                                                        #97
 
-       bs = MSj.baseline_correction(scans[1], method = MSj.IPSA(50,100))
+       bs = MassJ.baseline_correction(scans[1], method = MassJ.IPSA(50,100))
        @test length(bs.int) == length(scans[1].int)                                    #98
 
-       cr = MSj.chromatogram(scans, method = MSj.BasePeak() )
+       cr = MassJ.chromatogram(scans, method = MassJ.BasePeak() )
        @test length(cr.rt) == 6                                                        #99
 
-       f = MSj.formula("CH3(13C)10H3Kr(NaH2)2")                                        #100
+       f = MassJ.formula("CH3(13C)10H3Kr(NaH2)2")                                        #100
       @test f == Dict("Na" => 2,"Kr" => 1,"C" => 1,"13C" => 10,"H" => 10)
 
-       m = MSj.masses("C254 H377 N65 O75 S6")                                          #101
+       m = MassJ.masses("C254 H377 N65 O75 S6")                                          #101
       @test m == Dict("Monoisotopic" => 5729.60087099839, "Average" => 5733.55, "Nominal" => 5727.0)
 
-      I = MSj.isotopic_distribution("CH4", 0.9999, charge = +1)                        #102
+      I = MassJ.isotopic_distribution("CH4", 0.9999, charge = +1)                        #102
       @test I[2,1:end] == [16.03130012908, 0.9887541751052761, 1, 0, 4, 0]
 
-      a = MSj.simulate(I, 0.4, Npoints = 5)                                            #103
+      a = MassJ.simulate(I, 0.4, Npoints = 5)                                            #103
       @test a.int == [100.0, 6.035851011021856, 0.06994625998243831, 1.1368602493290418, 0.06861901924947518]
 
-       m = MSj.masses(f)                                                               #104
+       m = MassJ.masses(f)                                                               #104
       @test m == Dict("Monoisotopic" => 282.0028349717, "Average" => 281.902086912, "Nominal" => 282.0)
 
-      I = MSj.isotopic_distribution(f, 0.9999, charge = +1)                            #105
+      I = MassJ.isotopic_distribution(f, 0.9999, charge = +1)                            #105
       @test I[2,1:end][1:2] == [282.0028349717, 0.5630635281692917]
 
-      a = MSj.simulate(I, 0.4, model=:lorentz, Npoints = 5)                            #106
+      a = MassJ.simulate(I, 0.4, model=:lorentz, Npoints = 5)                            #106
       @test a.int == [0.5359868694750152, 16.332387108915455, 100.0, 0.560482304632663, 0.0834376623225204]
 
     end
@@ -291,7 +291,7 @@ function test_isotopes()
     @testset "Isotopes - type stability and optimizations" begin
 
         # Elements dict is const (enables type inference)
-        @test isconst(MSj, :Elements)
+        @test isconst(MassJ, :Elements)
 
         # PriorityQueues are typed
         pq = PriorityQueue{Vector{Int},Float64}()
@@ -300,54 +300,54 @@ function test_isotopes()
         @test peek(pq) == ([0,1] => 0.3)   # min-heap: lowest first
 
         # formula parsing
-        @test MSj.formula("C2H6O") == Dict("C" => 2, "H" => 6, "O" => 1)
-        @test MSj.formula("H2O") == Dict("H" => 2, "O" => 1)
-        @test MSj.formula("NaCl") == Dict("Na" => 1, "Cl" => 1)
-        @test_throws ErrorException MSj.formula("123bad")
-        @test_throws ErrorException MSj.formula("Xx")
+        @test MassJ.formula("C2H6O") == Dict("C" => 2, "H" => 6, "O" => 1)
+        @test MassJ.formula("H2O") == Dict("H" => 2, "O" => 1)
+        @test MassJ.formula("NaCl") == Dict("Na" => 1, "Cl" => 1)
+        @test_throws ErrorException MassJ.formula("123bad")
+        @test_throws ErrorException MassJ.formula("Xx")
 
         # masses calculation
-        m = MSj.masses("H2O")
+        m = MassJ.masses("H2O")
         @test m["Monoisotopic"] ≈ 18.01056468474
         @test m["Average"] ≈ 18.015
         @test m["Nominal"] == 18.0
 
-        m2 = MSj.masses(Dict("H" => 2, "O" => 1))
+        m2 = MassJ.masses(Dict("H" => 2, "O" => 1))
         @test m2 == m
 
         # stirling approximation vs exact log factorial
-        @test MSj.stirling(100) ≈ log(factorial(big(100))) atol=0.01
-        @test MSj.stirling(500) > 0
+        @test MassJ.stirling(100) ≈ log(factorial(big(100))) atol=0.01
+        @test MassJ.stirling(500) > 0
 
         # isotopologue_probability - low mass path (Natoms < 20)
-        prob_H2 = MSj.isotopologue_probability(Dict("H" => 2), Dict("H" => [2, 0]), MSj.Elements)
-        @test prob_H2 ≈ MSj.Elements["H"][1].f^2 atol=1e-10
+        prob_H2 = MassJ.isotopologue_probability(Dict("H" => 2), Dict("H" => [2, 0]), MassJ.Elements)
+        @test prob_H2 ≈ MassJ.Elements["H"][1].f^2 atol=1e-10
 
         # isotopologue_probability - high mass path (Natoms >= 20)
-        prob_C20 = MSj.isotopologue_probability(Dict("C" => 20), Dict("C" => [20, 0]), MSj.Elements)
+        prob_C20 = MassJ.isotopologue_probability(Dict("C" => 20), Dict("C" => [20, 0]), MassJ.Elements)
         @test prob_C20 ≈ 0.8049835604738165 atol=1e-8
 
         # isotopologue_mass
-        cm = MSj.isotopologue_mass([Pair("H", 2)], Dict("H" => [2, 0]), MSj.Elements)
-        @test cm ≈ 2 * MSj.Elements["H"][1].m
+        cm = MassJ.isotopologue_mass([Pair("H", 2)], Dict("H" => [2, 0]), MassJ.Elements)
+        @test cm ≈ 2 * MassJ.Elements["H"][1].m
 
         # most_probable_isotopologue
-        alpha = MSj.most_probable_isotopologue(Dict("C" => 10, "H" => 22), MSj.Elements)
+        alpha = MassJ.most_probable_isotopologue(Dict("C" => 10, "H" => 22), MassJ.Elements)
         @test sum(alpha["C"]) == 10     # conservation
         @test sum(alpha["H"]) == 22     # conservation
         @test alpha["C"][1] >= alpha["C"][2]  # 12C more abundant than 13C
 
         # hill_climbing finds optimum
         f_obj(x) = -(x[1] - 3)^2 - (x[2] - 2)^2
-        P = MSj.hill_climbing([1, 4], f_obj)
+        P = MassJ.hill_climbing([1, 4], f_obj)
         @test P == [3, 2]
 
         # hill_climbing with single-element vector (early return)
-        P_single = MSj.hill_climbing([5], x -> -x[1]^2)
+        P_single = MassJ.hill_climbing([5], x -> -x[1]^2)
         @test P_single == [5]  # no neighbors possible
 
         # isotopic distribution - basic
-        I = MSj.isotopic_distribution("H2O", 0.99, charge = 1)
+        I = MassJ.isotopic_distribution("H2O", 0.99, charge = 1)
         @test size(I, 2) == 7   # Masses, Probability, + isotope columns
         @test I[2, 1] ≈ 18.01056468474   # monoisotopic mass
         @test I[2, 2] ≈ 0.9973367663173334  # probability
@@ -355,11 +355,11 @@ function test_isotopes()
         @test I[1, 2] == "Probability"
 
         # isotopic distribution - charge state divides mass
-        I2 = MSj.isotopic_distribution("H2O", 0.99, charge = 2)
+        I2 = MassJ.isotopic_distribution("H2O", 0.99, charge = 2)
         @test I2[2, 1] ≈ 18.01056468474 / 2
 
         # isotopic distribution - larger molecule
-        I3 = MSj.isotopic_distribution("C254 H377 N65 O75 S6", 0.5)
+        I3 = MassJ.isotopic_distribution("C254 H377 N65 O75 S6", 0.5)
         @test size(I3, 1) > 2          # more than just header
         @test I3[1, 1] == "Masses"
         probs = [I3[i, 2] for i in 2:size(I3, 1)]
@@ -374,28 +374,28 @@ function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
         # is_evenly_spaced
-        @test MSj.is_evenly_spaced([1.0, 2.0, 3.0, 4.0]) == true
-        @test MSj.is_evenly_spaced([1.0, 2.0, 3.5, 4.0]) == false
-        @test MSj.is_evenly_spaced(collect(range(100.0, stop=200.0, length=100))) == true
+        @test MassJ.is_evenly_spaced([1.0, 2.0, 3.0, 4.0]) == true
+        @test MassJ.is_evenly_spaced([1.0, 2.0, 3.5, 4.0]) == false
+        @test MassJ.is_evenly_spaced(collect(range(100.0, stop=200.0, length=100))) == true
 
         # resampling
         X = [1.0, 2.0, 3.5, 5.0]
         Y = [10.0, 20.0, 35.0, 50.0]
-        newX, newY = MSj.resampling(X, Y)
+        newX, newY = MassJ.resampling(X, Y)
         @test length(newX) == length(X)
         @test newX[1] ≈ X[1]
         @test newX[end] ≈ X[end]
-        @test MSj.is_evenly_spaced(newX)
+        @test MassJ.is_evenly_spaced(newX)
 
         # new_mass
-        @test MSj.new_mass(500.0, 5, 1, 1.00782503227) ≈ 416.83463750537834
-        @test MSj.new_mass(500.0, 5, -1, 1.00782503227) ≈ 624.7480437419325
+        @test MassJ.new_mass(500.0, 5, 1, 1.00782503227) ≈ 416.83463750537834
+        @test MassJ.new_mass(500.0, 5, -1, 1.00782503227) ≈ 624.7480437419325
         # new_mass with zero shift returns original
-        @test MSj.new_mass(500.0, 5, 0, 1.0) ≈ 500.0
+        @test MassJ.new_mass(500.0, 5, 0, 1.0) ≈ 500.0
 
         # get_peak_shape
         mz = collect(range(100.0, stop=200.0, length=1000))
-        g = MSj.get_peak_shape(MSj.gauss, 0.5, mz)
+        g = MassJ.get_peak_shape(MassJ.gauss, 0.5, mz)
         @test length(g) > 0
         @test sum(g) ≈ 1.0 atol=1e-10      # normalized
         @test g[argmax(g)] > 0              # has a peak
@@ -403,14 +403,14 @@ function test_deconvolution()
         @test g[1] ≈ g[end] rtol=1.0
 
         # get_peak_shape with lorentz
-        g_lor = MSj.get_peak_shape(MSj.lorentz, 0.5, mz)
+        g_lor = MassJ.get_peak_shape(MassJ.lorentz, 0.5, mz)
         @test sum(g_lor) ≈ 1.0 atol=1e-10
 
         # figure_of_merit
         h = [1.0, 2.0, 3.0, 4.0, 5.0]
-        @test MSj.figure_of_merit(h, h) ≈ 1.0           # perfect match
-        @test MSj.figure_of_merit(h, h .+ 0.1) ≈ 0.995  # close match
-        @test MSj.figure_of_merit(h, h .+ 0.1) > 0.99
+        @test MassJ.figure_of_merit(h, h) ≈ 1.0           # perfect match
+        @test MassJ.figure_of_merit(h, h .+ 0.1) ≈ 0.995  # close match
+        @test MassJ.figure_of_merit(h, h .+ 0.1) > 0.99
 
         # chargefilter - basic shape and properties
         mz_test = collect(range(400.0, stop=600.0, length=200))
@@ -420,48 +420,48 @@ function test_deconvolution()
         for i in 1:10
             f_test[i, :] = int_test
         end
-        s = MSj.chargefilter(mz_test, int_test, f_test, (1, 10), 1.0, 1)
+        s = MassJ.chargefilter(mz_test, int_test, f_test, (1, 10), 1.0, 1)
         @test size(s) == (10, 200)
         @test all(s .>= 0)     # non-negative output
 
         # project_N_convolve
-        g_small = MSj.get_peak_shape(MSj.gauss, 2.0, mz_test)
-        c = MSj.project_N_convolve(s, g_small)
+        g_small = MassJ.get_peak_shape(MassJ.gauss, 2.0, mz_test)
+        c = MassJ.project_N_convolve(s, g_small)
         @test length(c) == 200
         @test all(c .>= 0)
 
         # Charges struct construction
-        ch = MSj.Charges(adduct="H", range=(5, 15), width=2)
+        ch = MassJ.Charges(adduct="H", range=(5, 15), width=2)
         @test ch.adduct == "H"
         @test ch.range == (5, 15)
         @test ch.width == 2
 
         # Charges with default width
-        ch2 = MSj.Charges(adduct="Na", range=(1, 5))
+        ch2 = MassJ.Charges(adduct="Na", range=(1, 5))
         @test ch2.width == 1
 
         # _resolve_shape
-        scans = MSj.load("test.mzXML")
-        model_gauss = MSj._resolve_shape(scans[1], :gauss)
-        @test model_gauss === MSj.gauss
-        model_lor = MSj._resolve_shape(scans[1], :lorentz)
-        @test model_lor === MSj.lorentz
-        model_voigt = MSj._resolve_shape(scans[1], :voigt)
-        @test model_voigt === MSj.voigt
-        @test_throws ErrorException MSj._resolve_shape(scans[1], :invalid)
+        scans = MassJ.load("test.mzXML")
+        model_gauss = MassJ._resolve_shape(scans[1], :gauss)
+        @test model_gauss === MassJ.gauss
+        model_lor = MassJ._resolve_shape(scans[1], :lorentz)
+        @test model_lor === MassJ.lorentz
+        model_voigt = MassJ._resolve_shape(scans[1], :voigt)
+        @test model_voigt === MassJ.voigt
+        @test_throws ErrorException MassJ._resolve_shape(scans[1], :invalid)
 
         # _resolve_FWHM with explicit values
-        @test MSj._resolve_FWHM(scans[1], MSj.gauss, -1, 0.5) == 0.5   # explicit FWHM
-        @test MSj._resolve_FWHM(scans[1], MSj.gauss, 1000.0, -1) == 0.5  # R=1000 → 500/1000=0.5
-        @test_throws ErrorException MSj._resolve_FWHM(scans[1], MSj.gauss, 1000.0, 0.5)  # both
+        @test MassJ._resolve_FWHM(scans[1], MassJ.gauss, -1, 0.5) == 0.5   # explicit FWHM
+        @test MassJ._resolve_FWHM(scans[1], MassJ.gauss, 1000.0, -1) == 0.5  # R=1000 → 500/1000=0.5
+        @test_throws ErrorException MassJ._resolve_FWHM(scans[1], MassJ.gauss, 1000.0, 0.5)  # both
 
         # roughguess_FWHM runs without error
-        w = MSj.roughguess_FWHM(scans[1])
+        w = MassJ.roughguess_FWHM(scans[1])
         @test w > 0
 
         # deconv method exists with correct dispatch
-        @test hasmethod(MSj.deconv, Tuple{MSj.MSscan, MSj.Charges})
-        @test hasmethod(MSj.deconv, Tuple{MSj.MSscans, MSj.Charges})
+        @test hasmethod(MassJ.deconv, Tuple{MassJ.MSscan, MassJ.Charges})
+        @test hasmethod(MassJ.deconv, Tuple{MassJ.MSscans, MassJ.Charges})
 
     end
 end
@@ -469,14 +469,14 @@ end
 
 function test_interpolation_import()
     @testset "Interpolations import fix" begin
-        # Line is accessible from MSj (needed for extrapolation)
-        @test isdefined(MSj, :Line)
-        @test isdefined(MSj, :LinearInterpolation)
+        # Line is accessible from MassJ (needed for extrapolation)
+        @test isdefined(MassJ, :Line)
+        @test isdefined(MassJ, :LinearInterpolation)
 
         # Verify interpolation with Line extrapolation works
         x = [1.0, 2.0, 3.0, 4.0]
         y = [10.0, 20.0, 30.0, 40.0]
-        itp = MSj.LinearInterpolation(x, y, extrapolation_bc=MSj.Line())
+        itp = MassJ.LinearInterpolation(x, y, extrapolation_bc=MassJ.Line())
         @test itp(2.5) ≈ 25.0
         @test itp(0.0) ≈ 0.0    # extrapolated
     end
@@ -486,19 +486,19 @@ end
 function test_mzml()
     @testset "mzML format" begin
         # info
-        inf = MSj.info("test.mzML")
+        inf = MassJ.info("test.mzML")
         @test any(contains(s, "3 scans") for s in inf)
         @test any(contains(s, "MS1+") for s in inf)
         @test any(contains(s, "MS2+") for s in inf)
 
-        inf_v = MSj.info("test.mzML", verbose=true)
+        inf_v = MassJ.info("test.mzML", verbose=true)
         @test any(contains(s, "test.raw") for s in inf_v)
         @test any(contains(s, "LTQ FT") for s in inf_v)
 
         # load all
-        scans = MSj.load("test.mzML")
+        scans = MassJ.load("test.mzML")
         @test length(scans) == 3
-        @test eltype(scans) == MSj.MSscan
+        @test eltype(scans) == MassJ.MSscan
 
         # Scan 1: MS1+, profile, rt=0.5 min
         s1 = scans[1]
@@ -539,34 +539,34 @@ function test_mzml()
         @test length(s3.mz) == 3
 
         # retention_time
-        rt = MSj.retention_time("test.mzML")
+        rt = MassJ.retention_time("test.mzML")
         @test length(rt) == 3
         @test rt ≈ [0.5, 1.0, 1.5]
 
         # chromatogram (TIC)
-        chrom = MSj.chromatogram("test.mzML")
+        chrom = MassJ.chromatogram("test.mzML")
         @test length(chrom.rt) == 3
         @test chrom.rt ≈ [0.5, 1.0, 1.5]
         @test chrom.ic ≈ [19000.0, 4800.0, 2100.0]
         @test chrom.maxic ≈ 19000.0
 
         # chromatogram with filter
-        chrom2 = MSj.chromatogram("test.mzML", MSj.Level(2))
+        chrom2 = MassJ.chromatogram("test.mzML", MassJ.Level(2))
         @test length(chrom2.rt) == 2
 
         # chromatogram base peak
-        chrom_bp = MSj.chromatogram("test.mzML", method=MSj.BasePeak())
+        chrom_bp = MassJ.chromatogram("test.mzML", method=MassJ.BasePeak())
         @test chrom_bp.ic ≈ [8000.0, 2000.0, 1200.0]
 
         # extract
-        ms2 = MSj.extract("test.mzML", MSj.Level(2))
+        ms2 = MassJ.extract("test.mzML", MassJ.Level(2))
         @test length(ms2) == 2
         @test ms2[1].precursor ≈ 400.0
         @test ms2[2].precursor ≈ 500.0
 
         # average
-        avg = MSj.average("test.mzML", MSj.Level(2))
-        @test avg isa MSj.MSscans
+        avg = MassJ.average("test.mzML", MassJ.Level(2))
+        @test avg isa MassJ.MSscans
 
         # New fields present
         @test s1.mobilityType == :none
@@ -580,16 +580,16 @@ end
 function test_mgf()
     @testset "MGF format" begin
         # info
-        inf = MSj.info("test.mgf")
+        inf = MassJ.info("test.mgf")
         @test inf[1] == "3 scans"
         @test any(contains(s, "400.0") for s in inf)
         @test any(contains(s, "500.0") for s in inf)
         @test any(contains(s, "600.0") for s in inf)
 
         # load all
-        scans = MSj.load("test.mgf")
+        scans = MassJ.load("test.mgf")
         @test length(scans) == 3
-        @test eltype(scans) == MSj.MSscan
+        @test eltype(scans) == MassJ.MSscan
 
         # Scan 1
         s1 = scans[1]
@@ -623,23 +623,23 @@ function test_mgf()
         @test length(s3.mz) == 4
 
         # retention_time
-        rt = MSj.retention_time("test.mgf")
+        rt = MassJ.retention_time("test.mgf")
         @test length(rt) == 3
         @test rt ≈ [0.5, 1.0, 1.5]
 
         # chromatogram
-        chrom = MSj.chromatogram("test.mgf")
+        chrom = MassJ.chromatogram("test.mgf")
         @test length(chrom.rt) == 3
         @test chrom.maxic ≈ 4800.0
 
         # extract (filter by precursor)
-        sub = MSj.extract("test.mgf", MSj.Precursor(500.0))
+        sub = MassJ.extract("test.mgf", MassJ.Precursor(500.0))
         @test length(sub) == 1
         @test sub[1].precursor ≈ 500.0
 
         # average
-        avg = MSj.average("test.mgf")
-        @test avg isa MSj.MSscans
+        avg = MassJ.average("test.mgf")
+        @test avg isa MassJ.MSscans
 
         # New MSscan fields
         @test s1.mobilityType == :none
@@ -652,20 +652,20 @@ end
 function test_msp()
     @testset "MSP format" begin
         # info
-        inf = MSj.info("test.msp")
+        inf = MassJ.info("test.msp")
         @test inf[1] == "3 scans"
         @test any(contains(s, "MS2+") for s in inf)
         @test any(contains(s, "MS2-") for s in inf)
         @test any(contains(s, "MS1+") for s in inf)
 
-        inf_v = MSj.info("test.msp", verbose=true)
+        inf_v = MassJ.info("test.msp", verbose=true)
         @test any(contains(s, "Caffeine") for s in inf_v)
         @test any(contains(s, "Aspirin") for s in inf_v)
 
         # load all
-        scans = MSj.load("test.msp")
+        scans = MassJ.load("test.msp")
         @test length(scans) == 3
-        @test eltype(scans) == MSj.MSscan
+        @test eltype(scans) == MassJ.MSscan
 
         # Scan 1: Caffeine MS2+
         s1 = scans[1]
@@ -710,26 +710,26 @@ function test_msp()
         @test s3.metadata["name"] == "Glucose"
 
         # retention_time
-        rt = MSj.retention_time("test.msp")
+        rt = MassJ.retention_time("test.msp")
         @test length(rt) == 3
         @test all(rt .≈ 0.0)  # no RT in MSP test file
 
         # chromatogram
-        chrom = MSj.chromatogram("test.msp")
+        chrom = MassJ.chromatogram("test.msp")
         @test length(chrom.rt) == 3
 
         # extract
-        ms2_pos = MSj.extract("test.msp", MSj.Polarity("+"), MSj.Level(2))
+        ms2_pos = MassJ.extract("test.msp", MassJ.Polarity("+"), MassJ.Level(2))
         @test length(ms2_pos) == 1
         @test ms2_pos[1].metadata["name"] == "Caffeine"
 
-        ms2_neg = MSj.extract("test.msp", MSj.Polarity("-"))
+        ms2_neg = MassJ.extract("test.msp", MassJ.Polarity("-"))
         @test length(ms2_neg) == 1
         @test ms2_neg[1].metadata["name"] == "Aspirin"
 
         # average
-        avg = MSj.average("test.msp", MSj.Level(2))
-        @test avg isa MSj.MSscans
+        avg = MassJ.average("test.msp", MassJ.Level(2))
+        @test avg isa MassJ.MSscans
     end
 end
 
@@ -737,18 +737,18 @@ end
 function test_imzml()
     @testset "imzML format" begin
         # info
-        inf = MSj.info("test.imzML")
+        inf = MassJ.info("test.imzML")
         @test any(contains(s, "4 spectra") for s in inf)
         @test any(contains(s, "MS1+") for s in inf)
 
-        inf_v = MSj.info("test.imzML", verbose=true)
+        inf_v = MassJ.info("test.imzML", verbose=true)
         @test any(contains(s, "processed") for s in inf_v)
         @test any(contains(s, "2 x 2") for s in inf_v)
 
         # load all
-        scans = MSj.load("test.imzML")
+        scans = MassJ.load("test.imzML")
         @test length(scans) == 4
-        @test eltype(scans) == MSj.MSscan
+        @test eltype(scans) == MassJ.MSscan
 
         # Scan 1: position (1,1)
         s1 = scans[1]
@@ -791,20 +791,20 @@ function test_imzml()
         @test s4.metadata["position_y"] == 2
 
         # retention_time
-        rt = MSj.retention_time("test.imzML")
+        rt = MassJ.retention_time("test.imzML")
         @test length(rt) == 4
 
         # chromatogram
-        chrom = MSj.chromatogram("test.imzML")
+        chrom = MassJ.chromatogram("test.imzML")
         @test length(chrom.rt) == 4
 
         # extract
-        all_scans = MSj.extract("test.imzML", MSj.Level(1))
+        all_scans = MassJ.extract("test.imzML", MassJ.Level(1))
         @test length(all_scans) == 4
 
         # average
-        avg = MSj.average("test.imzML")
-        @test avg isa MSj.MSscans
+        avg = MassJ.average("test.imzML")
+        @test avg isa MassJ.MSscans
     end
 end
 
