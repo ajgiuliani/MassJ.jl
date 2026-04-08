@@ -2,3 +2,4 @@ docs/build/
 .DS_Store
 Manifest.toml
 docs/Manifest.toml
+CLAUDE.md
