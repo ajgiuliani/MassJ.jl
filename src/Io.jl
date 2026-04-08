@@ -260,22 +260,37 @@ julia> rt, ic = chromatogram("test.mzxml", method = MassJ.MZ([200,1000]))
 ```
 """
 function chromatogram(scans::Vector{MSscan}, filters::FilterType...; method::MethodType=TIC())
-    # Ranges of mz value used to compute the tic from
-    xrt = Vector{Float64}(undef,0)
-    xic = Vector{Float64}(undef,0)
-    index = Set( i for i in 1:length(scans) )
+    pred = compose_predicates(scans, filters)
 
-    for el in filters
-        subindex = filter(scans, el)
-        index = intersect(index, subindex)
+    xrt = Vector{Float64}(undef, 0)
+    xic = Vector{Float64}(undef, 0)
+
+    for scan in scans
+        pred(scan) || continue
+        push!(xrt, scan.rt)
+        if method isa BasePeak
+            push!(xic, scan.basePeakIntensity)
+        elseif method isa ∆MZ
+            mz1 = convert(Float64, method.arg[1] - method.arg[2])
+            if mz1 < 0.0
+                return ErrorException("Bad mz ± ∆mz values.")
+            end
+            mz2 = convert(Float64, method.arg[1] + method.arg[2])
+            push!(xic, add_ion_current(scan.mz, scan.int, mz1, mz2))
+        elseif method isa MZ
+            mz1 = convert(Float64, method.arg[1])
+            mz2 = convert(Float64, method.arg[2])
+            push!(xic, add_ion_current(scan.mz, scan.int, mz1, mz2))
+        else  # TIC
+            push!(xic, scan.tic)
+        end
     end
 
-    indices = sort([ i for i in index])
-    if length(indices) != 0
-        return extracted_chromatogram(scans, indices, method)
+    if !isempty(xic)
+        return Chromatogram(xrt, xic, maximum(xic))
     else
         ErrorException("No matching spectra.")
-    end    
+    end
 end
 
 
@@ -359,18 +374,26 @@ MassJ.MSscans([9, 12, 15, 18], ...
 ```
 """
 function average(scans::Vector{MSscan}, arguments::FilterType...; stats::Bool=true)
-    index = Set( i for i in 1:length(scans) )
-    
-    for el in arguments
-        subindex = filter(scans, el)
-        index = intersect(index, subindex)
+    pred = compose_predicates(scans, arguments)
+
+    result = nothing
+    count = 0
+    for scan in scans
+        pred(scan) || continue
+        count += 1
+        if count == 1
+            result = scan
+        elseif count == 2
+            result = stats ? avg(result, scan) : result + scan
+        else
+            result = stats ? avg(result, scan) : result + scan
+        end
     end
 
-    indices = sort([ i for i in index])
-    if length(indices) >= 2
-        return composite_spectra(scans, indices, stats)
-    elseif length(indices) == 1
-        return scans[indices[1] ]
+    if count >= 2
+        return stats ? standard_deviation(result, count) : result / count
+    elseif count == 1
+        return result
     else
         ErrorException("No matching spectra.")
     end
