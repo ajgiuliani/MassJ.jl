@@ -14,8 +14,7 @@
 [![Build Status](https://travis-ci.org/ajgiuliani/MassJ.jl.svg?branch=master)](https://travis-ci.org/ajgiuliani/MassJ.jl)
 [![Coverage Status](https://coveralls.io/repos/github/ajgiuliani/MassJ.jl/badge.svg?branch=master)](https://coveralls.io/github/ajgiuliani/MassJ.jl?branch=master)
 [![codecov](https://codecov.io/gh/ajgiuliani/MassJ.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/ajgiuliani/MassJ.jl)
-[![](https://img.shields.io/badge/docs-stable-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/stable)
-[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/dev/)
+[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/stable)
 
 ## Installation
 This package is unregistered. It can be installed either with the Julia package manager.
