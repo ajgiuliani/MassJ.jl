@@ -14,7 +14,7 @@
 [![CI](https://github.com/ajgiuliani/MassJ.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/ajgiuliani/MassJ.jl/actions/workflows/CI.yml)
 [![Coverage Status](https://coveralls.io/repos/github/ajgiuliani/MassJ.jl/badge.svg?branch=master)](https://coveralls.io/github/ajgiuliani/MassJ.jl?branch=master)
 [![codecov](https://codecov.io/gh/ajgiuliani/MassJ.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/ajgiuliani/MassJ.jl)
-[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/stable)
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/dev)
 
 ## Installation
 This package is unregistered. It can be installed either with the Julia package manager.
@@ -30,7 +30,7 @@ Pkg.add(PackageSpec(url="https://github.com/ajgiuliani/MassJ.jl"))
 ```
 
 ## Documentation
-Documentation is available [here](https://ajgiuliani.github.io/MassJ.jl/stable).
+Documentation is available [here](https://ajgiuliani.github.io/MassJ.jl/dev).
 
 
 ## Usage
@@ -63,7 +63,7 @@ ms2 = average(data, MassJ.Level(2))                   # MS2 spectra
 ms3 = average(data, MassJ.Activation_Method("CID"))   # CID spectra
 ```
 
-See the [documentation](https://ajgiuliani.github.io/MassJ.jl/stable) for additional information.
+See the [documentation](https://ajgiuliani.github.io/MassJ.jl/dev) for additional information.
 
 ## Supported file format
 * mzxml
