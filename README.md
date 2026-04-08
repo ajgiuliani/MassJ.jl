@@ -21,7 +21,7 @@
 This package is unregistered. It can be installed either with the Julia package manager.
 From the Julia REPL, type `]` to enter the Pkg REPL mode and run:
 ```julia
-(v1.3) pkg> add https://github.com/ajgiuliani/MassJ.jl
+pkg> add https://github.com/ajgiuliani/MassJ.jl
 ```
 or using the package API:
 
