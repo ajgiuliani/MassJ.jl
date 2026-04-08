@@ -1,7 +1,7 @@
 name = "MassJ"
 uuid = "29d00ee4-54c8-43d9-be5a-d01c626e7957"
 authors = ["Alex Giuliani <giuliani@synchrotron-soleil.fr>"]
-version = "0.3.1"
+version = "1.0.0"
 
 [deps]
 Codecs = "19ecbf4d-ef7c-5e4b-b54a-0a0ff23c5aed"
