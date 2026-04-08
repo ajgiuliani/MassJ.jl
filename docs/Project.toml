@@ -1,6 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-MassJ = "6544b950-350e-11e9-1ffa-cf344a255499"
+MassJ = "29d00ee4-54c8-43d9-be5a-d01c626e7957"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 
 [compat]
