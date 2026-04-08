@@ -67,6 +67,11 @@ See the [documentation](https://ajgiuliani.github.io/MassJ.jl/dev) for additiona
 
 ## Supported file format
 * mzxml
+* mzML
+* MGF
+* MSP
+* imzML
+* txt
 
 ## Other Julia packages
 * [mzXML.jl](https://github.com/timholy/mzXML.jl): Load mass spectrometry mzXML files.
