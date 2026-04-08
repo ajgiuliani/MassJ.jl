@@ -13,7 +13,6 @@
 ##
 [![CI](https://github.com/ajgiuliani/MassJ.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/ajgiuliani/MassJ.jl/actions/workflows/CI.yml)
 [![Coverage Status](https://coveralls.io/repos/github/ajgiuliani/MassJ.jl/badge.svg?branch=master)](https://coveralls.io/github/ajgiuliani/MassJ.jl?branch=master)
-[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/stable)
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/dev)
 
 ## Installation
