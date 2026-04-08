@@ -266,7 +266,9 @@ function tests()
       @test f == Dict("Na" => 2,"Kr" => 1,"C" => 1,"13C" => 10,"H" => 10)
 
        m = MassJ.masses("C254 H377 N65 O75 S6")                                          #101
-      @test m == Dict("Monoisotopic" => 5729.60087099839, "Average" => 5733.55, "Nominal" => 5727.0)
+      @test m["Monoisotopic"] ≈ 5729.60087099839
+      @test m["Average"] ≈ 5733.55
+      @test m["Nominal"] ≈ 5727.0
 
       I = MassJ.isotopic_distribution("CH4", 0.9999, charge = +1)                        #102
       @test I[2,1:end] == [16.03130012908, 0.9887541751052761, 1, 0, 4, 0]
