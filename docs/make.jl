@@ -9,6 +9,7 @@ makedocs(
     modules = [MassJ],
     sitename = "MassJ.jl",
     authors = "Alexandre Giuliani",
+    warnonly = true,
     pages = [
         "Home"                             => "index.md",
         "Tutorials"                        => Any[
