@@ -16,16 +16,16 @@
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/dev)
 
 ## Installation
-This package is unregistered. It can be installed either with the Julia package manager.
+This package is registered. It can be installed either with the Julia package manager.
 From the Julia REPL, type `]` to enter the Pkg REPL mode and run:
 ```julia
-pkg> add https://github.com/ajgiuliani/MassJ.jl
+pkg> add MassJ
 ```
 or using the package API:
 
 ```julia
 using Pkg
-Pkg.add(PackageSpec(url="https://github.com/ajgiuliani/MassJ.jl"))
+Pkg.add("MassJ")
 ```
 
 ## Documentation
@@ -44,6 +44,7 @@ MassJ is a package for loading, processing and plotting mass spectrometry data. 
         baseline correction
         peak-picking
     Calculation of isotopic distribution
+	Charge states deconvolution
 
 To get information on a file:
 ```julia
@@ -73,5 +74,5 @@ See the [documentation](https://ajgiuliani.github.io/MassJ.jl/dev) for additiona
 * txt
 
 ## Other Julia packages
-* [mzXML.jl](https://github.com/timholy/mzXML.jl): Load mass spectrometry mzXML files.
-* [MassSpec.jl](https://github.com/JuliaSpect/MassSpec.jl): Mass spectometry utilities for Julia
+* [MzXML.jl](https://github.com/timholy/MzXML.jl): Load mass spectrometry mzXML files.
+* [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl): Mass spectometry utilities for Julia
