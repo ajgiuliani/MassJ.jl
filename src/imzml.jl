@@ -24,6 +24,72 @@ const CV_IMS_MAX_PIXELS_Y  = "IMS:1000043"
 
 
 """
+    parse_referenceable_param_groups(mzml::XMLElement)
+Parse the `<referenceableParamGroupList>` element and return a dictionary
+mapping group IDs to vectors of `(accession, value)` tuples.
+Real-world imzML files (e.g. ProteoWizard output) commonly use these groups
+to avoid repeating cvParams on every `<binaryDataArray>`.
+"""
+function parse_referenceable_param_groups(mzml::XMLElement)
+    groups = Dict{String, Vector{Tuple{String,String}}}()
+    rpgList = find_element(mzml, "referenceableParamGroupList")
+    if rpgList === nothing
+        return groups
+    end
+    for rpg in child_elements(rpgList)
+        if name(rpg) != "referenceableParamGroup"
+            continue
+        end
+        gid = attribute(rpg, "id")
+        if gid === nothing
+            continue
+        end
+        params = Tuple{String,String}[]
+        for cv in child_elements(rpg)
+            if name(cv) == "cvParam"
+                acc = attribute(cv, "accession")
+                val = attribute(cv, "value")
+                if acc !== nothing
+                    push!(params, (acc, val === nothing ? "" : val))
+                end
+            end
+        end
+        groups[gid] = params
+    end
+    return groups
+end
+
+
+"""
+    has_cv_param_resolved(elem::XMLElement, accession::String,
+                          ref_groups::Dict{String, Vector{Tuple{String,String}}})
+Check whether `elem` has a cvParam with the given accession, either as a direct
+child or via a `<referenceableParamGroupRef>`.
+"""
+function has_cv_param_resolved(elem::XMLElement, accession::String,
+                               ref_groups::Dict{String, Vector{Tuple{String,String}}})
+    # Check direct cvParam children first
+    if has_cv_param(elem, accession)
+        return true
+    end
+    # Check referenced param groups
+    for child in child_elements(elem)
+        if name(child) == "referenceableParamGroupRef"
+            ref = attribute(child, "ref")
+            if ref !== nothing && haskey(ref_groups, ref)
+                for (acc, _) in ref_groups[ref]
+                    if acc == accession
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+
+"""
     load_imzml_all(filename::String)
 Load all spectra from an imzML file. Returns a `Vector{MSscan}`.
 The spatial coordinates (x, y) are stored in the `metadata` dict of each scan.
@@ -32,6 +98,9 @@ Requires the companion `.ibd` file in the same directory.
 function load_imzml_all(filename::String)
     xdoc = parse_file(filename)
     mzml = find_mzml_root(xdoc)
+
+    # Parse referenceableParamGroups (used by ProteoWizard-generated imzML)
+    ref_groups = parse_referenceable_param_groups(mzml)
 
     # Determine .ibd file path
     basepath = filename[1:findlast('.', filename)-1]
@@ -97,7 +166,8 @@ function load_imzml_all(filename::String)
             end
 
             scan = load_imzml_spectrum(spec, index, ibd_io,
-                                       is_continuous, shared_mz, shared_mz_read)
+                                       is_continuous, shared_mz, shared_mz_read,
+                                       ref_groups)
             scans[index] = scan
 
             # After first spectrum in continuous mode, cache the shared m/z
@@ -118,12 +188,15 @@ end
 """
     load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
                         is_continuous::Bool, shared_mz::Vector{Float64},
-                        shared_mz_read::Bool)
+                        shared_mz_read::Bool,
+                        ref_groups::Dict{String, Vector{Tuple{String,String}}})
 Parse a single <spectrum> element from imzML and read its binary data from the .ibd file.
+Resolves `referenceableParamGroupRef` elements via `ref_groups`.
 """
 function load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
                               is_continuous::Bool, shared_mz::Vector{Float64},
-                              shared_mz_read::Bool)
+                              shared_mz_read::Bool,
+                              ref_groups::Dict{String, Vector{Tuple{String,String}}}=Dict{String, Vector{Tuple{String,String}}}())
     # MS level
     msLevel = parse(Int, get_cv_value(spec, CV_MS_LEVEL, "1"))
 
@@ -244,14 +317,15 @@ function load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
                 continue
             end
 
-            is_mz = has_cv_param(bda, CV_MZ_ARRAY)
-            is_int = has_cv_param(bda, CV_INT_ARRAY)
+            # Check array type using both direct cvParams and referenced groups
+            is_mz = has_cv_param_resolved(bda, CV_MZ_ARRAY, ref_groups)
+            is_int = has_cv_param_resolved(bda, CV_INT_ARRAY, ref_groups)
             if !is_mz && !is_int
                 continue
             end
 
             # Check if external data
-            if !has_cv_param(bda, CV_IMS_EXTERNAL_DATA)
+            if !has_cv_param_resolved(bda, CV_IMS_EXTERNAL_DATA, ref_groups)
                 continue
             end
 
@@ -274,15 +348,15 @@ function load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
                 continue
             end
 
-            # Determine precision
-            is_64bit = has_cv_param(bda, CV_64BIT)
+            # Determine precision (check both direct and referenced)
+            is_64bit = has_cv_param_resolved(bda, CV_64BIT, ref_groups)
 
             # Read from .ibd file
             seek(ibd_io, offset)
             raw_data = read(ibd_io, enc_len)
 
-            # Check for zlib compression
-            if has_cv_param(bda, CV_ZLIB)
+            # Check for zlib compression (check both direct and referenced)
+            if has_cv_param_resolved(bda, CV_ZLIB, ref_groups)
                 raw_data = Libz.inflate(raw_data)
             end
 
