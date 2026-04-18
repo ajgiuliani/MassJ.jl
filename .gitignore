@@ -1,5 +1,8 @@
 docs/build/
+docs/pdf/
 .DS_Store
 Manifest.toml
 docs/Manifest.toml
 CLAUDE.md
+.claude/
+.ipynb_checkpoints/
