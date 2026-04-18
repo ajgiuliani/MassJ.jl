@@ -27,33 +27,33 @@
  1
  2
  3</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = range(1, 10, step = 2)   # linearly spaced</code><code class="nohighlight hljs ansi" style="display:block;">1:2:9</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = range(1, 10, length = 5) # linearly spaced</code><code class="nohighlight hljs ansi" style="display:block;">1.0:2.25:10.0</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = rand(10)                 # random with 10 elements</code><code class="nohighlight hljs ansi" style="display:block;">10-element Vector{Float64}:
- 0.1655359145925459
- 0.6303562039501318
- 0.4810742603194492
- 0.5710420084081239
- 0.8814191023952919
- 0.7941774166224604
- 0.6600104817409737
- 0.8350988115809136
- 0.8800521528833883
- 0.5590430960751396</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; j = 2; k = 2; n = 10;</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = j:k:n                    # from j to n with step size k</code><code class="nohighlight hljs ansi" style="display:block;">2:2:10</code></pre><p>and similarly for matrices</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = [1 2; 3 4]               # matrix</code><code class="nohighlight hljs ansi" style="display:block;">2×2 Matrix{Int64}:
+ 0.701339501531173
+ 0.6619917350613207
+ 0.8013762980969138
+ 0.40512636564126003
+ 0.8586373499697562
+ 0.793020296586046
+ 0.311686557864407
+ 0.7832668102472667
+ 0.9918101115767458
+ 0.7745935958614587</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; j = 2; k = 2; n = 10;</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = j:k:n                    # from j to n with step size k</code><code class="nohighlight hljs ansi" style="display:block;">2:2:10</code></pre><p>and similarly for matrices</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = [1 2; 3 4]               # matrix</code><code class="nohighlight hljs ansi" style="display:block;">2×2 Matrix{Int64}:
  1  2
  3  4</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = rand(2, 2)               # random 2x2 matrix</code><code class="nohighlight hljs ansi" style="display:block;">2×2 Matrix{Float64}:
- 0.855654  0.876469
- 0.34985   0.153817</code></pre><p>Vector and matrices can be manipulated as follow:</p><pre><code class="language- hljs">transpose(A)                 # Return the transpose of A
+ 0.166844  0.358321
+ 0.630659  0.826917</code></pre><p>Vector and matrices can be manipulated as follow:</p><pre><code class="language- hljs">transpose(A)                 # Return the transpose of A
 A[:]                         # Flatten matrix A (convert matrix to vector)
 A[2,2]                       # Accessing element at row 2 and colomun 2
 A[1:4, :]                    # Accessing specific rows 1 to 4</code></pre><p>Vector and matrix may be preallocated like this:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; A = rand(5)                  # a vector / matrix</code><code class="nohighlight hljs ansi" style="display:block;">5-element Vector{Float64}:
- 0.11128421199972605
- 0.17926917357657524
- 0.8281135652456552
- 0.5398985095683153
- 0.8550860002440036</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; B = similar(A)               # an emply vector / matrix similar to A</code><code class="nohighlight hljs ansi" style="display:block;">5-element Vector{Float64}:
-   3.16e-322
-   1.0e-323
- NaN
- NaN
-   0.0</code></pre><h2 id="Operations"><a class="docs-heading-anchor" href="#Operations">Operations</a><a id="Operations-1"></a><a class="docs-heading-anchor-permalink" href="#Operations" title="Permalink"></a></h2><p>The following present a few example of operations:</p><pre><code class="language- hljs">julia&gt; dot(A,B)                     # dot product between A and B 
+ 0.7252194995992853
+ 0.5922539869061164
+ 0.1478611215439064
+ 0.9077840069077693
+ 0.6313426349639842</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; B = similar(A)               # an emply vector / matrix similar to A</code><code class="nohighlight hljs ansi" style="display:block;">5-element Vector{Float64}:
+ 0.0
+ 0.0
+ 0.0
+ 0.0
+ 0.0</code></pre><h2 id="Operations"><a class="docs-heading-anchor" href="#Operations">Operations</a><a id="Operations-1"></a><a class="docs-heading-anchor-permalink" href="#Operations" title="Permalink"></a></h2><p>The following present a few example of operations:</p><pre><code class="language- hljs">julia&gt; dot(A,B)                     # dot product between A and B 
 julia&gt; A .* B                       # Element wise multiplication
 julia&gt; A * B                        # Matrix multiplcation
 julia&gt; norm(A)                      # Euclidian norm
@@ -80,4 +80,4 @@ julia&gt; Pkg.add(&quot;A_package&quot;)
 julia&gt; using A_package</code></pre><p>Now every public function which is made available by the package <code>A_package</code> is available directly. Private functions have to be called like this: </p><pre><code class="language- hljs">julia&gt; a_public_function()                   # Calling a public function
 julia&gt; A_package.a_private_function()        # Calling private functions</code></pre><p>The same is true for the variables defined in the packages.</p><h1 id="Jupyter-notebooks"><a class="docs-heading-anchor" href="#Jupyter-notebooks">Jupyter notebooks</a><a id="Jupyter-notebooks-1"></a><a class="docs-heading-anchor-permalink" href="#Jupyter-notebooks" title="Permalink"></a></h1><p><a href="https://jupyter.org/">Jupyter</a> notebooks are web based documents that may contains both codes, figures and other textual elements (such as equations, links, ...).  Jupyter notebook may be installed easily using Julia:</p><pre><code class="nohighlight hljs">julia&gt; using Pkg
 julia&gt; Pkg.add(&quot;IJulia&quot;)</code></pre><p>When IJulia is installed, then a notebook may be launch like this:</p><pre><code class="nohighlight hljs">julia&gt; using IJulia
-julia&gt; notebook()</code></pre><p>The <code>notebook()</code> function should launch a web browser from which a new notebook  may be started. On each entry of the notebook code, Markdown or text may be inserted. Each line of code may be executed and will eventually return a result. In the following, the tutorials are organized in <a href="../../reference/#Base.:--Tuple{MassJ.MScontainer, MassJ.MScontainer}">Jupyer notebooks</a> form and can be viewed using <a href="http://nbviewer.jupyter.org/">nbviewer</a>.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../">« Home</a><a class="docs-footer-nextpage" href="../jupyter/">Jupyer notebooks »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Saturday 18 April 2026 15:15">Saturday 18 April 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+julia&gt; notebook()</code></pre><p>The <code>notebook()</code> function should launch a web browser from which a new notebook  may be started. On each entry of the notebook code, Markdown or text may be inserted. Each line of code may be executed and will eventually return a result. In the following, the tutorials are organized in <a href="../../reference/#Base.:--Tuple{MassJ.MScontainer, MassJ.MScontainer}">Jupyer notebooks</a> form and can be viewed using <a href="http://nbviewer.jupyter.org/">nbviewer</a>.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../">« Home</a><a class="docs-footer-nextpage" href="../jupyter/">Jupyer notebooks »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Saturday 18 April 2026 15:25">Saturday 18 April 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
