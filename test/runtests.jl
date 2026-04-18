@@ -811,6 +811,44 @@ function test_imzml()
 end
 
 
+function test_composed_predicates()
+    scans = MassJ.load("test.mzXML")
+
+    @testset "Composed predicates - empty filter returns all scans" begin
+        sub = MassJ.extract(scans)
+        @test length(sub) == length(scans)
+
+        chrom = MassJ.chromatogram(scans)
+        @test length(chrom.rt) == length(scans)
+    end
+
+    @testset "Composed predicates - no match returns ErrorException" begin
+        @test MassJ.extract(scans, MassJ.Level(99))       isa ErrorException
+        @test MassJ.chromatogram(scans, MassJ.Level(99))  isa ErrorException
+        @test MassJ.average(scans, MassJ.Level(99))       isa ErrorException
+    end
+
+    @testset "Composed predicates - single match in average returns MSscan" begin
+        result = MassJ.average(scans, MassJ.Scan(1))
+        @test result isa MassJ.MSscan
+        @test result.num == 1
+    end
+
+    @testset "Composed predicates - AND semantics equivalence" begin
+        # Single-pass composition must yield the same scans as stepwise filtering.
+        combined = MassJ.extract(scans, MassJ.Level(2), MassJ.Polarity("+"))
+        stepwise = MassJ.extract(MassJ.extract(scans, MassJ.Level(2)), MassJ.Polarity("+"))
+        @test [s.num for s in combined] == [s.num for s in stepwise]
+    end
+
+    @testset "Composed predicates - multiple disjoint RT ranges" begin
+        # Two RT intervals that together cover scans at RT≈0.14, 0.73 and 4.34 in test.mzXML.
+        ms = MassJ.average(scans, MassJ.RT([[0.0, 1.0], [4.0, 5.0]]), stats = false)
+        @test ms isa MassJ.MSscans
+    end
+end
+
+
 tests()
 test_isotopes()
 test_deconvolution()
@@ -819,3 +857,4 @@ test_mzml()
 test_mgf()
 test_msp()
 test_imzml()
+test_composed_predicates()
