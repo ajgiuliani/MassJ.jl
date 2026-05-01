@@ -1,6 +1,12 @@
 
 """
 Deconvolution submodule.
+
+Independent reimplementation of the UniDec algorithm. Reference:
+  Marty, M. T.; Baldwin, A. J.; Marklund, E. G.; Hochberg, G. K. A.;
+  Benesch, J. L. P.; Robinson, C. V. "Bayesian Deconvolution of Mass and Ion
+  Mobility Spectra: From Binary Interactions to Polydisperse Ensembles."
+  Anal. Chem. 2015, 87, 4370. DOI: 10.1021/acs.analchem.5b00140
 """
 
 # User Interface.

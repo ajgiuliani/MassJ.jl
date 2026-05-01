@@ -1,5 +1,9 @@
 """
-Isotopic distributions. 
+Isotopic distributions.
+
+Independent reimplementation of the IsoSpec algorithm. Reference:
+  Łącki, M. K.; Startek, M.; Valkenborg, D.; Gambin, A.
+  "IsoSpec: Hyperfast Fine Structure Calculator." Anal. Chem. 2017, 89, 3272.
 """
 
 include("isotopes-data.jl")

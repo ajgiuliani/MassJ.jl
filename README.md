@@ -77,3 +77,9 @@ See the [documentation](https://ajgiuliani.github.io/MassJ.jl/stable) for additi
 * [MzXML.jl](https://github.com/timholy/MzXML.jl): Load mass spectrometry mzXML files.
 * [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl): Mass spectometry utilities for Julia
 
+## References
+The isotopic distribution and charge deconvolution routines are independent reimplementations of published algorithms. If you use them, please cite the original works:
+
+* **IsoSpec** (isotopic distributions): Łącki, M. K.; Startek, M.; Valkenborg, D.; Gambin, A. *IsoSpec: Hyperfast Fine Structure Calculator.* Anal. Chem. **2017**, 89, 3272. [Project](https://github.com/MatteoLacki/IsoSpec)
+* **UniDec** (charge/mass deconvolution): Marty, M. T.; Baldwin, A. J.; Marklund, E. G.; Hochberg, G. K. A.; Benesch, J. L. P.; Robinson, C. V. *Bayesian Deconvolution of Mass and Ion Mobility Spectra: From Binary Interactions to Polydisperse Ensembles.* Anal. Chem. **2015**, 87, 4370. DOI: [10.1021/acs.analchem.5b00140](https://doi.org/10.1021/acs.analchem.5b00140). [Project](https://github.com/michaelmarty/UniDec)
+
