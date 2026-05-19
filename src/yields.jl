@@ -10,10 +10,116 @@ plotted directly or post-processed with [`normalize_tic`](@ref) / [`normalize_fl
 # User Interface.
 # ---------------
 
-export Peak, YieldCurve, yields, integrate_window, normalize_tic, normalize_flux, read_peaklist
+export AbstractPeak, Peak, TargetPeak, YieldCurve,
+       yields, integrate_window, normalize_tic, normalize_flux, read_peaklist
 
 
 const _YIELDS_SUPPORTED_EXT = ("mzml", "mzxml", "mgf", "msp", "imzml", "txt")
+
+
+# --- Constructors for Peak / TargetPeak (single m/z + tolerance) ------------
+
+"""
+    Peak(mz::Real, label::AbstractString; tol = nothing, ppm = nothing) -> Peak
+Construct a [`Peak`](@ref) with a fixed window centred on `mz`. Provide exactly
+one of `tol` (absolute Δm/z) or `ppm` (parts per million); the resulting window
+is `[mz - Δ, mz + Δ]` with `Δ = tol` or `Δ = mz * ppm * 1e-6`.
+"""
+function Peak(mz::Real, label::AbstractString;
+              tol::Union{Real,Nothing} = nothing,
+              ppm::Union{Real,Nothing} = nothing)
+    Δ = _resolve_tol(mz, tol, ppm, "Peak")
+    return Peak(Float64(mz) - Δ, Float64(mz) + Δ, label)
+end
+
+
+"""
+    TargetPeak(mz::Real, label::AbstractString;
+               tol = nothing, ppm = nothing,
+               method::Symbol = :local_max, edges::Real = 0.1) -> TargetPeak
+Construct a [`TargetPeak`](@ref) with target `mz`. The search half-width is set
+from `tol` (absolute) or `ppm` (parts per million). `method` selects the
+per-file resolution algorithm — see [`TargetPeak`](@ref).
+"""
+function TargetPeak(mz::Real, label::AbstractString;
+                    tol::Union{Real,Nothing} = nothing,
+                    ppm::Union{Real,Nothing} = nothing,
+                    method::Symbol = :local_max,
+                    edges::Real    = 0.1)
+    Δ = _resolve_tol(mz, tol, ppm, "TargetPeak")
+    method ∈ (:local_max, :edges, :centroid) ||
+        error("TargetPeak: method must be :local_max, :edges, or :centroid (got :$method)")
+    return TargetPeak(Float64(mz), String(label), Δ, method, Float64(edges))
+end
+
+
+function _resolve_tol(mz::Real, tol, ppm, who::String)
+    if tol === nothing && ppm === nothing
+        error("$who: provide either `tol` (absolute Δm/z) or `ppm`")
+    elseif tol !== nothing && ppm !== nothing
+        error("$who: provide only one of `tol` or `ppm`")
+    end
+    return tol === nothing ? Float64(mz) * Float64(ppm) * 1e-6 : Float64(tol)
+end
+
+
+# --- Per-file peak resolution ----------------------------------------------
+
+# Returns (mz1, mz2, found_mz). For a fixed Peak, found_mz = NaN.
+_resolve_peak(::MScontainer, ::Any, p::Peak) = (p.mz1, p.mz2, NaN)
+
+function _resolve_peak(spec::MScontainer, centroided, p::TargetPeak)
+    if p.method === :centroid
+        return _resolve_centroid(centroided, p)
+    end
+    lo = p.mz - p.tol
+    hi = p.mz + p.tol
+    idx = findall(x -> lo <= x <= hi, spec.mz)
+    if isempty(idx)
+        @warn "TargetPeak: no samples in [$lo, $hi] for target $(p.mz) ($(p.label))"
+        return (lo, hi, NaN)
+    end
+    k_rel = argmax(@view spec.int[idx])
+    k     = idx[k_rel]
+    found = spec.mz[k]
+    if p.method === :local_max
+        return (found - p.tol, found + p.tol, found)
+    else  # :edges
+        thresh = p.edges * spec.int[k]
+        l = k
+        while l > 1 && spec.int[l - 1] > thresh
+            l -= 1
+        end
+        r = k
+        while r < length(spec.int) && spec.int[r + 1] > thresh
+            r += 1
+        end
+        return (spec.mz[l], spec.mz[r], found)
+    end
+end
+
+function _resolve_centroid(centroided, p::TargetPeak)
+    centroided === nothing &&
+        error("TargetPeak :centroid requires `yields(...; centroid_method=...)`")
+    lo = p.mz - p.tol
+    hi = p.mz + p.tol
+    cmz = centroided.mz
+    cit = centroided.int
+    idx = findall(x -> lo <= x <= hi, cmz)
+    if isempty(idx)
+        @warn "TargetPeak :centroid: no centroid in [$lo, $hi] for $(p.mz) ($(p.label))"
+        return (lo, hi, NaN)
+    end
+    k_rel = argmax(@view cit[idx])
+    found = cmz[idx[k_rel]]
+    return (found - p.tol, found + p.tol, found)
+end
+
+
+_window_of(p::Peak)       = (p.mz1, p.mz2)
+_window_of(p::TargetPeak) = (p.mz - p.tol, p.mz + p.tol)
+
+_needs_centroid(peaks) = any(p -> p isa TargetPeak && p.method === :centroid, peaks)
 
 
 """
@@ -41,64 +147,86 @@ integrate_window(scan::MScontainer, mz1::Real, mz2::Real) =
 
 
 """
-    yields(files::Vector{<:AbstractString}, peaks::Vector{Peak};
-           x::AbstractVector{<:Real}, xlabel::AbstractString = "energy")
+    yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
+           x::AbstractVector{<:Real},
+           xlabel::AbstractString = "energy",
+           centroid_method::Union{MethodType,Nothing} = nothing)
 Build a [`YieldCurve`](@ref) from an explicit list of spectrum files. Each file is
-loaded and reduced to a single spectrum with `average(f)`; each [`Peak`](@ref) window
-is then integrated. `x` (one value per file) carries the external parameter.
+loaded and reduced to a single spectrum with `average(f)`; each
+[`AbstractPeak`](@ref) is then resolved against that spectrum (fixed window for
+[`Peak`](@ref), located per-file for [`TargetPeak`](@ref)) and integrated.
+
+`x` (one value per file) carries the external parameter (energy, wavelength, CE…).
+`centroid_method` is required only when at least one [`TargetPeak`](@ref) uses
+`method = :centroid`; it is forwarded to [`MassJ.centroid`](@ref). Defaults to
+`MassJ.SNRA(1.0, 100)` in that case.
 
 Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
 # Examples
 ```julia-repl
-julia> peaks = [Peak(100.0, 101.0, "A"), Peak(200.0, 201.0, "B")];
+julia> peaks = [Peak(100.5, "A"; tol = 0.5),
+                TargetPeak(200.0, "B"; ppm = 5.0, method = :edges)];
 
-julia> yc = yields(["e0.mzML", "e1.mzML", "e2.mzML"], peaks;
-                   x = [3.5, 4.0, 4.5], xlabel = "photon energy (eV)");
+julia> yc = yields(["e0.mzML", "e1.mzML"], peaks;
+                   x = [3.5, 4.0], xlabel = "photon energy (eV)");
 ```
 """
-function yields(files::Vector{<:AbstractString}, peaks::Vector{Peak};
+function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
                 x::AbstractVector{<:Real},
-                xlabel::AbstractString = "energy")
+                xlabel::AbstractString = "energy",
+                centroid_method::Union{MethodType,Nothing} = nothing)
     length(x) == length(files) ||
         error("yields: length(x) ($(length(x))) != length(files) ($(length(files)))")
-    nfiles = length(files)
-    npeaks = length(peaks)
-    Y   = Array{Float64}(undef, nfiles, npeaks)
-    tic = Vector{Float64}(undef, nfiles)
+    nfiles    = length(files)
+    npeaks    = length(peaks)
+    Y         = Array{Float64}(undef, nfiles, npeaks)
+    found_mz  = fill(NaN, nfiles, npeaks)
+    tic       = Vector{Float64}(undef, nfiles)
+
+    do_centroid = _needs_centroid(peaks)
+    cmethod = do_centroid && centroid_method === nothing ? SNRA(1.0, 100) : centroid_method
+
     for (i, f) in enumerate(files)
         spec = average(f)
+        cen  = do_centroid ? centroid(spec; method = cmethod) : nothing
         rowtic = 0.0
-        for p in 1:npeaks
-            a = integrate_window(spec, peaks[p].mz1, peaks[p].mz2)
-            Y[i, p] = a
+        for (p, peak) in enumerate(peaks)
+            lo, hi, found = _resolve_peak(spec, cen, peak)
+            a = integrate_window(spec, lo, hi)
+            Y[i, p]        = a
+            found_mz[i, p] = found
             rowtic += a
         end
         tic[i] = rowtic
     end
-    windows = [(p.mz1, p.mz2) for p in peaks]
-    labels  = [p.label       for p in peaks]
-    return YieldCurve(collect(Float64, x), String(xlabel), Y, tic,
+    windows = [_window_of(peak) for peak in peaks]
+    labels  = [peak.label        for peak in peaks]
+    return YieldCurve(collect(Float64, x), String(xlabel), Y, tic, found_mz,
                       labels, windows, String.(files), Dict{String,Any}())
 end
 
 
 """
-    yields(dir::AbstractString, peaks::Vector{Peak};
-           x0::Real, step::Real, xlabel::AbstractString = "energy")
+    yields(dir::AbstractString, peaks::Vector{<:AbstractPeak};
+           x0::Real, step::Real,
+           xlabel::AbstractString = "energy",
+           centroid_method::Union{MethodType,Nothing} = nothing)
 Convenience method: list supported spectrum files in `dir` (natural-sort order) and
-assign x = x0 + step*(i-1) to file i.
+assign `x = x0 + step*(i-1)` to file `i`.
 """
-function yields(dir::AbstractString, peaks::Vector{Peak};
+function yields(dir::AbstractString, peaks::Vector{<:AbstractPeak};
                 x0::Real, step::Real,
-                xlabel::AbstractString = "energy")
+                xlabel::AbstractString = "energy",
+                centroid_method::Union{MethodType,Nothing} = nothing)
     files = list_spectra(dir)
     if isempty(files)
         exts = join(_YIELDS_SUPPORTED_EXT, ", ")
         error("yields: no supported spectra in $dir (extensions: $exts)")
     end
     x = [x0 + step * (i - 1) for i in 1:length(files)]
-    return yields(files, peaks; x = x, xlabel = xlabel)
+    return yields(files, peaks; x = x, xlabel = xlabel,
+                  centroid_method = centroid_method)
 end
 
 
@@ -126,24 +254,60 @@ end
 
 
 """
-    read_peaklist(path::AbstractString) -> Vector{Peak}
-Parse a CSV file with columns `mz1, mz2, label` (with or without a header) into a
-`Vector{Peak}`.
+    read_peaklist(path::AbstractString;
+                  tol::Real = 0.5,
+                  ppm::Union{Real,Nothing} = nothing,
+                  method::Symbol = :local_max) -> Vector{<:AbstractPeak}
+Parse a CSV peak list. The format is auto-detected from the column count:
+
+| Cols | Layout                              | Result                                |
+|------|-------------------------------------|---------------------------------------|
+| 2    | `mz, label`                         | [`TargetPeak`](@ref) using `tol`/`ppm`/`method` kwargs |
+| 3    | `mz1, mz2, label`                   | [`Peak`](@ref) (legacy fixed-window form)             |
+| 4    | `mz, tol, method, label`            | [`TargetPeak`](@ref) with per-row `tol` and `method` |
+
+A header row is optional and auto-detected: row 1 is treated as a header when its
+first cell is non-numeric. The `tol`, `ppm`, and `method` keywords apply only to
+the 2-column form.
 """
-function read_peaklist(path::AbstractString)
+function read_peaklist(path::AbstractString;
+                       tol::Real = 0.5,
+                       ppm::Union{Real,Nothing} = nothing,
+                       method::Symbol = :local_max)
     isfile(path) || error("read_peaklist: file not found: $path")
-    data = readdlm(path, ',')
-    size(data, 2) >= 3 ||
-        error("read_peaklist: need at least 3 columns (mz1, mz2, label)")
-    first = data[1, 1]
-    has_header = !(first isa Number) &&
-                 tryparse(Float64, strip(string(first))) === nothing
-    rows = has_header ? data[2:end, :] : data
-    peaks = Peak[]
-    for r in 1:size(rows, 1)
-        push!(peaks, Peak(_tofloat(rows[r, 1]),
-                          _tofloat(rows[r, 2]),
-                          String(strip(string(rows[r, 3])))))
+    data  = readdlm(path, ',')
+    ncols = size(data, 2)
+    ncols in (2, 3, 4) ||
+        error("read_peaklist: expected 2, 3, or 4 columns (got $ncols)")
+    first_cell = data[1, 1]
+    has_header = !(first_cell isa Number) &&
+                 tryparse(Float64, strip(string(first_cell))) === nothing
+    rows  = has_header ? data[2:end, :] : data
+    nrows = size(rows, 1)
+    peaks = AbstractPeak[]
+
+    if ncols == 3
+        for r in 1:nrows
+            push!(peaks, Peak(_tofloat(rows[r, 1]),
+                              _tofloat(rows[r, 2]),
+                              String(strip(string(rows[r, 3])))))
+        end
+    elseif ncols == 2
+        for r in 1:nrows
+            label = String(strip(string(rows[r, 2])))
+            mz    = _tofloat(rows[r, 1])
+            push!(peaks,
+                  ppm === nothing ?
+                      TargetPeak(mz, label; tol = tol, method = method) :
+                      TargetPeak(mz, label; ppm = ppm, method = method))
+        end
+    else  # ncols == 4
+        for r in 1:nrows
+            push!(peaks, TargetPeak(_tofloat(rows[r, 1]),
+                                    String(strip(string(rows[r, 4])));
+                                    tol    = _tofloat(rows[r, 2]),
+                                    method = Symbol(strip(string(rows[r, 3])))))
+        end
     end
     return peaks
 end
@@ -168,7 +332,7 @@ function normalize_tic(yc::YieldCurve)
     end
     md = copy(yc.metadata)
     md["normalize_tic"] = true
-    return YieldCurve(copy(yc.x), yc.xlabel, Y, copy(yc.tic),
+    return YieldCurve(copy(yc.x), yc.xlabel, Y, copy(yc.tic), copy(yc.found_mz),
                       copy(yc.labels), copy(yc.windows),
                       copy(yc.files), md)
 end
@@ -202,7 +366,7 @@ function normalize_flux(yc::YieldCurve, flux_file::AbstractString)
     end
     md = copy(yc.metadata)
     md["normalize_flux"] = String(flux_file)
-    return YieldCurve(copy(yc.x), yc.xlabel, Y, tic,
+    return YieldCurve(copy(yc.x), yc.xlabel, Y, tic, copy(yc.found_mz),
                       copy(yc.labels), copy(yc.windows),
                       copy(yc.files), md)
 end
