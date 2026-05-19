@@ -14,6 +14,7 @@ using MassJ:MScontainer
 using MassJ:Chromatogram
 using MassJ:MSscan
 using MassJ:MSscans
+using MassJ:YieldCurve
 
 """
     normalisation(ms::MassJ.MScontainer)
@@ -102,6 +103,19 @@ Allows plotting directly chromatograms. The defaults relative intensity plotting
     scaling(cr), y
 end
 
+
+"""
+    k(yc::MassJ.YieldCurve)
+Plot a YieldCurve: one line per peak, x-axis from `yc.x`, legend from `yc.labels`,
+x-label from `yc.xlabel`.
+"""
+@recipe function k(yc::YieldCurve)
+    seriestype --> :path
+    xlabel     --> yc.xlabel
+    ylabel     --> "yield (a.u.)"
+    label      --> reshape(yc.labels, 1, :)
+    yc.x, yc.yields
+end
 
 
 end # submodule
