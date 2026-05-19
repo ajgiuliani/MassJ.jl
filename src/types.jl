@@ -295,13 +295,23 @@ external parameter `x` (e.g. photon energy, wavelength, collision energy). Built
         x::Vector{Float64}                      # external parameter (one per file)
         xlabel::String                          # x-axis label (e.g. "energy (eV)")
         yields::Matrix{Float64}                 # nfiles × npeaks integrated intensities
+        yields_err::Matrix{Float64}             # nfiles × npeaks 1-σ uncertainties
         tic::Vector{Float64}                    # per-file sum of peak integrals (raw)
+        tic_err::Vector{Float64}                # per-file 1-σ on tic
         found_mz::Matrix{Float64}               # nfiles × npeaks located m/z (NaN for Peak)
         labels::Vector{String}                  # peak labels (length = npeaks)
         windows::Vector{Tuple{Float64,Float64}} # nominal (mz1, mz2) for each peak
         files::Vector{String}                   # source file paths (one per row)
         metadata::Dict{String,Any}              # records normalization steps applied
     end
+
+`yields_err[i, j]` carries the 1-σ uncertainty on `yields[i, j]`, propagated by
+trapezoidal integration from the per-m/z standard error of the averaged
+spectrum (SEM = `sqrt(s / (N*(N-1)))` where `N = length(spec.num)` and `s` is
+the Welford accumulator stored in `MSscans`). It is `NaN` when no error
+information is available (single scan, `MSscan` input). `tic_err[i]` is the
+combined 1-σ on `tic[i]`. [`normalize_tic`](@ref) and [`normalize_flux`](@ref)
+propagate these uncertainties through their respective transformations.
 
 `found_mz[i, j]` carries the actually-located m/z when peak `j` is a
 [`TargetPeak`](@ref), and `NaN` when peak `j` is a fixed [`Peak`](@ref). For
@@ -313,7 +323,9 @@ struct YieldCurve <: MScontainer
     x::Vector{Float64}
     xlabel::String
     yields::Matrix{Float64}
+    yields_err::Matrix{Float64}
     tic::Vector{Float64}
+    tic_err::Vector{Float64}
     found_mz::Matrix{Float64}
     labels::Vector{String}
     windows::Vector{Tuple{Float64,Float64}}
