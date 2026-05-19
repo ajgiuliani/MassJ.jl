@@ -204,19 +204,36 @@ end
 
 
 """
-    struct Peak
-Defines an m/z integration window and its label, used by [`yields`](@ref) to integrate
-specific peaks across a series of spectra.
+    abstract type AbstractPeak
+Supertype for peak descriptors accepted by [`yields`](@ref). Two concrete subtypes
+are provided: [`Peak`](@ref) for a fixed m/z window and [`TargetPeak`](@ref) for a
+target m/z that is located in each spectrum at integration time.
+"""
+abstract type AbstractPeak end
 
-    struct Peak
+
+"""
+    struct Peak <: AbstractPeak
+A fixed m/z integration window with a label. Used by [`yields`](@ref) to integrate
+the same window across every spectrum in a series.
+
+    struct Peak <: AbstractPeak
         mz1::Float64    # lower m/z bound
         mz2::Float64    # upper m/z bound
-        label::String   # peak label (used as column header / legend entry)
+        label::String   # peak label (CSV column header / legend entry)
     end
 
-The constructor enforces `mz1 <= mz2` by swapping if needed.
+Three constructor forms:
+
+```julia
+Peak(mz1, mz2, label)                # explicit window
+Peak(mz, label; tol = 0.5)           # mz ± tol (absolute Δm/z)
+Peak(mz, label; ppm = 5.0)           # mz ± mz·ppm·1e-6
+```
+
+The three-argument constructor enforces `mz1 <= mz2` by swapping if needed.
 """
-struct Peak
+struct Peak <: AbstractPeak
     mz1::Float64
     mz2::Float64
     label::String
@@ -224,6 +241,47 @@ struct Peak
         a, b = Float64(mz1), Float64(mz2)
         a <= b ? new(a, b, String(label)) : new(b, a, String(label))
     end
+end
+
+
+"""
+    struct TargetPeak <: AbstractPeak
+A target m/z plus search half-width, located in each spectrum at integration time.
+Unlike [`Peak`](@ref), the integration window of a `TargetPeak` may differ from
+file to file: each spectrum is searched in `[mz - tol, mz + tol]` and a window is
+derived from the located peak according to `method`.
+
+    struct TargetPeak <: AbstractPeak
+        mz::Float64        # target m/z
+        label::String      # peak label
+        tol::Float64       # search half-width (absolute Δm/z)
+        method::Symbol     # :local_max, :edges, or :centroid
+        edges::Float64     # threshold for :edges (fraction of peak max)
+    end
+
+`method` values:
+- `:local_max` (default) — `argmax(int)` in the search window; window is
+  ±`tol` around the found m/z.
+- `:edges` — start from the local max, walk outward while
+  `int > edges * peak_max`. The integration window is the located peak's
+  half-max-by-`edges` footprint.
+- `:centroid` — run [`MassJ.centroid`](@ref) on the averaged spectrum and pick
+  the strongest centroid in the search window; window is ±`tol` around it. The
+  centroiding method is passed to `yields` via the `centroid_method` keyword.
+
+Construct with `tol` (absolute) or `ppm` (parts per million):
+```julia
+TargetPeak(110.5, "fragment_a"; tol = 0.5)                       # :local_max
+TargetPeak(500.05, "precursor"; ppm = 5.0, method = :edges)
+TargetPeak(195.09, "M+H";       tol = 0.2, method = :centroid)
+```
+"""
+struct TargetPeak <: AbstractPeak
+    mz::Float64
+    label::String
+    tol::Float64
+    method::Symbol
+    edges::Float64
 end
 
 
@@ -238,17 +296,25 @@ external parameter `x` (e.g. photon energy, wavelength, collision energy). Built
         xlabel::String                          # x-axis label (e.g. "energy (eV)")
         yields::Matrix{Float64}                 # nfiles × npeaks integrated intensities
         tic::Vector{Float64}                    # per-file sum of peak integrals (raw)
+        found_mz::Matrix{Float64}               # nfiles × npeaks located m/z (NaN for Peak)
         labels::Vector{String}                  # peak labels (length = npeaks)
-        windows::Vector{Tuple{Float64,Float64}} # (mz1, mz2) for each peak
+        windows::Vector{Tuple{Float64,Float64}} # nominal (mz1, mz2) for each peak
         files::Vector{String}                   # source file paths (one per row)
         metadata::Dict{String,Any}              # records normalization steps applied
     end
+
+`found_mz[i, j]` carries the actually-located m/z when peak `j` is a
+[`TargetPeak`](@ref), and `NaN` when peak `j` is a fixed [`Peak`](@ref). For
+[`TargetPeak`](@ref)s, `windows[j]` is the nominal search window
+`(mz - tol, mz + tol)` — the per-file integration window may be narrower
+(`:local_max`, `:centroid`) or wider (`:edges`).
 """
 struct YieldCurve <: MScontainer
     x::Vector{Float64}
     xlabel::String
     yields::Matrix{Float64}
     tic::Vector{Float64}
+    found_mz::Matrix{Float64}
     labels::Vector{String}
     windows::Vector{Tuple{Float64,Float64}}
     files::Vector{String}
