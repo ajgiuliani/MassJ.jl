@@ -849,6 +849,101 @@ function test_composed_predicates()
 end
 
 
+function test_yields()
+    @testset "Yields - integrate_window, yields, normalize_*" begin
+
+        # integrate_window on synthetic arrays: triangle from 0..1..0 over m/z 0..2
+        mz   = [0.0, 1.0, 2.0]
+        int  = [0.0, 1.0, 0.0]
+        @test MassJ.integrate_window(mz, int, 0.0, 2.0) ≈ 1.0   # 2 * 1 / 2
+        @test MassJ.integrate_window(mz, int, 0.0, 1.0) ≈ 0.5
+        @test MassJ.integrate_window(mz, int, 5.0, 6.0) == 0.0  # no points
+        @test MassJ.integrate_window(mz, int, 1.0, 1.0) == 0.0  # 1 point only
+        @test MassJ.integrate_window(mz, int, 2.0, 0.0) ≈ 1.0   # swapped bounds
+
+        # integrate_window on a real MSscan
+        scans = MassJ.load("test.mzXML")
+        a = MassJ.integrate_window(scans[1], 400.0, 500.0)
+        @test a > 0 && isfinite(a)
+
+        # Peak constructor swaps when mz1 > mz2
+        p = MassJ.Peak(200.0, 100.0, "swap")
+        @test p.mz1 == 100.0 && p.mz2 == 200.0 && p.label == "swap"
+
+        # yields(files, peaks; x) — two-file series using the same fixture
+        peaks = [MassJ.Peak(400.0, 500.0, "low"),
+                 MassJ.Peak(800.0, 900.0, "high")]
+        yc = MassJ.yields(["test.mzXML", "test.mzXML"], peaks;
+                          x = [3.5, 4.0], xlabel = "photon energy (eV)")
+        @test yc isa MassJ.YieldCurve
+        @test size(yc.yields)    == (2, 2)
+        @test yc.x               == [3.5, 4.0]
+        @test yc.xlabel          == "photon energy (eV)"
+        @test yc.labels          == ["low", "high"]
+        @test yc.windows         == [(400.0, 500.0), (800.0, 900.0)]
+        @test yc.tic[1]          ≈ yc.yields[1, 1] + yc.yields[1, 2]
+        @test yc.yields[1, :]    ≈ yc.yields[2, :]    # same source file twice
+
+        # length mismatch
+        @test_throws ErrorException MassJ.yields(["test.mzXML"], peaks; x = [1.0, 2.0])
+
+        # read_peaklist — round-trip through a temp CSV (with header)
+        tmp = tempname() * ".csv"
+        open(tmp, "w") do io
+            write(io, "mz1,mz2,label\n")
+            write(io, "400.0,500.0,low\n")
+            write(io, "800.0,900.0,high\n")
+        end
+        pl = MassJ.read_peaklist(tmp)
+        @test length(pl) == 2
+        @test pl[1].mz1 == 400.0 && pl[1].mz2 == 500.0 && pl[1].label == "low"
+        rm(tmp)
+
+        # read_peaklist — no header
+        tmp2 = tempname() * ".csv"
+        open(tmp2, "w") do io
+            write(io, "100.0,200.0,A\n")
+        end
+        pl2 = MassJ.read_peaklist(tmp2)
+        @test length(pl2) == 1 && pl2[1].label == "A"
+        rm(tmp2)
+
+        # normalize_tic: rows of peak columns sum to 1
+        yn = MassJ.normalize_tic(yc)
+        @test yn isa MassJ.YieldCurve
+        @test sum(yn.yields[1, :]) ≈ 1.0
+        @test sum(yn.yields[2, :]) ≈ 1.0
+        @test yn.tic == yc.tic   # raw totals preserved
+        @test yn.metadata["normalize_tic"] == true
+
+        # normalize_flux: divide by a constant flux of 2.0
+        fluxpath = tempname() * ".txt"
+        open(fluxpath, "w") do io
+            write(io, "# header line 1\n")
+            write(io, "# header line 2\n")
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  2.0\n")
+        end
+        yf = MassJ.normalize_flux(yc, fluxpath)
+        @test yf.yields ≈ yc.yields ./ 2.0
+        @test yf.tic    ≈ yc.tic    ./ 2.0
+        @test yf.metadata["normalize_flux"] == fluxpath
+        rm(fluxpath)
+
+        # write_csv round-trip — header + correct row count
+        outpath = tempname() * ".csv"
+        MassJ.write_csv(yc, outpath)
+        lines = readlines(outpath)
+        @test length(lines) == 3                                   # header + 2 rows
+        @test lines[1] == "photon energy (eV),low,high,TIC"
+        rm(outpath)
+
+        # plot recipe smoke test
+        @test typeof(plot(yc)) == Plots.Plot{Plots.GRBackend}
+    end
+end
+
+
 tests()
 test_isotopes()
 test_deconvolution()
@@ -858,3 +953,4 @@ test_mgf()
 test_msp()
 test_imzml()
 test_composed_predicates()
+test_yields()
