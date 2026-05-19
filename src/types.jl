@@ -203,6 +203,59 @@ struct Ionogram <: MScontainer
 end
 
 
+"""
+    struct Peak
+Defines an m/z integration window and its label, used by [`yields`](@ref) to integrate
+specific peaks across a series of spectra.
+
+    struct Peak
+        mz1::Float64    # lower m/z bound
+        mz2::Float64    # upper m/z bound
+        label::String   # peak label (used as column header / legend entry)
+    end
+
+The constructor enforces `mz1 <= mz2` by swapping if needed.
+"""
+struct Peak
+    mz1::Float64
+    mz2::Float64
+    label::String
+    function Peak(mz1::Real, mz2::Real, label::AbstractString)
+        a, b = Float64(mz1), Float64(mz2)
+        a <= b ? new(a, b, String(label)) : new(b, a, String(label))
+    end
+end
+
+
+"""
+    struct YieldCurve <: MScontainer
+Data structure holding peak yields measured across a series of spectra indexed by an
+external parameter `x` (e.g. photon energy, wavelength, collision energy). Built by
+[`yields`](@ref); plotted directly with `plot(yc)`.
+
+    struct YieldCurve <: MScontainer
+        x::Vector{Float64}                      # external parameter (one per file)
+        xlabel::String                          # x-axis label (e.g. "energy (eV)")
+        yields::Matrix{Float64}                 # nfiles × npeaks integrated intensities
+        tic::Vector{Float64}                    # per-file sum of peak integrals (raw)
+        labels::Vector{String}                  # peak labels (length = npeaks)
+        windows::Vector{Tuple{Float64,Float64}} # (mz1, mz2) for each peak
+        files::Vector{String}                   # source file paths (one per row)
+        metadata::Dict{String,Any}              # records normalization steps applied
+    end
+"""
+struct YieldCurve <: MScontainer
+    x::Vector{Float64}
+    xlabel::String
+    yields::Matrix{Float64}
+    tic::Vector{Float64}
+    labels::Vector{String}
+    windows::Vector{Tuple{Float64,Float64}}
+    files::Vector{String}
+    metadata::Dict{String,Any}
+end
+
+
 ### Methods
 """
     abstract type MethodType  end
