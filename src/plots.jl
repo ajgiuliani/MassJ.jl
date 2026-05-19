@@ -107,13 +107,18 @@ end
 """
     k(yc::MassJ.YieldCurve)
 Plot a YieldCurve: one line per peak, x-axis from `yc.x`, legend from `yc.labels`,
-x-label from `yc.xlabel`.
+x-label from `yc.xlabel`. When `yc.yields_err` carries finite uncertainties,
+1-σ ribbons are drawn around each line with `fillalpha = 0.15`.
 """
 @recipe function k(yc::YieldCurve)
     seriestype --> :path
     xlabel     --> yc.xlabel
     ylabel     --> "yield (a.u.)"
     label      --> reshape(yc.labels, 1, :)
+    if any(isfinite, yc.yields_err)
+        ribbon    --> replace(yc.yields_err, NaN => 0.0)
+        fillalpha --> 0.15
+    end
     yc.x, yc.yields
 end
 
