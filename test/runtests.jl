@@ -877,6 +877,8 @@ function test_yields()
                           x = [3.5, 4.0], xlabel = "photon energy (eV)")
         @test yc isa MassJ.YieldCurve
         @test size(yc.yields)    == (2, 2)
+        @test size(yc.found_mz)  == (2, 2)
+        @test all(isnan, yc.found_mz)         # all fixed Peak → all NaN
         @test yc.x               == [3.5, 4.0]
         @test yc.xlabel          == "photon energy (eV)"
         @test yc.labels          == ["low", "high"]
@@ -944,6 +946,101 @@ function test_yields()
 end
 
 
+function test_yields_targetpeak()
+    @testset "TargetPeak resolution methods + Peak(mz, label; tol/ppm)" begin
+
+        # Peak(mz, label; tol) — eager fixed window from a single m/z
+        p = MassJ.Peak(100.0, "x"; tol = 0.5)
+        @test p.mz1 == 99.5 && p.mz2 == 100.5 && p.label == "x"
+
+        # Peak(mz, label; ppm)
+        p2 = MassJ.Peak(1000.0, "y"; ppm = 5.0)
+        @test p2.mz1 ≈ 1000.0 - 1000.0 * 5e-6
+        @test p2.mz2 ≈ 1000.0 + 1000.0 * 5e-6
+
+        # tol/ppm mutual exclusion
+        @test_throws ErrorException MassJ.Peak(100.0, "z"; tol = 0.5, ppm = 5.0)
+        @test_throws ErrorException MassJ.Peak(100.0, "z")
+
+        # TargetPeak defaults and method validation
+        tp = MassJ.TargetPeak(100.0, "a"; tol = 0.5)
+        @test tp.mz == 100.0 && tp.tol == 0.5
+        @test tp.method === :local_max && tp.edges == 0.1
+
+        tp2 = MassJ.TargetPeak(100.0, "b"; tol = 0.5, method = :edges, edges = 0.2)
+        @test tp2.method === :edges && tp2.edges == 0.2
+
+        @test_throws ErrorException MassJ.TargetPeak(100.0, "c"; tol = 0.5, method = :bad)
+        @test_throws ErrorException MassJ.TargetPeak(100.0, "c")     # neither tol nor ppm
+
+        # Locate the global max in the averaged test fixture
+        spec = MassJ.average("test.mzXML")
+        peak_idx  = argmax(spec.int)
+        target_mz = spec.mz[peak_idx]
+
+        # :local_max — should snap exactly onto the sample-grid maximum
+        peaks_lm = [MassJ.TargetPeak(target_mz - 0.05, "lm"; tol = 0.2)]
+        yc_lm    = MassJ.yields(["test.mzXML"], peaks_lm; x = [1.0])
+        @test yc_lm.found_mz[1, 1] ≈ target_mz
+        @test yc_lm.yields[1, 1]   > 0
+
+        # :edges — same location, possibly different window width
+        peaks_ed = [MassJ.TargetPeak(target_mz - 0.05, "ed";
+                                      tol = 0.2, method = :edges)]
+        yc_ed    = MassJ.yields(["test.mzXML"], peaks_ed; x = [1.0])
+        @test yc_ed.found_mz[1, 1] ≈ target_mz
+        @test yc_ed.yields[1, 1]   > 0
+
+        # :centroid — uses the package's centroid(). Wider tol + TBPD so the
+        # search window definitely contains at least one centroid in this fixture.
+        peaks_cn = [MassJ.TargetPeak(target_mz, "cn";
+                                      tol = 5.0, method = :centroid)]
+        yc_cn    = MassJ.yields(["test.mzXML"], peaks_cn; x = [1.0],
+                                centroid_method = MassJ.TBPD(:gauss, 4500., 0.2))
+        @test isfinite(yc_cn.found_mz[1, 1])
+        @test abs(yc_cn.found_mz[1, 1] - target_mz) < 5.0
+        @test yc_cn.yields[1, 1] > 0
+
+        # Mixed peak list — Peak gives NaN, TargetPeak gives a located m/z
+        peaks_mx = [MassJ.Peak(400.0, 500.0, "static"),
+                    MassJ.TargetPeak(target_mz, "lazy"; tol = 0.2)]
+        yc_mx    = MassJ.yields(["test.mzXML"], peaks_mx; x = [1.0])
+        @test isnan(yc_mx.found_mz[1, 1])
+        @test yc_mx.found_mz[1, 2] ≈ target_mz
+
+        # read_peaklist 2-col → TargetPeak with kwarg defaults
+        tmp2 = tempname() * ".csv"
+        open(tmp2, "w") do io
+            write(io, "mz,label\n")
+            write(io, "100.0,A\n")
+            write(io, "200.0,B\n")
+        end
+        pl2 = MassJ.read_peaklist(tmp2; tol = 0.3, method = :edges)
+        @test length(pl2) == 2
+        @test pl2[1] isa MassJ.TargetPeak
+        @test pl2[1].mz == 100.0 && pl2[1].tol == 0.3 && pl2[1].method === :edges
+        rm(tmp2)
+
+        # read_peaklist 4-col → TargetPeak with per-row tol + method
+        tmp4 = tempname() * ".csv"
+        open(tmp4, "w") do io
+            write(io, "mz,tol,method,label\n")
+            write(io, "100.0,0.3,local_max,A\n")
+            write(io, "200.0,0.5,edges,B\n")
+        end
+        pl4 = MassJ.read_peaklist(tmp4)
+        @test length(pl4) == 2
+        @test pl4[1].method === :local_max && pl4[1].tol == 0.3
+        @test pl4[2].method === :edges     && pl4[2].tol == 0.5
+        rm(tmp4)
+
+        # normalize_tic preserves found_mz
+        yn = MassJ.normalize_tic(yc_lm)
+        @test yn.found_mz == yc_lm.found_mz
+    end
+end
+
+
 tests()
 test_isotopes()
 test_deconvolution()
@@ -954,3 +1051,4 @@ test_msp()
 test_imzml()
 test_composed_predicates()
 test_yields()
+test_yields_targetpeak()
