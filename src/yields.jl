@@ -11,7 +11,8 @@ plotted directly or post-processed with [`normalize_tic`](@ref) / [`normalize_fl
 # ---------------
 
 export AbstractPeak, Peak, TargetPeak, YieldCurve,
-       yields, integrate_window, normalize_tic, normalize_flux, read_peaklist
+       yields, integrate_window, normalize_tic, normalize_flux,
+       read_peaklist, drop_peaks
 
 
 const _YIELDS_SUPPORTED_EXT = ("mzml", "mzxml", "mgf", "msp", "imzml", "txt")
@@ -146,6 +147,44 @@ integrate_window(scan::MScontainer, mz1::Real, mz2::Real) =
     integrate_window(scan.mz, scan.int, mz1, mz2)
 
 
+# Internal: trapezoidal integration that also returns the 1-σ uncertainty on the
+# area, derived from the per-m/z standard error of the mean (SEM) carried by an
+# averaged MSscans. Falls back to (area, NaN) when no error info is available
+# (single scan, MSscan, or only one point in the window).
+function _integrate_window_with_err(spec::MScontainer, mz1::Real, mz2::Real)
+    lo, hi = mz1 <= mz2 ? (mz1, mz2) : (mz2, mz1)
+    idx = findall(x -> lo <= x <= hi, spec.mz)
+    n = length(idx)
+    n < 2 && return (0.0, NaN)
+
+    area = 0.0
+    @inbounds for k in 1:n - 1
+        i, j  = idx[k], idx[k + 1]
+        area += 0.5 * (spec.int[i] + spec.int[j]) * (spec.mz[j] - spec.mz[i])
+    end
+
+    # Per-point variance is available only on MSscans with > 1 averaged scan
+    if spec isa MSscans && length(spec.num) > 1 && !isempty(spec.s)
+        N = length(spec.num)
+        var_acc = 0.0
+        @inbounds for k in 1:n
+            i = idx[k]
+            w = if k == 1
+                0.5 * (spec.mz[idx[2]] - spec.mz[idx[1]])
+            elseif k == n
+                0.5 * (spec.mz[idx[n]] - spec.mz[idx[n - 1]])
+            else
+                0.5 * (spec.mz[idx[k + 1]] - spec.mz[idx[k - 1]])
+            end
+            sem_i_sq = spec.s[i] / (N * (N - 1))
+            var_acc += w * w * sem_i_sq
+        end
+        return (area, sqrt(max(var_acc, 0.0)))
+    end
+    return (area, NaN)
+end
+
+
 """
     yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
            x::AbstractVector{<:Real},
@@ -181,8 +220,10 @@ function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
     nfiles    = length(files)
     npeaks    = length(peaks)
     Y         = Array{Float64}(undef, nfiles, npeaks)
+    Y_err     = fill(NaN, nfiles, npeaks)
     found_mz  = fill(NaN, nfiles, npeaks)
     tic       = Vector{Float64}(undef, nfiles)
+    tic_err   = fill(NaN, nfiles)
 
     do_centroid = _needs_centroid(peaks)
     cmethod = do_centroid && centroid_method === nothing ? SNRA(1.0, 100) : centroid_method
@@ -190,19 +231,28 @@ function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
     for (i, f) in enumerate(files)
         spec = average(f)
         cen  = do_centroid ? centroid(spec; method = cmethod) : nothing
-        rowtic = 0.0
+        rowtic     = 0.0
+        rowvar_acc = 0.0
+        any_err    = false
         for (p, peak) in enumerate(peaks)
-            lo, hi, found = _resolve_peak(spec, cen, peak)
-            a = integrate_window(spec, lo, hi)
+            lo, hi, found  = _resolve_peak(spec, cen, peak)
+            a, σ           = _integrate_window_with_err(spec, lo, hi)
             Y[i, p]        = a
+            Y_err[i, p]    = σ
             found_mz[i, p] = found
-            rowtic += a
+            rowtic        += a
+            if isfinite(σ)
+                rowvar_acc += σ * σ
+                any_err = true
+            end
         end
-        tic[i] = rowtic
+        tic[i]     = rowtic
+        tic_err[i] = any_err ? sqrt(rowvar_acc) : NaN
     end
     windows = [_window_of(peak) for peak in peaks]
     labels  = [peak.label        for peak in peaks]
-    return YieldCurve(collect(Float64, x), String(xlabel), Y, tic, found_mz,
+    return YieldCurve(collect(Float64, x), String(xlabel),
+                      Y, Y_err, tic, tic_err, found_mz,
                       labels, windows, String.(files), Dict{String,Any}())
 end
 
@@ -315,43 +365,90 @@ end
 _tofloat(x::Number) = Float64(x)
 _tofloat(x)         = parse(Float64, strip(string(x)))
 
+# Lenient: NaN on empty / unparseable / missing.
+_try_tofloat(x::Number) = Float64(x)
+function _try_tofloat(x)
+    s = strip(string(x))
+    isempty(s) && return NaN
+    p = tryparse(Float64, s)
+    return p === nothing ? NaN : p
+end
+
 
 """
     normalize_tic(yc::YieldCurve) -> YieldCurve
 Return a new YieldCurve with each row's peak integrals divided by that row's TIC
-(sum of peak integrals across all windows). The `tic` field retains the original
-raw totals. Rows with TIC ≤ 0 are left unchanged.
+(sum of peak integrals across all windows). The `tic` and `tic_err` fields retain
+the original raw values. Rows with TIC ≤ 0 are left unchanged.
+
+Errors propagate by the standard division rule
+`σ(y/T)² = (1/T)²·σ_y² + (y/T²)²·σ_T²`. The correlation between `y` and `T`
+(since `T = Σy`) is ignored — this is the usual first-order approximation.
 """
 function normalize_tic(yc::YieldCurve)
-    Y = copy(yc.yields)
+    Y       = copy(yc.yields)
+    Y_err   = copy(yc.yields_err)
+    npeaks  = size(Y, 2)
     for i in 1:size(Y, 1)
         t = yc.tic[i]
         if t > 0
-            @views Y[i, :] ./= t
+            σ_t = yc.tic_err[i]
+            for p in 1:npeaks
+                y       = yc.yields[i, p]
+                σ_y     = yc.yields_err[i, p]
+                Y[i, p] = y / t
+                if isfinite(σ_y) && isfinite(σ_t)
+                    Y_err[i, p] = sqrt((σ_y / t)^2 + (y * σ_t / (t * t))^2)
+                end
+            end
         end
     end
     md = copy(yc.metadata)
     md["normalize_tic"] = true
-    return YieldCurve(copy(yc.x), yc.xlabel, Y, copy(yc.tic), copy(yc.found_mz),
-                      copy(yc.labels), copy(yc.windows),
+    return YieldCurve(copy(yc.x), yc.xlabel,
+                      Y, Y_err, copy(yc.tic), copy(yc.tic_err),
+                      copy(yc.found_mz), copy(yc.labels), copy(yc.windows),
                       copy(yc.files), md)
 end
 
 
 """
-    normalize_flux(yc::YieldCurve, flux_file::AbstractString) -> YieldCurve
+    normalize_flux(yc::YieldCurve, flux_file::AbstractString;
+                   flux_err_pct::Real = 0.10,
+                   skipstart::Int = 0) -> YieldCurve
 Return a new YieldCurve with each row's peak integrals and TIC divided by the photon
-flux at that row's `x` value, linearly interpolated from `flux_file`. The flux file
-must have 2 header lines followed by 2 whitespace-separated columns (x, flux). Rows
-with NaN values are dropped before interpolation; rows whose interpolated flux is
-non-positive are left unchanged (a warning is emitted).
+flux at that row's `x` value, linearly interpolated from `flux_file`.
+
+The flux file has either:
+
+* **2 columns** `x, φ` — the uncertainty on the flux is taken as
+  `flux_err_pct * φ` (default 10%); or
+* **3 columns** `x, φ, σ_φ` — the third column carries the per-point 1-σ
+  uncertainty on the flux and is interpolated alongside `φ`.
+
+Lines starting with `#` are treated as comments and ignored; leading non-numeric
+rows are auto-detected and skipped. Use `skipstart = N` to force `N` physical
+lines to be discarded from the top of the file before parsing.
+
+Errors propagate by the standard division rule
+`σ(y/φ) = (y/φ)·sqrt((σ_y/y)² + (σ_φ/φ)²)`, applied to both the peak yields and
+to `tic`. Rows whose interpolated flux is non-positive are left unchanged with a
+warning.
 """
-function normalize_flux(yc::YieldCurve, flux_file::AbstractString)
-    xf, ff = _read_flux(flux_file)
-    Y   = copy(yc.yields)
-    tic = copy(yc.tic)
+function normalize_flux(yc::YieldCurve, flux_file::AbstractString;
+                        flux_err_pct::Real = 0.10,
+                        skipstart::Int     = 0)
+    xf, ff, σf = _read_flux(flux_file; skipstart = skipstart,
+                            flux_err_pct = flux_err_pct)
+    Y       = copy(yc.yields)
+    Y_err   = copy(yc.yields_err)
+    tic     = copy(yc.tic)
+    tic_err = copy(yc.tic_err)
+    npeaks  = size(Y, 2)
+
     for i in 1:size(Y, 1)
-        φ, in_range = _interp_linear(xf, ff, yc.x[i])
+        φ,    in_range  = _interp_linear(xf, ff, yc.x[i])
+        σφ,   _         = _interp_linear(xf, σf, yc.x[i])
         if !in_range
             @warn "normalize_flux: x=$(yc.x[i]) outside flux range " *
                   "[$(xf[1]), $(xf[end])]; clamped to nearest" flux = φ
@@ -361,27 +458,110 @@ function normalize_flux(yc::YieldCurve, flux_file::AbstractString)
                   "skipping division" flux = φ
             continue
         end
-        @views Y[i, :] ./= φ
-        tic[i] /= φ
+
+        # Peak yields
+        for p in 1:npeaks
+            y       = yc.yields[i, p]
+            σ_y     = yc.yields_err[i, p]
+            Y[i, p] = y / φ
+            if isfinite(σ_y)
+                Y_err[i, p] = sqrt((σ_y / φ)^2 + (y * σφ / (φ * φ))^2)
+            elseif y != 0.0
+                # propagate flux fraction even when σ_y is unknown — gives at
+                # least an estimate of the relative uncertainty
+                Y_err[i, p] = abs(y / φ) * abs(σφ / φ)
+            end
+        end
+
+        # TIC
+        t      = yc.tic[i]
+        σ_t    = yc.tic_err[i]
+        tic[i] = t / φ
+        if isfinite(σ_t)
+            tic_err[i] = sqrt((σ_t / φ)^2 + (t * σφ / (φ * φ))^2)
+        elseif t != 0.0
+            tic_err[i] = abs(t / φ) * abs(σφ / φ)
+        end
     end
     md = copy(yc.metadata)
-    md["normalize_flux"] = String(flux_file)
-    return YieldCurve(copy(yc.x), yc.xlabel, Y, tic, copy(yc.found_mz),
-                      copy(yc.labels), copy(yc.windows),
+    md["normalize_flux"]         = String(flux_file)
+    md["normalize_flux_err_pct"] = Float64(flux_err_pct)
+    return YieldCurve(copy(yc.x), yc.xlabel,
+                      Y, Y_err, tic, tic_err,
+                      copy(yc.found_mz), copy(yc.labels), copy(yc.windows),
                       copy(yc.files), md)
 end
 
 
-function _read_flux(path::AbstractString)
+"""
+    drop_peaks(yc::YieldCurve, labels) -> YieldCurve
+Return a new [`YieldCurve`](@ref) with the peaks whose label is in `labels`
+removed. `labels` accepts a single `String` or any iterable of strings; labels
+not present in `yc.labels` are silently ignored.
+
+The `tic` field is left unchanged so it still reflects the totals over the
+*original* peak set — useful when you want to keep the same TIC reference
+after dropping a dominant peak (e.g. for plotting fragment yields without
+the precursor swamping the axes).
+
+```julia
+plot(drop_peaks(yc, "precursor"))
+plot(drop_peaks(yc, ["precursor", "solvent"]))
+```
+"""
+drop_peaks(yc::YieldCurve, label::AbstractString) = drop_peaks(yc, (label,))
+
+function drop_peaks(yc::YieldCurve, labels)
+    drop = Set(String.(labels))
+    keep = [!(l ∈ drop) for l in yc.labels]
+    return YieldCurve(copy(yc.x), yc.xlabel,
+                      yc.yields[:, keep], yc.yields_err[:, keep],
+                      copy(yc.tic), copy(yc.tic_err),
+                      yc.found_mz[:, keep],
+                      yc.labels[keep], yc.windows[keep],
+                      copy(yc.files), copy(yc.metadata))
+end
+
+
+function _read_flux(path::AbstractString;
+                    skipstart::Int   = 0,
+                    flux_err_pct::Real = 0.10)
     isfile(path) || error("flux file not found: $path")
-    raw = readdlm(path; skipstart = 2)
+    skipstart >= 0 || error("flux file: skipstart must be >= 0 (got $skipstart)")
+    raw = readdlm(path; comments = true, comment_char = '#', skipstart = skipstart)
     size(raw, 2) >= 2 || error("flux file must have at least 2 columns (x, flux)")
-    x = [_tofloat(v) for v in raw[:, 1]]
-    y = [_tofloat(v) for v in raw[:, 2]]
-    keep = .!(isnan.(x) .| isnan.(y))
-    x = x[keep]; y = y[keep]
+
+    nrows = size(raw, 1)
+    start = 1
+    while start <= nrows
+        c = raw[start, 1]
+        is_num = (c isa Number) || tryparse(Float64, strip(string(c))) !== nothing
+        is_num && break
+        start += 1
+    end
+    start > nrows && error("flux file: no numeric data found in $path")
+
+    rows = raw[start:end, :]
+    x = [_tofloat(v) for v in rows[:, 1]]
+    y = [_tofloat(v) for v in rows[:, 2]]
+    # Column 3 may be entirely absent, partially empty (jagged rows / trailing
+    # whitespace), or fully populated. Parse leniently; fall back to
+    # `flux_err_pct * |φ|` for rows where the third cell is empty or unparseable.
+    pct = Float64(flux_err_pct)
+    σ = if size(rows, 2) >= 3
+        out = Vector{Float64}(undef, length(y))
+        for k in eachindex(y)
+            v = _try_tofloat(rows[k, 3])
+            out[k] = isfinite(v) ? v : abs(y[k]) * pct
+        end
+        out
+    else
+        abs.(y) .* pct
+    end
+    keep  = .!(isnan.(x) .| isnan.(y) .| isnan.(σ))
+    x = x[keep]; y = y[keep]; σ = σ[keep]
     order = sortperm(x)
-    return x[order], y[order]
+    return x[order], y[order], σ[order]
 end
 
 
