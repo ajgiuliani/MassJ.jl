@@ -10,6 +10,7 @@ makedocs(
     sitename = "MassJ.jl",
     authors = "Alexandre Giuliani",
     warnonly = true,
+    checkdocs = :exports,
     pages = [
         "Home"                             => "index.md",
         "Tutorials"                        => Any[
