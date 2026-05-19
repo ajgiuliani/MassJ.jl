@@ -38,6 +38,7 @@ include("predicates.jl")
 include("isotopes.jl")
 include("deconvolution.jl")
 include("txt.jl")
+include("yields.jl")
 
 
 # Submodules
