@@ -119,10 +119,25 @@ struct TargetPeak <: AbstractPeak
 end
 ```
 
-[`MassJ.YieldCurve`](@ref) holds the result of [`yields`](@ref) — a matrix of
-peak integrals indexed by an external parameter `x` (energy, wavelength, …),
-together with the per-file located m/z (`found_mz`), the nominal `windows`, the
-source `files`, and a `metadata` dictionary recording normalization steps.
+[`MassJ.YieldCurve`](@ref) holds the result of [`yields`](@ref):
+```julia
+struct YieldCurve <: MScontainer
+    x::Vector{Float64}                      # external parameter, one per file
+    xlabel::String                          # x-axis label (e.g. "energy (eV)")
+    yields::Matrix{Float64}                 # nfiles × npeaks integrated intensities
+    yields_err::Matrix{Float64}             # nfiles × npeaks 1-σ uncertainties (NaN = unknown)
+    tic::Vector{Float64}                    # per-file sum of peak integrals (raw)
+    tic_err::Vector{Float64}                # per-file 1-σ on tic
+    found_mz::Matrix{Float64}               # nfiles × npeaks located m/z (NaN for Peak)
+    labels::Vector{String}                  # peak labels
+    windows::Vector{Tuple{Float64,Float64}} # nominal (mz1, mz2) for each peak
+    files::Vector{String}                   # source file paths
+    metadata::Dict{String,Any}              # records normalization steps applied
+end
+```
+`yields_err` and `tic_err` carry propagated 1-σ uncertainties — see
+[Uncertainties](@ref) in the energy-resolved yields manual. They are `NaN`
+when no error information is available (single scan / `MSscan` input).
 
 ## Deconvolution method types
 

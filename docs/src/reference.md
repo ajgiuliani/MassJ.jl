@@ -247,6 +247,7 @@ MassJ.yields
 MassJ.integrate_window
 MassJ.normalize_tic
 MassJ.normalize_flux
+MassJ.drop_peaks
 MassJ.read_peaklist
 MassJ.write_csv
 ```

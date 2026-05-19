@@ -17,6 +17,7 @@ The functions below are exported:
 - [`integrate_window`](@ref)
 - [`normalize_tic`](@ref)
 - [`normalize_flux`](@ref)
+- [`drop_peaks`](@ref)
 - [`read_peaklist`](@ref)
 
 The following types are exported:
