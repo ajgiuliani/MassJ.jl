@@ -13,4 +13,14 @@ The functions below are exported:
 - [`simulate`](@ref)
 - [`deconv`](@ref)
 - [`formula`](@ref)
+- [`yields`](@ref)
+- [`integrate_window`](@ref)
+- [`normalize_tic`](@ref)
+- [`normalize_flux`](@ref)
+- [`read_peaklist`](@ref)
+
+The following types are exported:
+- [`MassJ.Peak`](@ref)
+- [`MassJ.TargetPeak`](@ref)
+- [`MassJ.YieldCurve`](@ref)
 

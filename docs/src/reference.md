@@ -29,6 +29,10 @@ MassJ.Chromatogram
 MassJ.Mobilogram
 MassJ.Ionogram
 MassJ.Isotope
+MassJ.AbstractPeak
+MassJ.Peak
+MassJ.TargetPeak
+MassJ.YieldCurve
 ```
 
 ### Methods Types
@@ -233,6 +237,18 @@ MassJ.formula
 MassJ.masses
 MassJ.isotopic_distribution
 MassJ.simulate
+```
+
+
+## Energy-resolved yields
+-------------------------
+```@docs
+MassJ.yields
+MassJ.integrate_window
+MassJ.normalize_tic
+MassJ.normalize_flux
+MassJ.read_peaklist
+MassJ.write_csv
 ```
 
 

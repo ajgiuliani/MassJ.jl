@@ -91,6 +91,39 @@ The [`MassJ.MSscans`](@ref) structure is similar to [`MassJ.MSscan`](@ref), exce
 
 A backward-compatible constructor accepting the original 13 fields is provided. The 6 new fields default to neutral values.
 
+## Peak and yield-curve types
+
+[`MassJ.AbstractPeak`](@ref) is the supertype for peak descriptors accepted by
+[`yields`](@ref). Two concrete subtypes are provided:
+
+[`MassJ.Peak`](@ref) carries a fixed m/z window used identically across every
+spectrum in a series:
+```julia
+struct Peak <: AbstractPeak
+    mz1::Float64    # lower m/z bound
+    mz2::Float64    # upper m/z bound
+    label::String
+end
+```
+
+[`MassJ.TargetPeak`](@ref) carries a target m/z and a search half-width; the
+window is determined per file using one of three algorithms (`:local_max`,
+`:edges`, `:centroid`):
+```julia
+struct TargetPeak <: AbstractPeak
+    mz::Float64        # target m/z
+    label::String
+    tol::Float64       # search half-width (absolute Δm/z)
+    method::Symbol     # :local_max, :edges, or :centroid
+    edges::Float64     # threshold (fraction of max) for :edges
+end
+```
+
+[`MassJ.YieldCurve`](@ref) holds the result of [`yields`](@ref) — a matrix of
+peak integrals indexed by an external parameter `x` (energy, wavelength, …),
+together with the per-file located m/z (`found_mz`), the nominal `windows`, the
+source `files`, and a `metadata` dictionary recording normalization steps.
+
 ## Deconvolution method types
 
 The deconvolution functions use dedicated method types to dispatch to the appropriate algorithm. These types are subtypes of [`MassJ.MethodType`](@ref).
