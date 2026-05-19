@@ -27,6 +27,7 @@ makedocs(
             "Combining and filtering data" => "man/filtering.md",
             "Processing"                   => "man/processing.md",
             "Properties calculations"      => "man/calculations.md",
+            "Energy-resolved yields"       => "man/yields.md",
             "Plotting"                     => "man/plotting.md",
         ],
         "References"                       => "reference.md",
