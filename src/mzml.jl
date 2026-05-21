@@ -295,21 +295,60 @@ function load_mzml_all(filename::String)
         error("No <spectrumList> element found in mzML file.")
     end
 
-    countStr = attribute(specList, "count")
+    countStr  = attribute(specList, "count")
     scanCount = countStr !== nothing ? parse(Int, countStr) : 0
 
-    scans = Vector{MSscan}(undef, scanCount)
+    # Buffer with abstract element type — narrowed below. Also remember
+    # whether each spectrum carried the MassJ "saved_as_scalar" marker so we
+    # can unwrap to a bare value if exactly one was marked.
+    buf       = Vector{MScontainer}(undef, scanCount)
+    scalar_of = Vector{Bool}(undef, scanCount)
     index = 1
     for spec in child_elements(specList)
         if name(spec) == "spectrum"
-            scans[index] = load_mzml_spectrum(spec, index)
+            scalar_of[index] = _mzml_is_saved_as_scalar(spec)
+            buf[index]       = load_mzml_spectrum(spec, index)
             index += 1
         end
     end
 
     free(xdoc)
-    # Trim in case count was inaccurate
-    return scans[1:index-1]
+    raw         = buf[1:index-1]
+    scalar_vec  = scalar_of[1:index-1]
+
+    # Bit-symmetric scalar round-trip: a file with exactly one spectrum that
+    # was saved from a bare MSscan or MSscans returns the bare value.
+    if length(raw) == 1 && scalar_vec[1]
+        return raw[1]
+    end
+
+    # Otherwise narrow Vector{MScontainer} to its concrete element type.
+    if isempty(raw)
+        return Vector{MSscan}()
+    elseif all(x -> x isa MSscans, raw)
+        return convert(Vector{MSscans}, raw)
+    elseif all(x -> x isa MSscan, raw)
+        return convert(Vector{MSscan}, raw)
+    else
+        return raw  # mixed (rare)
+    end
+end
+
+
+"""
+    _mzml_is_saved_as_scalar(spec::XMLElement) -> Bool
+True when the spectrum carries the MassJ "saved_as_scalar" `userParam`,
+written by [`save_mzml`](@ref) for a bare `MSscan` / `MSscans` input.
+"""
+function _mzml_is_saved_as_scalar(spec::XMLElement)
+    for child in child_elements(spec)
+        if name(child) == "userParam" &&
+           attribute(child, "name") == MASSJ_SCALAR_PARAM &&
+           attribute(child, "value") == "true"
+            return true
+        end
+    end
+    return false
 end
 
 
@@ -531,11 +570,165 @@ function load_mzml_spectrum(spec::XMLElement, scan_index::Int)
         end
     end
 
-    return MSscan(scan_index, rt, tic, mz, int_arr, msLevel,
+    scan = MSscan(scan_index, rt, tic, mz, int_arr, msLevel,
                   basePeakMz, basePeakIntensity, precursorMz, polarity,
                   activationMethod, collisionEnergy,
                   chargeState, spectrumType, driftTime, compensationVoltage,
                   mobilityType, Dict{String,Any}())
+
+    # Promote to MSscans if the MassJ export marker is present.
+    if _mzml_is_msscans(spec)
+        variance = _mzml_extract_variance(spec)
+        return _msscans_from_userParams(spec, scan, variance)
+    end
+    return scan
+end
+
+
+"""
+    _msscans_from_userParams(spec::XMLElement, scan::MSscan,
+                             variance::Vector{Float64}) -> MSscans
+Build an `MSscans` from the vector-valued provenance fields stored as MassJ
+`userParam` children of `spec`. Any field missing from the file falls back to
+the scalar from `scan` wrapped in a 1-element vector (so partially-formed
+files still load cleanly).
+"""
+function _msscans_from_userParams(spec::XMLElement, scan::MSscan,
+                                  variance::Vector{Float64})
+    num     = _get_vec_userParam(spec, "MassJ:num",                 Int)
+    rtvec   = _get_vec_userParam(spec, "MassJ:rt",                  Float64)
+    level   = _get_vec_userParam(spec, "MassJ:level",               Int)
+    precvec = _get_vec_userParam(spec, "MassJ:precursor",           Float64)
+    pol     = _get_vec_userParam(spec, "MassJ:polarity",            String)
+    am      = _get_vec_userParam(spec, "MassJ:activationMethod",    String)
+    ce      = _get_vec_userParam(spec, "MassJ:collisionEnergy",     Float64)
+    chg     = _get_vec_userParam(spec, "MassJ:chargeState",         Int)
+    dt      = _get_vec_userParam(spec, "MassJ:driftTime",           Float64)
+    cv      = _get_vec_userParam(spec, "MassJ:compensationVoltage", Float64)
+
+    return MSscans(
+        something(num,     [scan.num]),
+        something(rtvec,   [scan.rt]),
+        scan.tic, scan.mz, scan.int,
+        something(level,   [scan.level]),
+        scan.basePeakMz, scan.basePeakIntensity,
+        something(precvec, [scan.precursor]),
+        something(pol,     [scan.polarity]),
+        something(am,      [scan.activationMethod]),
+        something(ce,      [scan.collisionEnergy]),
+        variance,
+        something(chg,     [scan.chargeState]),
+        scan.spectrumType,
+        something(dt,      [scan.driftTime]),
+        something(cv,      [scan.compensationVoltage]),
+        scan.mobilityType,
+        scan.metadata,
+    )
+end
+
+
+"""
+    _get_vec_userParam(spec, name, T) -> Vector{T} or `nothing`
+Read a `userParam` named `name` from `spec` and parse its value as a
+pipe-separated vector of `T`. Returns `nothing` if the `userParam` is absent.
+"""
+function _get_vec_userParam(spec::XMLElement, pname::String, ::Type{T}) where T
+    for child in child_elements(spec)
+        name(child) == "userParam" || continue
+        attribute(child, "name") == pname || continue
+        val = attribute(child, "value")
+        (val === nothing || isempty(val)) && return T[]
+        parts = split(val, '|')
+        return T === String ? String.(parts) : parse.(T, parts)
+    end
+    return nothing
+end
+
+
+"""
+    _mzml_is_msscans(spec::XMLElement) -> Bool
+True when the `<spectrum>` carries the MassJ "container_type = MSscans"
+`userParam` marker (written by [`save_mzml`](@ref) for averaged spectra).
+"""
+function _mzml_is_msscans(spec::XMLElement)
+    for child in child_elements(spec)
+        if name(child) == "userParam" &&
+           attribute(child, "name") == MASSJ_CONTAINER_PARAM &&
+           attribute(child, "value") == "MSscans"
+            return true
+        end
+    end
+    return false
+end
+
+
+"""
+    _mzml_extract_variance(spec::XMLElement) -> Vector{Float64}
+Return the per-m/z variance array stored alongside m/z and intensity by
+[`save_mzml`](@ref) for an averaged spectrum. Looks for a `<binaryDataArray>`
+carrying the MassJ `userParam name = "MassJ:variance_array"` marker. Returns
+an empty vector if the array is absent.
+"""
+function _mzml_extract_variance(spec::XMLElement)
+    bdaList = find_element(spec, "binaryDataArrayList")
+    bdaList === nothing && return Float64[]
+    for bda in child_elements(bdaList)
+        name(bda) == "binaryDataArray" || continue
+        is_variance = false
+        for child in child_elements(bda)
+            if name(child) == "userParam" &&
+               attribute(child, "name") == MASSJ_VARIANCE_PARAM
+                is_variance = true
+                break
+            end
+        end
+        is_variance || continue
+
+        is_64bit = has_cv_param(bda, CV_64BIT)
+        is_zlib  = has_cv_param(bda, CV_ZLIB)
+        binElem  = find_element(bda, "binary")
+        binElem === nothing && return Float64[]
+        binContent = content(binElem)
+        isempty(strip(binContent)) && return Float64[]
+
+        data = decode(Base64, binContent)
+        if is_zlib
+            data = Libz.inflate(data)
+        end
+        arr = is_64bit ? reinterpret(Float64, data) : reinterpret(Float32, data)
+        arr = ltoh.(arr)
+        return convert(Vector{Float64}, arr)
+    end
+    return Float64[]
+end
+
+
+"""
+    _promote_to_msscans(scan::MSscan, variance::Vector{Float64}) -> MSscans
+Wrap a single [`MSscan`](@ref) into an [`MSscans`](@ref) by promoting the
+scalar provenance fields to length-1 vectors and attaching `variance` as the
+Welford `s` accumulator. Used by [`load`](@ref) when it sees a MassJ MSscans
+marker in an mzML / mzXML file.
+"""
+function _promote_to_msscans(scan::MSscan, variance::Vector{Float64})
+    return MSscans(
+        [scan.num],
+        [scan.rt],
+        scan.tic, scan.mz, scan.int,
+        [scan.level],
+        scan.basePeakMz, scan.basePeakIntensity,
+        [scan.precursor],
+        [scan.polarity],
+        [scan.activationMethod],
+        [scan.collisionEnergy],
+        variance,
+        [scan.chargeState],
+        scan.spectrumType,
+        [scan.driftTime],
+        [scan.compensationVoltage],
+        scan.mobilityType,
+        scan.metadata,
+    )
 end
 
 

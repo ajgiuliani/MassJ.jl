@@ -37,6 +37,7 @@ include("utilities.jl")
 include("isotopes.jl")
 include("deconvolution.jl")
 include("txt.jl")
+include("export.jl")
 
 
 # Submodules
