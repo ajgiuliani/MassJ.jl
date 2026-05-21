@@ -2,6 +2,17 @@
 Submodule with types and structures used to stored the data and dispatch to the right methods.
 """
 
+# Markers used by the export / import round-trip to identify MassJ-specific
+# extensions in mzML and mzXML files (variance array on MSscans + scalar/vector
+# distinction so the loaded value has the same type as the saved one).
+const MASSJ_CONTAINER_PARAM      = "MassJ:container_type"
+const MASSJ_VARIANCE_PARAM       = "MassJ:variance_array"
+const MASSJ_SCALAR_PARAM         = "MassJ:saved_as_scalar"
+const MASSJ_MZXML_CONTAINER_ATTR = "MassJContainer"      # mzXML scan attribute
+const MASSJ_MZXML_VARIANCE_PAIR  = "variance"            # mzXML peaks pairOrder
+const MASSJ_MZXML_SCALAR_ATTR    = "MassJSavedAsScalar"  # mzXML scan attribute
+
+
 ### Containers
 
 """

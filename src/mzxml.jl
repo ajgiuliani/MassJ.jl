@@ -107,12 +107,15 @@ function load_mzxml_all(filename::String)
     end
     msRun = find_element(xroot, "msRun")
     scanCount = attribute(msRun, "scanCount")
-    
-    scans = Vector{MSscan}(undef, parse(Int, scanCount))
-    index = 1              
+
+    n = parse(Int, scanCount)
+    buf       = Vector{MScontainer}(undef, n)
+    scalar_of = Vector{Bool}(undef, n)
+    index = 1
     for c1 in child_elements(msRun)
         while name(c1) == "scan"
-            scans[index] = load_mzxml_spectrum(c1)
+            scalar_of[index] = attribute(c1, MASSJ_MZXML_SCALAR_ATTR) == "true"
+            buf[index]       = load_mzxml_spectrum(c1)
             index += 1
             c1 = find_element(c1,"scan")
             if c1 == nothing
@@ -120,8 +123,24 @@ function load_mzxml_all(filename::String)
             end
         end
     end
-    free(xdoc)   
-    return scans
+    free(xdoc)
+    raw        = buf[1:index-1]
+    scalar_vec = scalar_of[1:index-1]
+
+    # Bit-symmetric scalar round-trip
+    if length(raw) == 1 && scalar_vec[1]
+        return raw[1]
+    end
+
+    if isempty(raw)
+        return Vector{MSscan}()
+    elseif all(x -> x isa MSscans, raw)
+        return convert(Vector{MSscans}, raw)
+    elseif all(x -> x isa MSscan, raw)
+        return convert(Vector{MSscan}, raw)
+    else
+        return raw
+    end
 end
 
 """
@@ -232,9 +251,91 @@ function load_mzxml_spectrum(c::XMLElement)
     end
     int = convert(Array{Float64,1}, A[2:2:end])
     mz  = convert(Array{Float64,1}, A[1:2:end])
-    
-    return MSscan(parse(Int,num) , parse(Float64, retentionTime[3:end-1]), parse(Float64,totIonCurrent), mz, int, parse(Int, msLevel), parse(Float64, basePeakMz), parse(Float64, basePeakIntensity), parse(Float64, precursor), polarity, activationMethod, parse(Float64, collisionEnergy) )
-    
+
+    scan = MSscan(parse(Int,num) , parse(Float64, retentionTime[3:end-1]), parse(Float64,totIonCurrent), mz, int, parse(Int, msLevel), parse(Float64, basePeakMz), parse(Float64, basePeakIntensity), parse(Float64, precursor), polarity, activationMethod, parse(Float64, collisionEnergy) )
+
+    # Promote to MSscans if the MassJ marker is present.
+    if attribute(c, MASSJ_MZXML_CONTAINER_ATTR) == "MSscans"
+        variance = _mzxml_extract_variance(c)
+        return _msscans_from_mzxml_attrs(c, scan, variance)
+    end
+    return scan
+end
+
+
+"""
+    _msscans_from_mzxml_attrs(scan_elem, scan, variance) -> MSscans
+Build an `MSscans` from the vector-valued provenance fields stored as MassJ
+custom attributes on `scan_elem`. Missing attributes fall back to the scalar
+from `scan` wrapped in a 1-element vector.
+"""
+function _msscans_from_mzxml_attrs(scan_elem::XMLElement, scan::MSscan,
+                                   variance::Vector{Float64})
+    num     = _get_vec_attr(scan_elem, "MassJNum",                 Int)
+    rtvec   = _get_vec_attr(scan_elem, "MassJRt",                  Float64)
+    level   = _get_vec_attr(scan_elem, "MassJLevel",               Int)
+    precvec = _get_vec_attr(scan_elem, "MassJPrecursor",           Float64)
+    pol     = _get_vec_attr(scan_elem, "MassJPolarity",            String)
+    am      = _get_vec_attr(scan_elem, "MassJActivationMethod",    String)
+    ce      = _get_vec_attr(scan_elem, "MassJCollisionEnergy",     Float64)
+    chg     = _get_vec_attr(scan_elem, "MassJChargeState",         Int)
+    dt      = _get_vec_attr(scan_elem, "MassJDriftTime",           Float64)
+    cv      = _get_vec_attr(scan_elem, "MassJCompensationVoltage", Float64)
+
+    return MSscans(
+        something(num,     [scan.num]),
+        something(rtvec,   [scan.rt]),
+        scan.tic, scan.mz, scan.int,
+        something(level,   [scan.level]),
+        scan.basePeakMz, scan.basePeakIntensity,
+        something(precvec, [scan.precursor]),
+        something(pol,     [scan.polarity]),
+        something(am,      [scan.activationMethod]),
+        something(ce,      [scan.collisionEnergy]),
+        variance,
+        something(chg,     [scan.chargeState]),
+        scan.spectrumType,
+        something(dt,      [scan.driftTime]),
+        something(cv,      [scan.compensationVoltage]),
+        scan.mobilityType,
+        scan.metadata,
+    )
+end
+
+
+function _get_vec_attr(elem::XMLElement, attrname::String, ::Type{T}) where T
+    val = attribute(elem, attrname)
+    val === nothing && return nothing
+    isempty(val) && return T[]
+    parts = split(val, '|')
+    return T === String ? String.(parts) : parse.(T, parts)
+end
+
+
+"""
+    _mzxml_extract_variance(scan_elem::XMLElement) -> Vector{Float64}
+Return the per-m/z variance array stored in a second `<peaks pairOrder="variance">`
+child by [`save_mzxml`](@ref) for an averaged spectrum. Returns an empty vector
+if absent.
+"""
+function _mzxml_extract_variance(scan_elem::XMLElement)
+    for child in child_elements(scan_elem)
+        name(child) == "peaks" || continue
+        attribute(child, "pairOrder") == MASSJ_MZXML_VARIANCE_PAIR || continue
+
+        compression = attribute(child, "compressionType")
+        data = compression == "zlib" ?
+            Libz.inflate(decode(Base64, content(child))) :
+            decode(Base64, content(child))
+
+        precision = attribute(child, "precision")
+        arr = precision == "32" ? reinterpret(Float32, data) :
+                                  reinterpret(Float64, data)
+        # mzXML is network byte order (big-endian)
+        arr = ntoh.(arr)
+        return convert(Vector{Float64}, arr)
+    end
+    return Float64[]
 end
 
 """

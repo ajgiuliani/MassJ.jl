@@ -2,6 +2,7 @@
 The functions below are exported:
 - [`info`](@ref) 
 - [`load`](@ref) 
+- [`save`](@ref)
 - [`chromatogram`](@ref)
 - [`average`](@ref)
 - [`baseline_correction`](@ref)
