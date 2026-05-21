@@ -1224,6 +1224,51 @@ function test_yields_errors()
         @test all(isfinite, yfs.yields_err)
         rm(flux_str)
 
+        # normalize_flux: extrapolate = :line when yc.x is outside flux range
+        # flux defined on [3.0, 5.0] with slope (4-2)/(5-3) = 1 per eV → at x=2 (1 eV
+        # before the start) the extrapolated φ should be 2 - 1·1 = 1.0
+        flux_ext = tempname() * ".txt"
+        open(flux_ext, "w") do io
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  4.0\n")
+        end
+        # yc.x = [1.0, 2.0]; both points are below the flux range start (3.0).
+        # With :line, φ(1.0) = 2.0 - 1.0·2 = 0.0 — non-positive → skip flagged.
+        # With :line, φ(2.0) = 2.0 - 1.0·1 = 1.0 — valid division.
+        yc_ext = MassJ.normalize_flux(yc, flux_ext;
+                                       flux_err_pct = 0.10,
+                                       extrapolate  = :line)
+        @test yc_ext.metadata["normalize_flux_extrap"] == "line"
+        # Row 2 (yc.x = 2.0) → extrapolated φ = 1.0
+        for p in 1:2
+            @test yc_ext.yields[2, p] ≈ yc.yields[2, p] / 1.0
+        end
+        rm(flux_ext)
+
+        # :clamp (default) on out-of-range value clamps to nearest endpoint
+        flux_clamp = tempname() * ".txt"
+        open(flux_clamp, "w") do io
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  4.0\n")
+        end
+        yc_clamp = MassJ.normalize_flux(yc, flux_clamp)   # default :clamp
+        @test yc_clamp.metadata["normalize_flux_extrap"] == "clamp"
+        # Row 1 (yc.x = 1.0, < 3.0) clamped to φ = 2.0
+        for p in 1:2
+            @test yc_clamp.yields[1, p] ≈ yc.yields[1, p] / 2.0
+        end
+        rm(flux_clamp)
+
+        # Invalid extrapolate symbol
+        flux_bad = tempname() * ".txt"
+        open(flux_bad, "w") do io
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  4.0\n")
+        end
+        @test_throws ErrorException MassJ.normalize_flux(yc, flux_bad;
+                                                        extrapolate = :spline)
+        rm(flux_bad)
+
         # drop_peaks slices yields_err; tic_err unchanged by design
         d = MassJ.drop_peaks(yc, "low")
         @test size(d.yields_err) == (2, 1)
