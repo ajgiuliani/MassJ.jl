@@ -147,10 +147,15 @@ that row's `x` value, linearly interpolated from a text file. See the
 yc_flux = normalize_flux(yc_tic, "flux.txt")                       # 10% default σ_φ
 yc_flux = normalize_flux(yc_tic, "flux.txt"; flux_err_pct = 0.05)  # override default
 yc_flux = normalize_flux(yc_tic, "flux.txt"; skipstart   = 3)      # force header skip
+yc_flux = normalize_flux(yc_tic, "flux.txt"; extrapolate = :line)  # linear extrap.
 ```
 
-Out-of-range `x` values are clamped to the nearest flux and a warning is
-emitted.
+By default (`extrapolate = :clamp`), `x` values outside the flux file's range
+are clamped to the nearest endpoint and a warning is emitted. Pass
+`extrapolate = :line` to linearly extrapolate using the slope of the nearest
+segment (the same behaviour as `Interpolations.LinearInterpolation(...; extrapolation_bc = Line())`).
+The same scheme is applied to σ_φ, with `abs(...)` to keep uncertainties
+non-negative.
 
 Each normalization records itself in `yc.metadata` so the provenance of a curve
 is preserved.
