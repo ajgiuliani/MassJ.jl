@@ -75,6 +75,9 @@ MassJ.load(filename::String)
 MassJ.retention_time(filename::String)
 MassJ.chromatogram(filename::String, filters::FilterType...; method::MethodType=TIC())
 MassJ.average(filename::String, arguments::FilterType...; stats::Bool=true)
+MassJ.save
+MassJ.save_mzml
+MassJ.save_mzxml
 ```
 
 ### mzXML
