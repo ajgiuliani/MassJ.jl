@@ -811,6 +811,148 @@ function test_imzml()
 end
 
 
+function test_export()
+    @testset "Export — mzML / mzXML round-trip" begin
+
+        # -- mzML round-trip ------------------------------------------------
+        scans = MassJ.load("test.mzML")
+        tmp = tempname() * ".mzML"
+        MassJ.save(scans, tmp)
+        @test isfile(tmp)
+        back = MassJ.load(tmp)
+        @test length(back) == length(scans)
+        for (a, b) in zip(scans, back)
+            @test a.mz                ≈ b.mz
+            @test a.int               ≈ b.int
+            @test a.level             == b.level
+            @test a.rt                ≈ b.rt
+            @test a.tic               ≈ b.tic
+            @test a.polarity          == b.polarity
+            @test a.precursor         ≈ b.precursor
+            @test a.activationMethod  == b.activationMethod
+            @test a.collisionEnergy   ≈ b.collisionEnergy
+            @test a.basePeakMz        ≈ b.basePeakMz
+            @test a.basePeakIntensity ≈ b.basePeakIntensity
+        end
+        rm(tmp)
+
+        # -- mzXML round-trip -----------------------------------------------
+        scans_x = MassJ.load("test.mzXML")
+        tmpx = tempname() * ".mzXML"
+        MassJ.save(scans_x, tmpx)
+        @test isfile(tmpx)
+        back_x = MassJ.load(tmpx)
+        @test length(back_x) == length(scans_x)
+        for (a, b) in zip(scans_x, back_x)
+            @test a.mz               ≈ b.mz
+            @test a.int              ≈ b.int
+            @test a.level            == b.level
+            @test a.rt               ≈ b.rt
+            @test a.tic              ≈ b.tic
+            @test a.precursor        ≈ b.precursor
+            @test a.activationMethod == b.activationMethod
+            @test a.collisionEnergy  ≈ b.collisionEnergy
+        end
+        rm(tmpx)
+
+        # -- Single MSscan in / out — type round-trips bit-symmetrically ----
+        tmp1 = tempname() * ".mzML"
+        MassJ.save(scans[1], tmp1)
+        back1 = MassJ.load(tmp1)
+        @test typeof(back1) == typeof(scans[1])      # MSscan, not Vector
+        @test back1.mz ≈ scans[1].mz
+        rm(tmp1)
+
+        # -- MSscans (averaged) in / out — type round-trips ------------------
+        avg = MassJ.average("test.mzML")
+        @test avg isa MassJ.MSscans
+        tmpa = tempname() * ".mzML"
+        MassJ.save(avg, tmpa)
+        back_avg = MassJ.load(tmpa)
+        @test typeof(back_avg) == typeof(avg)        # MSscans, not Vector
+        @test back_avg.mz ≈ avg.mz
+        @test back_avg.s  == avg.s                   # variance preserved
+        rm(tmpa)
+
+        # -- 32-bit precision still close (relative tol) --------------------
+        tmp32 = tempname() * ".mzML"
+        MassJ.save(scans, tmp32; precision = 32)
+        back32 = MassJ.load(tmp32)
+        @test back32[1].mz ≈ scans[1].mz rtol = 1e-6
+        @test back32[1].int ≈ scans[1].int rtol = 1e-6
+        rm(tmp32)
+
+        # -- No compression also round-trips --------------------------------
+        tmpnc = tempname() * ".mzML"
+        MassJ.save(scans, tmpnc; compress = false)
+        @test MassJ.load(tmpnc)[1].mz ≈ scans[1].mz
+        rm(tmpnc)
+
+        # -- Unknown extension errors ---------------------------------------
+        @test_throws ErrorException MassJ.save(scans, "out.weird")
+
+        # -- MSscans round-trip: typeof(load) == typeof(save) (mzML) --------
+        mean_ml = MassJ.average(scans)       # MSscans from test.mzML
+        @test mean_ml isa MassJ.MSscans
+        tmpm = tempname() * ".mzML"
+        MassJ.save(mean_ml, tmpm)
+        back_ml = MassJ.load(tmpm)
+        @test typeof(back_ml) == typeof(mean_ml)   # bit-symmetric
+        @test back_ml.mz   == mean_ml.mz
+        @test back_ml.int  == mean_ml.int
+        @test back_ml.s    == mean_ml.s            # variance preserved exactly
+        @test back_ml.num  == mean_ml.num          # history preserved
+        @test back_ml.tic  ≈ mean_ml.tic
+        rm(tmpm)
+
+        # -- MSscans round-trip: typeof(load) == typeof(save) (mzXML) -------
+        mean_x = MassJ.average(scans_x)
+        @test mean_x isa MassJ.MSscans
+        tmpx2 = tempname() * ".mzXML"
+        MassJ.save(mean_x, tmpx2)
+        back_x2 = MassJ.load(tmpx2)
+        @test typeof(back_x2) == typeof(mean_x)
+        @test back_x2.mz == mean_x.mz
+        @test back_x2.int == mean_x.int
+        @test back_x2.s  == mean_x.s
+        rm(tmpx2)
+
+        # -- Plain MSscan-Vector save still returns Vector{MSscan} ----------
+        tmp_plain = tempname() * ".mzML"
+        MassJ.save(scans, tmp_plain)
+        back_plain = MassJ.load(tmp_plain)
+        @test typeof(back_plain) == typeof(scans)
+        rm(tmp_plain)
+
+        # -- External (non-MassJ) file still returns Vector{MSscan} ---------
+        @test MassJ.load("test.mzML") isa Vector{MassJ.MSscan}
+
+        # -- Vector{MSscans} round-trip (mzML and mzXML) --------------------
+        vec_ms = MassJ.MSscans[MassJ.average(scans), MassJ.average(scans)]
+        @test vec_ms isa Vector{MassJ.MSscans}
+
+        tmpvm = tempname() * ".mzML"
+        MassJ.save(vec_ms, tmpvm)
+        bvm = MassJ.load(tmpvm)
+        @test typeof(bvm) == typeof(vec_ms)
+        @test length(bvm) == 2
+        @test bvm[1].s == vec_ms[1].s
+        @test bvm[2].s == vec_ms[2].s
+        @test bvm[1].num == vec_ms[1].num
+        rm(tmpvm)
+
+        tmpvx = tempname() * ".mzXML"
+        MassJ.save(vec_ms, tmpvx)
+        bvx = MassJ.load(tmpvx)
+        @test typeof(bvx) == typeof(vec_ms)
+        @test length(bvx) == 2
+        @test bvx[1].s == vec_ms[1].s
+        @test bvx[2].s == vec_ms[2].s
+        rm(tmpvx)
+    end
+end
+
+
 tests()
 test_isotopes()
 test_deconvolution()
@@ -819,3 +961,4 @@ test_mzml()
 test_mgf()
 test_msp()
 test_imzml()
+test_export()
