@@ -415,9 +415,19 @@ end
 """
     normalize_flux(yc::YieldCurve, flux_file::AbstractString;
                    flux_err_pct::Real = 0.10,
-                   skipstart::Int = 0) -> YieldCurve
+                   skipstart::Int = 0,
+                   extrapolate::Symbol = :clamp) -> YieldCurve
 Return a new YieldCurve with each row's peak integrals and TIC divided by the photon
 flux at that row's `x` value, linearly interpolated from `flux_file`.
+
+`extrapolate` controls behaviour when `yc.x[i]` falls *outside* the flux file's
+range:
+* `:clamp` (default) — value clamped to the nearest endpoint, a warning is
+  emitted.
+* `:line` — value linearly extrapolated using the slope of the nearest
+  segment (equivalent to `Interpolations.LinearInterpolation(...; extrapolation_bc = Line())`).
+  No warning. Same scheme is applied to σ_φ (with `abs(...)` to keep
+  uncertainties non-negative).
 
 The flux file has either:
 
@@ -436,8 +446,11 @@ to `tic`. Rows whose interpolated flux is non-positive are left unchanged with a
 warning.
 """
 function normalize_flux(yc::YieldCurve, flux_file::AbstractString;
-                        flux_err_pct::Real = 0.10,
-                        skipstart::Int     = 0)
+                        flux_err_pct::Real  = 0.10,
+                        skipstart::Int      = 0,
+                        extrapolate::Symbol = :clamp)
+    extrapolate ∈ (:clamp, :line) ||
+        error("normalize_flux: extrapolate must be :clamp or :line (got :$extrapolate)")
     xf, ff, σf = _read_flux(flux_file; skipstart = skipstart,
                             flux_err_pct = flux_err_pct)
     Y       = copy(yc.yields)
@@ -447,8 +460,9 @@ function normalize_flux(yc::YieldCurve, flux_file::AbstractString;
     npeaks  = size(Y, 2)
 
     for i in 1:size(Y, 1)
-        φ,    in_range  = _interp_linear(xf, ff, yc.x[i])
-        σφ,   _         = _interp_linear(xf, σf, yc.x[i])
+        φ,    in_range  = _interp_linear(xf, ff, yc.x[i]; mode = extrapolate)
+        σφ_raw, _       = _interp_linear(xf, σf, yc.x[i]; mode = extrapolate)
+        σφ              = abs(σφ_raw)   # extrapolation of σ can go negative
         if !in_range
             @warn "normalize_flux: x=$(yc.x[i]) outside flux range " *
                   "[$(xf[1]), $(xf[end])]; clamped to nearest" flux = φ
@@ -486,6 +500,7 @@ function normalize_flux(yc::YieldCurve, flux_file::AbstractString;
     md = copy(yc.metadata)
     md["normalize_flux"]         = String(flux_file)
     md["normalize_flux_err_pct"] = Float64(flux_err_pct)
+    md["normalize_flux_extrap"]  = String(extrapolate)
     return YieldCurve(copy(yc.x), yc.xlabel,
                       Y, Y_err, tic, tic_err,
                       copy(yc.found_mz), copy(yc.labels), copy(yc.windows),
@@ -565,12 +580,26 @@ function _read_flux(path::AbstractString;
 end
 
 
-# Linear interpolation with nearest-neighbour clamping outside [x[1], x[end]].
-# Returns (value, in_range::Bool).
-function _interp_linear(x::AbstractVector, y::AbstractVector, xq::Real)
+# Linear interpolation. Boundary handling controlled by `mode`:
+#   :clamp (default) — clamps to the nearest endpoint outside [x[1], x[end]]
+#   :line            — extends the slope of the nearest segment (Interpolations.jl
+#                      `extrapolation_bc = Line()` semantics)
+# Returns (value, in_range::Bool). For :line, `in_range` is true even when
+# extrapolating, so the caller doesn't emit a clamping warning.
+function _interp_linear(x::AbstractVector, y::AbstractVector, xq::Real;
+                        mode::Symbol = :clamp)
+    n = length(x)
     if xq <= x[1]
+        if mode === :line && xq < x[1] && n >= 2
+            slope = (y[2] - y[1]) / (x[2] - x[1])
+            return y[1] + slope * (xq - x[1]), true
+        end
         return y[1], xq == x[1]
     elseif xq >= x[end]
+        if mode === :line && xq > x[end] && n >= 2
+            slope = (y[end] - y[end - 1]) / (x[end] - x[end - 1])
+            return y[end] + slope * (xq - x[end]), true
+        end
         return y[end], xq == x[end]
     end
     idx = searchsortedfirst(x, xq)
