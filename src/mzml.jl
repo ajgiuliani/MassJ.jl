@@ -31,6 +31,18 @@ const CV_INV_K0            = "MS:1002815"
 const CV_FAIMS_CV          = "MS:1001581"
 const CV_SELEXION_CV       = "MS:1003371"
 
+# Optional cvParams populated into MSscan.metadata when present in the source
+# mzML. Locations: see _read_mzml_extra_metadata.
+const CV_SPECTRUM_TITLE       = "MS:1000796"   # in <spectrum>
+const CV_LOWEST_OBSERVED_MZ   = "MS:1000528"   # in <spectrum>
+const CV_HIGHEST_OBSERVED_MZ  = "MS:1000527"   # in <spectrum>
+const CV_MASS_RESOLVING_POWER = "MS:1000800"   # in <scan>
+const CV_ION_INJECTION_TIME   = "MS:1000927"   # in <scan>
+const CV_SCAN_WINDOW_LOWER    = "MS:1000501"   # in <scanWindow>
+const CV_SCAN_WINDOW_UPPER    = "MS:1000500"   # in <scanWindow>
+const CV_UNIT_MILLISECOND     = "UO:0000028"
+const CV_UNIT_MZ              = "MS:1000040"
+
 # Activation method accessions
 const CV_CID               = "MS:1000133"
 const CV_HCD               = "MS:1000422"
@@ -574,7 +586,7 @@ function load_mzml_spectrum(spec::XMLElement, scan_index::Int)
                   basePeakMz, basePeakIntensity, precursorMz, polarity,
                   activationMethod, collisionEnergy,
                   chargeState, spectrumType, driftTime, compensationVoltage,
-                  mobilityType, Dict{String,Any}())
+                  mobilityType, _read_mzml_extra_metadata(spec))
 
     # Promote to MSscans if the MassJ export marker is present.
     if _mzml_is_msscans(spec)
@@ -770,4 +782,103 @@ function retention_time_mzml(filename::String)
 
     free(xdoc)
     return rt
+end
+
+
+
+"""
+    _read_mzml_extra_metadata(spec::XMLElement) -> Dict{String,Any}
+Pull optional cvParams off an mzML `<spectrum>` element and return them as a
+`Dict`. The dict is populated only for cvParams that are actually present in
+the source file; keys for absent fields are not added.
+
+Keys populated (when present in the source mzML):
+
+| Key                    | mzML cvParam                       | XML location               |
+|------------------------|------------------------------------|----------------------------|
+| `"spectrum_title"`     | MS:1000796 spectrum title          | direct child of `<spectrum>` |
+| `"lowest_observed_mz"` | MS:1000528 lowest observed m/z     | direct child of `<spectrum>` |
+| `"highest_observed_mz"`| MS:1000527 highest observed m/z    | direct child of `<spectrum>` |
+| `"mass_resolving_power"`| MS:1000800 mass resolving power   | `<scan>` inside `<scanList>` |
+| `"ion_injection_time"` | MS:1000927 ion injection time (ms) | `<scan>` inside `<scanList>` |
+| `"scan_window_lower"`  | MS:1000501 scan window lower limit | `<scanWindow>` inside `<scan>` |
+| `"scan_window_upper"`  | MS:1000500 scan window upper limit | `<scanWindow>` inside `<scan>` |
+
+Used by [`load_mzml_spectrum`](@ref) to populate `MSscan.metadata`.
+"""
+function _read_mzml_extra_metadata(spec::XMLElement)
+    md = Dict{String,Any}()
+
+    # -- Direct cvParam children of <spectrum> ------------------------------
+    title = get_cv_param(spec, CV_SPECTRUM_TITLE)
+    if title !== nothing
+        val = attribute(title, "value")
+        if val !== nothing && !isempty(val)
+            md["spectrum_title"] = val
+        end
+    end
+    lo = get_cv_param(spec, CV_LOWEST_OBSERVED_MZ)
+    if lo !== nothing
+        val = attribute(lo, "value")
+        if val !== nothing && !isempty(val)
+            md["lowest_observed_mz"] = parse(Float64, val)
+        end
+    end
+    hi = get_cv_param(spec, CV_HIGHEST_OBSERVED_MZ)
+    if hi !== nothing
+        val = attribute(hi, "value")
+        if val !== nothing && !isempty(val)
+            md["highest_observed_mz"] = parse(Float64, val)
+        end
+    end
+
+    # -- Inside <scanList>/<scan> -------------------------------------------
+    scanListElem = find_element(spec, "scanList")
+    scanListElem === nothing && return md
+
+    for scanElem in child_elements(scanListElem)
+        name(scanElem) == "scan" || continue
+
+        rp = get_cv_param(scanElem, CV_MASS_RESOLVING_POWER)
+        if rp !== nothing
+            val = attribute(rp, "value")
+            if val !== nothing && !isempty(val)
+                md["mass_resolving_power"] = parse(Float64, val)
+            end
+        end
+        it = get_cv_param(scanElem, CV_ION_INJECTION_TIME)
+        if it !== nothing
+            val = attribute(it, "value")
+            if val !== nothing && !isempty(val)
+                md["ion_injection_time"] = parse(Float64, val)
+            end
+        end
+
+        # Scan windows (typically one per scan; we take the first)
+        swList = find_element(scanElem, "scanWindowList")
+        if swList !== nothing
+            for sw in child_elements(swList)
+                name(sw) == "scanWindow" || continue
+                lower = get_cv_param(sw, CV_SCAN_WINDOW_LOWER)
+                if lower !== nothing
+                    val = attribute(lower, "value")
+                    if val !== nothing && !isempty(val)
+                        md["scan_window_lower"] = parse(Float64, val)
+                    end
+                end
+                upper = get_cv_param(sw, CV_SCAN_WINDOW_UPPER)
+                if upper !== nothing
+                    val = attribute(upper, "value")
+                    if val !== nothing && !isempty(val)
+                        md["scan_window_upper"] = parse(Float64, val)
+                    end
+                end
+                break  # first window only
+            end
+        end
+
+        break  # first scan only
+    end
+
+    return md
 end

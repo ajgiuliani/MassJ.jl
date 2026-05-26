@@ -949,6 +949,47 @@ function test_export()
         @test bvx[1].s == vec_ms[1].s
         @test bvx[2].s == vec_ms[2].s
         rm(tmpvx)
+
+        # -- mzML cvParams round-trip via MSscan.metadata -------------------
+        # Build a scan with all 7 known cvParam metadata keys populated, save,
+        # reload, and verify every key round-trips byte-equivalently.
+        meta = Dict{String,Any}(
+            "spectrum_title"       => "synthetic test scan",
+            "lowest_observed_mz"   => 110.123,
+            "highest_observed_mz"  => 1499.9,
+            "mass_resolving_power" => 120000.0,
+            "ion_injection_time"   => 9.876,
+            "scan_window_lower"    => 100.0,
+            "scan_window_upper"    => 1500.0,
+        )
+        s0 = MassJ.MSscan(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
+                          1, 200.0, 20.0, 0.0, "+", "", 0.0,
+                          0, :centroid, -1.0, 0.0, :none, meta)
+        tmp_md = tempname() * ".mzML"
+        MassJ.save([s0], tmp_md; progress = false)
+        back_md = MassJ.load(tmp_md)
+        @test back_md[1].metadata["spectrum_title"]       == "synthetic test scan"
+        @test back_md[1].metadata["lowest_observed_mz"]   ≈ 110.123
+        @test back_md[1].metadata["highest_observed_mz"]  ≈ 1499.9
+        @test back_md[1].metadata["mass_resolving_power"] ≈ 120000.0
+        @test back_md[1].metadata["ion_injection_time"]   ≈ 9.876
+        @test back_md[1].metadata["scan_window_lower"]    ≈ 100.0
+        @test back_md[1].metadata["scan_window_upper"]    ≈ 1500.0
+        rm(tmp_md)
+
+        # Scans without these keys produce no cvParams (keys remain absent
+        # after round-trip — we don't fabricate zero defaults).
+        s_empty = MassJ.MSscan(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
+                               1, 200.0, 20.0, 0.0, "+", "", 0.0)
+        tmp_empty = tempname() * ".mzML"
+        MassJ.save([s_empty], tmp_empty; progress = false)
+        back_empty = MassJ.load(tmp_empty)
+        for k in ("spectrum_title", "lowest_observed_mz", "highest_observed_mz",
+                  "mass_resolving_power", "ion_injection_time",
+                  "scan_window_lower", "scan_window_upper")
+            @test !haskey(back_empty[1].metadata, k)
+        end
+        rm(tmp_empty)
     end
 end
 

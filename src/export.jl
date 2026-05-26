@@ -153,6 +153,65 @@ function _stream_vec_userParam(io::IO, pname::AbstractString, v::AbstractVector)
 end
 
 
+# -- Optional cvParams from MSscan.metadata (mzML round-trip) ----------------
+#
+# Locations match those parsed by `_read_mzml_extra_metadata` in src/mzml.jl.
+# Each emission is gated by `haskey(md, key)` so that absent fields stay
+# absent in the output (rather than being filled with zero/empty defaults).
+
+# Direct children of <spectrum>: spectrum_title, lowest/highest observed m/z.
+function _stream_mzml_metadata_spectrum_cvs(io::IO, md::Dict{String,Any})
+    if haskey(md, "spectrum_title")
+        _stream_cvParam(io, CV_SPECTRUM_TITLE, "spectrum title";
+                       value = string(md["spectrum_title"]))
+    end
+    if haskey(md, "lowest_observed_mz")
+        _stream_cvParam(io, CV_LOWEST_OBSERVED_MZ, "lowest observed m/z";
+                       value = string(md["lowest_observed_mz"]),
+                       unit_cv = "MS", unit_acc = CV_UNIT_MZ, unit_name = "m/z")
+    end
+    if haskey(md, "highest_observed_mz")
+        _stream_cvParam(io, CV_HIGHEST_OBSERVED_MZ, "highest observed m/z";
+                       value = string(md["highest_observed_mz"]),
+                       unit_cv = "MS", unit_acc = CV_UNIT_MZ, unit_name = "m/z")
+    end
+end
+
+# Inside <scanList>/<scan>: mass_resolving_power, ion_injection_time.
+function _stream_mzml_metadata_scan_cvs(io::IO, md::Dict{String,Any})
+    if haskey(md, "mass_resolving_power")
+        _stream_cvParam(io, CV_MASS_RESOLVING_POWER, "mass resolving power";
+                       value = string(md["mass_resolving_power"]))
+    end
+    if haskey(md, "ion_injection_time")
+        _stream_cvParam(io, CV_ION_INJECTION_TIME, "ion injection time";
+                       value = string(md["ion_injection_time"]),
+                       unit_cv = "UO", unit_acc = CV_UNIT_MILLISECOND,
+                       unit_name = "millisecond")
+    end
+end
+
+# Inside <scan>: <scanWindowList> with the lower/upper limits, only when
+# either limit is present in metadata.
+function _stream_mzml_scan_window(io::IO, md::Dict{String,Any})
+    has_lo = haskey(md, "scan_window_lower")
+    has_hi = haskey(md, "scan_window_upper")
+    (has_lo || has_hi) || return
+    write(io, "<scanWindowList count=\"1\">\n<scanWindow>\n")
+    if has_lo
+        _stream_cvParam(io, CV_SCAN_WINDOW_LOWER, "scan window lower limit";
+                       value = string(md["scan_window_lower"]),
+                       unit_cv = "MS", unit_acc = CV_UNIT_MZ, unit_name = "m/z")
+    end
+    if has_hi
+        _stream_cvParam(io, CV_SCAN_WINDOW_UPPER, "scan window upper limit";
+                       value = string(md["scan_window_upper"]),
+                       unit_cv = "MS", unit_acc = CV_UNIT_MZ, unit_name = "m/z")
+    end
+    write(io, "</scanWindow>\n</scanWindowList>\n")
+end
+
+
 # ----------------------------------------------------------------------------
 # Streaming mzML writer
 # ----------------------------------------------------------------------------
@@ -238,6 +297,7 @@ function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
                        unit_cv = "MS", unit_acc = "MS:1000131",
                        unit_name = "number of detector counts")
     end
+    _stream_mzml_metadata_spectrum_cvs(io, scan.metadata)
 
     write(io, "<scanList count=\"1\">\n")
     _stream_cvParam(io, "MS:1000795", "no combination")
@@ -245,6 +305,8 @@ function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
     _stream_cvParam(io, CV_SCAN_START_TIME, "scan start time";
                    value = string(scan.rt), unit_cv = "UO",
                    unit_acc = CV_UNIT_MINUTE, unit_name = "minute")
+    _stream_mzml_metadata_scan_cvs(io, scan.metadata)
+    _stream_mzml_scan_window(io, scan.metadata)
     write(io, "</scan>\n</scanList>\n")
 
     if scan.level >= 2 && scan.precursor > 0
@@ -335,6 +397,7 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
                        unit_cv = "MS", unit_acc = "MS:1000131",
                        unit_name = "number of detector counts")
     end
+    _stream_mzml_metadata_spectrum_cvs(io, scan.metadata)
 
     rt0 = isempty(scan.rt) ? 0.0 : scan.rt[1]
     write(io, "<scanList count=\"1\">\n")
@@ -343,6 +406,8 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
     _stream_cvParam(io, CV_SCAN_START_TIME, "scan start time";
                    value = string(rt0), unit_cv = "UO",
                    unit_acc = CV_UNIT_MINUTE, unit_name = "minute")
+    _stream_mzml_metadata_scan_cvs(io, scan.metadata)
+    _stream_mzml_scan_window(io, scan.metadata)
     write(io, "</scan>\n</scanList>\n")
 
     prec0 = isempty(scan.precursor) ? 0.0 : scan.precursor[1]
