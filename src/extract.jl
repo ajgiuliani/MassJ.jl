@@ -102,21 +102,19 @@ MassJ.MSscan(2, 0.7307, 9727.2, [345.083, 345.167, 345.25, 345.333, 345.417, 345
 
 """
 function extract(scans::Vector{MSscan}, arguments::FilterType...)
-    index = Set( i for i in 1:length(scans) )
-    
-    for el in arguments
-        subindex = filter(scans, el)
-        index = intersect(index, subindex)
+    pred = compose_predicates(scans, arguments)
+
+    sub_set = Vector{MSscan}(undef, 0)
+    for scan in scans
+        pred(scan) || continue
+        push!(sub_set, scan)
     end
 
-    indices = sort([ i for i in index])
-    
-    if length(indices) >= 1
-        return build_subset(scans, indices)
+    if !isempty(sub_set)
+        return sub_set
     else
         ErrorException("No matching spectra found.")
     end
-
 end
 
 """

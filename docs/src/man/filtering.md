@@ -41,11 +41,6 @@ The [`average`](@ref) and [`chromatogram`](@ref) functions may takes arguments t
 
 
 
-!!! note
-
-    The filtering function goes first through all the arguments and setup an array of scan num that matches the conditions. Then it uses this array to calculate the average mass spectrum.  So this procedure needs two passes through the data, which is not very efficient. This is a point to make better in the future.
- 
-
 When the argument is restricted to a single value, such as `MassJ.Scan(1)`, filtering is performed on that specific value. If the argument is a vector then filtering involves all the values within the range.  Filtering on `MassJ.scan([1,10])` means that the result will be obtained for scans ranging from 1 to 10.  The same applies for all `FilterType` with the exception of `MassJ.∆MZ`, for which the first value of the vector represents the *mz* and the second value represents the spread ∆mz, so that filtering is operated for all *mz* value in the range [m/z - ∆mz , m/z + ∆mz].  The `MassJ.RT` type may take a vector or vectors as argument, such `MassJ.RT([ [1,10], [20, 30] ]).  In that case, mass spectra will be averaged in [1,10] and [20,30] range.
 
 

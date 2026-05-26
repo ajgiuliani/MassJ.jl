@@ -953,6 +953,476 @@ function test_export()
 end
 
 
+function test_composed_predicates()
+    scans = MassJ.load("test.mzXML")
+
+    @testset "Composed predicates - empty filter returns all scans" begin
+        sub = MassJ.extract(scans)
+        @test length(sub) == length(scans)
+
+        chrom = MassJ.chromatogram(scans)
+        @test length(chrom.rt) == length(scans)
+    end
+
+    @testset "Composed predicates - no match returns ErrorException" begin
+        @test MassJ.extract(scans, MassJ.Level(99))       isa ErrorException
+        @test MassJ.chromatogram(scans, MassJ.Level(99))  isa ErrorException
+        @test MassJ.average(scans, MassJ.Level(99))       isa ErrorException
+    end
+
+    @testset "Composed predicates - single match in average returns MSscan" begin
+        result = MassJ.average(scans, MassJ.Scan(1))
+        @test result isa MassJ.MSscan
+        @test result.num == 1
+    end
+
+    @testset "Composed predicates - AND semantics equivalence" begin
+        # Single-pass composition must yield the same scans as stepwise filtering.
+        combined = MassJ.extract(scans, MassJ.Level(2), MassJ.Polarity("+"))
+        stepwise = MassJ.extract(MassJ.extract(scans, MassJ.Level(2)), MassJ.Polarity("+"))
+        @test [s.num for s in combined] == [s.num for s in stepwise]
+    end
+
+    @testset "Composed predicates - multiple disjoint RT ranges" begin
+        # Two RT intervals that together cover scans at RT≈0.14, 0.73 and 4.34 in test.mzXML.
+        ms = MassJ.average(scans, MassJ.RT([[0.0, 1.0], [4.0, 5.0]]), stats = false)
+        @test ms isa MassJ.MSscans
+    end
+end
+
+
+function test_yields()
+    @testset "Yields - integrate_window, yields, normalize_*" begin
+
+        # integrate_window on synthetic arrays: triangle from 0..1..0 over m/z 0..2
+        mz   = [0.0, 1.0, 2.0]
+        int  = [0.0, 1.0, 0.0]
+        @test MassJ.integrate_window(mz, int, 0.0, 2.0) ≈ 1.0   # 2 * 1 / 2
+        @test MassJ.integrate_window(mz, int, 0.0, 1.0) ≈ 0.5
+        @test MassJ.integrate_window(mz, int, 5.0, 6.0) == 0.0  # no points
+        @test MassJ.integrate_window(mz, int, 1.0, 1.0) == 0.0  # 1 point only
+        @test MassJ.integrate_window(mz, int, 2.0, 0.0) ≈ 1.0   # swapped bounds
+
+        # integrate_window on a real MSscan
+        scans = MassJ.load("test.mzXML")
+        a = MassJ.integrate_window(scans[1], 400.0, 500.0)
+        @test a > 0 && isfinite(a)
+
+        # Peak constructor swaps when mz1 > mz2
+        p = MassJ.Peak(200.0, 100.0, "swap")
+        @test p.mz1 == 100.0 && p.mz2 == 200.0 && p.label == "swap"
+
+        # yields(files, peaks; x) — two-file series using the same fixture
+        peaks = [MassJ.Peak(400.0, 500.0, "low"),
+                 MassJ.Peak(800.0, 900.0, "high")]
+        yc = MassJ.yields(["test.mzXML", "test.mzXML"], peaks;
+                          x = [3.5, 4.0], xlabel = "photon energy (eV)")
+        @test yc isa MassJ.YieldCurve
+        @test size(yc.yields)    == (2, 2)
+        @test size(yc.found_mz)  == (2, 2)
+        @test all(isnan, yc.found_mz)         # all fixed Peak → all NaN
+        @test yc.x               == [3.5, 4.0]
+        @test yc.xlabel          == "photon energy (eV)"
+        @test yc.labels          == ["low", "high"]
+        @test yc.windows         == [(400.0, 500.0), (800.0, 900.0)]
+        @test yc.tic[1]          ≈ yc.yields[1, 1] + yc.yields[1, 2]
+        @test yc.yields[1, :]    ≈ yc.yields[2, :]    # same source file twice
+
+        # length mismatch
+        @test_throws ErrorException MassJ.yields(["test.mzXML"], peaks; x = [1.0, 2.0])
+
+        # read_peaklist — round-trip through a temp CSV (with header)
+        tmp = tempname() * ".csv"
+        open(tmp, "w") do io
+            write(io, "mz1,mz2,label\n")
+            write(io, "400.0,500.0,low\n")
+            write(io, "800.0,900.0,high\n")
+        end
+        pl = MassJ.read_peaklist(tmp)
+        @test length(pl) == 2
+        @test pl[1].mz1 == 400.0 && pl[1].mz2 == 500.0 && pl[1].label == "low"
+        rm(tmp)
+
+        # read_peaklist — no header
+        tmp2 = tempname() * ".csv"
+        open(tmp2, "w") do io
+            write(io, "100.0,200.0,A\n")
+        end
+        pl2 = MassJ.read_peaklist(tmp2)
+        @test length(pl2) == 1 && pl2[1].label == "A"
+        rm(tmp2)
+
+        # normalize_tic: rows of peak columns sum to 1
+        yn = MassJ.normalize_tic(yc)
+        @test yn isa MassJ.YieldCurve
+        @test sum(yn.yields[1, :]) ≈ 1.0
+        @test sum(yn.yields[2, :]) ≈ 1.0
+        @test yn.tic == yc.tic   # raw totals preserved
+        @test yn.metadata["normalize_tic"] == true
+
+        # normalize_flux: divide by a constant flux of 2.0
+        # — `#`-prefixed header lines are stripped as comments
+        fluxpath = tempname() * ".txt"
+        open(fluxpath, "w") do io
+            write(io, "# header line 1\n")
+            write(io, "# header line 2\n")
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  2.0\n")
+        end
+        yf = MassJ.normalize_flux(yc, fluxpath)
+        @test yf.yields ≈ yc.yields ./ 2.0
+        @test yf.tic    ≈ yc.tic    ./ 2.0
+        @test yf.metadata["normalize_flux"] == fluxpath
+        rm(fluxpath)
+
+        # normalize_flux: text header (no #) auto-detected and skipped
+        flux_text = tempname() * ".txt"
+        open(flux_text, "w") do io
+            write(io, "energy flux\n")     # text header
+            write(io, "==== ====\n")       # decorative
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  2.0\n")
+        end
+        yf_t = MassJ.normalize_flux(yc, flux_text)
+        @test yf_t.yields ≈ yc.yields ./ 2.0
+        rm(flux_text)
+
+        # normalize_flux: # comments mixed with data anywhere in the file
+        flux_mixed = tempname() * ".txt"
+        open(flux_mixed, "w") do io
+            write(io, "# preamble\n")
+            write(io, "energy   flux\n")   # text header below comments
+            write(io, "3.0  2.0\n")
+            write(io, "# mid-file note\n")
+            write(io, "5.0  2.0  # trailing comment\n")
+        end
+        yf_m = MassJ.normalize_flux(yc, flux_mixed)
+        @test yf_m.yields ≈ yc.yields ./ 2.0
+        rm(flux_mixed)
+
+        # normalize_flux: explicit skipstart override
+        # — top row is "1 1" (looks numeric, but is a unit/scale row to skip)
+        flux_skip = tempname() * ".txt"
+        open(flux_skip, "w") do io
+            write(io, "1 1\n")             # would otherwise be parsed as data
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  2.0\n")
+        end
+        yf_s = MassJ.normalize_flux(yc, flux_skip; skipstart = 1)
+        @test yf_s.yields ≈ yc.yields ./ 2.0
+        rm(flux_skip)
+
+        # write_csv round-trip — header + correct row count
+        outpath = tempname() * ".csv"
+        MassJ.write_csv(yc, outpath)
+        lines = readlines(outpath)
+        @test length(lines) == 3                                   # header + 2 rows
+        @test lines[1] == "photon energy (eV),low,high,TIC"
+        rm(outpath)
+
+        # plot recipe smoke test
+        @test typeof(plot(yc)) == Plots.Plot{Plots.GRBackend}
+    end
+end
+
+
+function test_yields_targetpeak()
+    @testset "TargetPeak resolution methods + Peak(mz, label; tol/ppm)" begin
+
+        # Peak(mz, label; tol) — eager fixed window from a single m/z
+        p = MassJ.Peak(100.0, "x"; tol = 0.5)
+        @test p.mz1 == 99.5 && p.mz2 == 100.5 && p.label == "x"
+
+        # Peak(mz, label; ppm)
+        p2 = MassJ.Peak(1000.0, "y"; ppm = 5.0)
+        @test p2.mz1 ≈ 1000.0 - 1000.0 * 5e-6
+        @test p2.mz2 ≈ 1000.0 + 1000.0 * 5e-6
+
+        # tol/ppm mutual exclusion
+        @test_throws ErrorException MassJ.Peak(100.0, "z"; tol = 0.5, ppm = 5.0)
+        @test_throws ErrorException MassJ.Peak(100.0, "z")
+
+        # TargetPeak defaults and method validation
+        tp = MassJ.TargetPeak(100.0, "a"; tol = 0.5)
+        @test tp.mz == 100.0 && tp.tol == 0.5
+        @test tp.method === :local_max && tp.edges == 0.1
+
+        tp2 = MassJ.TargetPeak(100.0, "b"; tol = 0.5, method = :edges, edges = 0.2)
+        @test tp2.method === :edges && tp2.edges == 0.2
+
+        @test_throws ErrorException MassJ.TargetPeak(100.0, "c"; tol = 0.5, method = :bad)
+        @test_throws ErrorException MassJ.TargetPeak(100.0, "c")     # neither tol nor ppm
+
+        # Locate the global max in the averaged test fixture
+        spec = MassJ.average("test.mzXML")
+        peak_idx  = argmax(spec.int)
+        target_mz = spec.mz[peak_idx]
+
+        # :local_max — should snap exactly onto the sample-grid maximum
+        peaks_lm = [MassJ.TargetPeak(target_mz - 0.05, "lm"; tol = 0.2)]
+        yc_lm    = MassJ.yields(["test.mzXML"], peaks_lm; x = [1.0])
+        @test yc_lm.found_mz[1, 1] ≈ target_mz
+        @test yc_lm.yields[1, 1]   > 0
+
+        # :edges — same location, possibly different window width
+        peaks_ed = [MassJ.TargetPeak(target_mz - 0.05, "ed";
+                                      tol = 0.2, method = :edges)]
+        yc_ed    = MassJ.yields(["test.mzXML"], peaks_ed; x = [1.0])
+        @test yc_ed.found_mz[1, 1] ≈ target_mz
+        @test yc_ed.yields[1, 1]   > 0
+
+        # :centroid — uses the package's centroid(). Wider tol + TBPD so the
+        # search window definitely contains at least one centroid in this fixture.
+        peaks_cn = [MassJ.TargetPeak(target_mz, "cn";
+                                      tol = 5.0, method = :centroid)]
+        yc_cn    = MassJ.yields(["test.mzXML"], peaks_cn; x = [1.0],
+                                centroid_method = MassJ.TBPD(:gauss, 4500., 0.2))
+        @test isfinite(yc_cn.found_mz[1, 1])
+        @test abs(yc_cn.found_mz[1, 1] - target_mz) < 5.0
+        @test yc_cn.yields[1, 1] > 0
+
+        # Mixed peak list — Peak gives NaN, TargetPeak gives a located m/z
+        peaks_mx = [MassJ.Peak(400.0, 500.0, "static"),
+                    MassJ.TargetPeak(target_mz, "lazy"; tol = 0.2)]
+        yc_mx    = MassJ.yields(["test.mzXML"], peaks_mx; x = [1.0])
+        @test isnan(yc_mx.found_mz[1, 1])
+        @test yc_mx.found_mz[1, 2] ≈ target_mz
+
+        # read_peaklist 2-col → TargetPeak with kwarg defaults
+        tmp2 = tempname() * ".csv"
+        open(tmp2, "w") do io
+            write(io, "mz,label\n")
+            write(io, "100.0,A\n")
+            write(io, "200.0,B\n")
+        end
+        pl2 = MassJ.read_peaklist(tmp2; tol = 0.3, method = :edges)
+        @test length(pl2) == 2
+        @test pl2[1] isa MassJ.TargetPeak
+        @test pl2[1].mz == 100.0 && pl2[1].tol == 0.3 && pl2[1].method === :edges
+        rm(tmp2)
+
+        # read_peaklist 4-col → TargetPeak with per-row tol + method
+        tmp4 = tempname() * ".csv"
+        open(tmp4, "w") do io
+            write(io, "mz,tol,method,label\n")
+            write(io, "100.0,0.3,local_max,A\n")
+            write(io, "200.0,0.5,edges,B\n")
+        end
+        pl4 = MassJ.read_peaklist(tmp4)
+        @test length(pl4) == 2
+        @test pl4[1].method === :local_max && pl4[1].tol == 0.3
+        @test pl4[2].method === :edges     && pl4[2].tol == 0.5
+        rm(tmp4)
+
+        # normalize_tic preserves found_mz
+        yn = MassJ.normalize_tic(yc_lm)
+        @test yn.found_mz == yc_lm.found_mz
+
+        # drop_peaks — single string
+        peaks_two = [MassJ.Peak(400.0, 500.0, "low"),
+                     MassJ.Peak(800.0, 900.0, "high")]
+        yc2 = MassJ.yields(["test.mzXML", "test.mzXML"], peaks_two;
+                           x = [1.0, 2.0])
+        d1 = MassJ.drop_peaks(yc2, "low")
+        @test d1.labels        == ["high"]
+        @test size(d1.yields)  == (2, 1)
+        @test d1.yields[:, 1]  ≈  yc2.yields[:, 2]
+        @test d1.windows       == [(800.0, 900.0)]
+        @test size(d1.found_mz) == (2, 1)
+        @test d1.tic           == yc2.tic         # tic unchanged by design
+
+        # drop_peaks — vector of labels
+        d2 = MassJ.drop_peaks(yc2, ["high"])
+        @test d2.labels == ["low"]
+
+        # drop_peaks — drop everything
+        d3 = MassJ.drop_peaks(yc2, ["low", "high"])
+        @test isempty(d3.labels)
+        @test size(d3.yields) == (2, 0)
+
+        # drop_peaks — missing labels silently ignored
+        d4 = MassJ.drop_peaks(yc2, ["nonexistent"])
+        @test d4.labels == yc2.labels
+        @test d4.yields == yc2.yields
+    end
+end
+
+
+function test_yields_errors()
+    @testset "YieldCurve error propagation" begin
+
+        # MSscans from `average("test.mzXML")` carries variance over 6 scans,
+        # so yields_err and tic_err should all be finite.
+        peaks = [MassJ.Peak(400.0, 500.0, "low"),
+                 MassJ.Peak(800.0, 900.0, "high")]
+        yc = MassJ.yields(["test.mzXML", "test.mzXML"], peaks; x = [1.0, 2.0])
+
+        @test size(yc.yields_err) == (2, 2)
+        @test all(isfinite, yc.yields_err)
+        @test all(yc.yields_err .>= 0)
+        @test size(yc.tic_err) == (2,)
+        @test all(isfinite, yc.tic_err)
+        for i in 1:2
+            @test yc.tic_err[i] ≈ sqrt(sum(abs2, yc.yields_err[i, :]))
+        end
+
+        # MSscan path: no variance available → NaN error
+        scans = MassJ.load("test.mzXML")
+        _, σ_one = MassJ._integrate_window_with_err(scans[1], 400.0, 500.0)
+        @test isnan(σ_one)
+
+        # normalize_tic: standard division error propagation
+        yn = MassJ.normalize_tic(yc)
+        @test all(isfinite, yn.yields_err)
+        for i in 1:2, p in 1:2
+            σ_y = yc.yields_err[i, p]
+            y   = yc.yields[i, p]
+            t   = yc.tic[i]
+            σ_t = yc.tic_err[i]
+            expected = sqrt((σ_y / t)^2 + (y * σ_t / (t * t))^2)
+            @test yn.yields_err[i, p] ≈ expected
+        end
+        @test yn.tic     == yc.tic           # raw totals preserved
+        @test yn.tic_err == yc.tic_err
+
+        # normalize_flux: 2-col file → 10% default σ_φ
+        fluxpath = tempname() * ".txt"
+        open(fluxpath, "w") do io
+            write(io, "# flux 10%\n")
+            write(io, "1.0  2.0\n")
+            write(io, "3.0  2.0\n")
+        end
+        yf = MassJ.normalize_flux(yc, fluxpath)
+        @test yf.metadata["normalize_flux_err_pct"] == 0.10
+        for i in 1:2, p in 1:2
+            φ, σφ = 2.0, 0.10 * 2.0
+            σ_y   = yc.yields_err[i, p]
+            y     = yc.yields[i, p]
+            expected = sqrt((σ_y / φ)^2 + (y * σφ / (φ * φ))^2)
+            @test yf.yields_err[i, p] ≈ expected
+        end
+        rm(fluxpath)
+
+        # normalize_flux: custom flux_err_pct kwarg
+        fluxpath2 = tempname() * ".txt"
+        open(fluxpath2, "w") do io
+            write(io, "1.0  2.0\n")
+            write(io, "3.0  2.0\n")
+        end
+        yf5 = MassJ.normalize_flux(yc, fluxpath2; flux_err_pct = 0.05)
+        @test yf5.metadata["normalize_flux_err_pct"] == 0.05
+        rm(fluxpath2)
+
+        # normalize_flux: 3-col file → σ_φ from the file
+        flux3 = tempname() * ".txt"
+        open(flux3, "w") do io
+            write(io, "# x flux sigma\n")
+            write(io, "1.0  2.0  0.1\n")
+            write(io, "3.0  2.0  0.1\n")
+        end
+        yf3 = MassJ.normalize_flux(yc, flux3)
+        for i in 1:2, p in 1:2
+            φ, σφ = 2.0, 0.1
+            σ_y   = yc.yields_err[i, p]
+            y     = yc.yields[i, p]
+            expected = sqrt((σ_y / φ)^2 + (y * σφ / (φ * φ))^2)
+            @test yf3.yields_err[i, p] ≈ expected
+        end
+        rm(flux3)
+
+        # normalize_flux: jagged / empty 3rd column should not throw
+        # (readdlm sometimes pads files with an empty 3rd col when rows are
+        #  uneven or have trailing whitespace) — per-row fallback to pct.
+        # Use xf == yc.x so there's no interpolation between σ values.
+        flux_jag = tempname() * ".txt"
+        open(flux_jag, "w") do io
+            write(io, "# x flux [sigma]\n")
+            write(io, "1.0  2.0  0.1\n")   # σ present
+            write(io, "2.0  2.0\n")        # σ missing → falls back to pct
+        end
+        yfj = MassJ.normalize_flux(yc, flux_jag; flux_err_pct = 0.10)
+        @test all(isfinite, yfj.yields_err)
+        # Row 1 (yc.x=1.0) lands on xf[1] → σφ = 0.1
+        # Row 2 (yc.x=2.0) lands on xf[2] → σφ = 0.10·|2.0| = 0.2 (pct fallback)
+        for p in 1:2
+            φ = 2.0
+            σ_y1 = yc.yields_err[1, p]; y1 = yc.yields[1, p]
+            σ_y2 = yc.yields_err[2, p]; y2 = yc.yields[2, p]
+            @test yfj.yields_err[1, p] ≈ sqrt((σ_y1 / φ)^2 + (y1 * 0.1 / (φ * φ))^2)
+            @test yfj.yields_err[2, p] ≈ sqrt((σ_y2 / φ)^2 + (y2 * 0.2 / (φ * φ))^2)
+        end
+        rm(flux_jag)
+
+        # normalize_flux: non-numeric 3rd column (e.g. date string in DESIRS
+        # beamline log files) — each row's σ falls back to pct.
+        flux_str = tempname() * ".txt"
+        open(flux_str, "w") do io
+            write(io, "# DESIRS-style header\n")
+            write(io, "Energy (eV)  flux  timestamp\n")          # text header
+            write(io, "1.0  2.0  Fri Apr 17 12:27:54 2026\n")
+            write(io, "2.0  2.0  Fri Apr 17 12:28:02 2026\n")
+        end
+        yfs = MassJ.normalize_flux(yc, flux_str; flux_err_pct = 0.10)
+        @test all(isfinite, yfs.yields_err)
+        rm(flux_str)
+
+        # normalize_flux: extrapolate = :line when yc.x is outside flux range
+        # flux defined on [3.0, 5.0] with slope (4-2)/(5-3) = 1 per eV → at x=2 (1 eV
+        # before the start) the extrapolated φ should be 2 - 1·1 = 1.0
+        flux_ext = tempname() * ".txt"
+        open(flux_ext, "w") do io
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  4.0\n")
+        end
+        # yc.x = [1.0, 2.0]; both points are below the flux range start (3.0).
+        # With :line, φ(1.0) = 2.0 - 1.0·2 = 0.0 — non-positive → skip flagged.
+        # With :line, φ(2.0) = 2.0 - 1.0·1 = 1.0 — valid division.
+        yc_ext = MassJ.normalize_flux(yc, flux_ext;
+                                       flux_err_pct = 0.10,
+                                       extrapolate  = :line)
+        @test yc_ext.metadata["normalize_flux_extrap"] == "line"
+        # Row 2 (yc.x = 2.0) → extrapolated φ = 1.0
+        for p in 1:2
+            @test yc_ext.yields[2, p] ≈ yc.yields[2, p] / 1.0
+        end
+        rm(flux_ext)
+
+        # :clamp (default) on out-of-range value clamps to nearest endpoint
+        flux_clamp = tempname() * ".txt"
+        open(flux_clamp, "w") do io
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  4.0\n")
+        end
+        yc_clamp = MassJ.normalize_flux(yc, flux_clamp)   # default :clamp
+        @test yc_clamp.metadata["normalize_flux_extrap"] == "clamp"
+        # Row 1 (yc.x = 1.0, < 3.0) clamped to φ = 2.0
+        for p in 1:2
+            @test yc_clamp.yields[1, p] ≈ yc.yields[1, p] / 2.0
+        end
+        rm(flux_clamp)
+
+        # Invalid extrapolate symbol
+        flux_bad = tempname() * ".txt"
+        open(flux_bad, "w") do io
+            write(io, "3.0  2.0\n")
+            write(io, "5.0  4.0\n")
+        end
+        @test_throws ErrorException MassJ.normalize_flux(yc, flux_bad;
+                                                        extrapolate = :spline)
+        rm(flux_bad)
+
+        # drop_peaks slices yields_err; tic_err unchanged by design
+        d = MassJ.drop_peaks(yc, "low")
+        @test size(d.yields_err) == (2, 1)
+        @test d.yields_err[:, 1] == yc.yields_err[:, 2]
+        @test d.tic_err == yc.tic_err
+
+        # Plot with ribbon still works
+        @test typeof(plot(yc)) == Plots.Plot{Plots.GRBackend}
+    end
+end
+
+
 tests()
 test_isotopes()
 test_deconvolution()
@@ -961,4 +1431,8 @@ test_mzml()
 test_mgf()
 test_msp()
 test_imzml()
+test_composed_predicates()
 test_export()
+test_yields()
+test_yields_targetpeak()
+test_yields_errors()

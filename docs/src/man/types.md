@@ -91,6 +91,54 @@ The [`MassJ.MSscans`](@ref) structure is similar to [`MassJ.MSscan`](@ref), exce
 
 A backward-compatible constructor accepting the original 13 fields is provided. The 6 new fields default to neutral values.
 
+## Peak and yield-curve types
+
+[`MassJ.AbstractPeak`](@ref) is the supertype for peak descriptors accepted by
+[`yields`](@ref). Two concrete subtypes are provided:
+
+[`MassJ.Peak`](@ref) carries a fixed m/z window used identically across every
+spectrum in a series:
+```julia
+struct Peak <: AbstractPeak
+    mz1::Float64    # lower m/z bound
+    mz2::Float64    # upper m/z bound
+    label::String
+end
+```
+
+[`MassJ.TargetPeak`](@ref) carries a target m/z and a search half-width; the
+window is determined per file using one of three algorithms (`:local_max`,
+`:edges`, `:centroid`):
+```julia
+struct TargetPeak <: AbstractPeak
+    mz::Float64        # target m/z
+    label::String
+    tol::Float64       # search half-width (absolute Δm/z)
+    method::Symbol     # :local_max, :edges, or :centroid
+    edges::Float64     # threshold (fraction of max) for :edges
+end
+```
+
+[`MassJ.YieldCurve`](@ref) holds the result of [`yields`](@ref):
+```julia
+struct YieldCurve <: MScontainer
+    x::Vector{Float64}                      # external parameter, one per file
+    xlabel::String                          # x-axis label (e.g. "energy (eV)")
+    yields::Matrix{Float64}                 # nfiles × npeaks integrated intensities
+    yields_err::Matrix{Float64}             # nfiles × npeaks 1-σ uncertainties (NaN = unknown)
+    tic::Vector{Float64}                    # per-file sum of peak integrals (raw)
+    tic_err::Vector{Float64}                # per-file 1-σ on tic
+    found_mz::Matrix{Float64}               # nfiles × npeaks located m/z (NaN for Peak)
+    labels::Vector{String}                  # peak labels
+    windows::Vector{Tuple{Float64,Float64}} # nominal (mz1, mz2) for each peak
+    files::Vector{String}                   # source file paths
+    metadata::Dict{String,Any}              # records normalization steps applied
+end
+```
+`yields_err` and `tic_err` carry propagated 1-σ uncertainties — see
+[Uncertainties](@ref) in the energy-resolved yields manual. They are `NaN`
+when no error information is available (single scan / `MSscan` input).
+
 ## Deconvolution method types
 
 The deconvolution functions use dedicated method types to dispatch to the appropriate algorithm. These types are subtypes of [`MassJ.MethodType`](@ref).

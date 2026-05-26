@@ -34,9 +34,11 @@ include("imzml.jl")
 include("process.jl")
 include("extract.jl")
 include("utilities.jl")
+include("predicates.jl")
 include("isotopes.jl")
 include("deconvolution.jl")
 include("txt.jl")
+include("yields.jl")
 include("export.jl")
 
 
