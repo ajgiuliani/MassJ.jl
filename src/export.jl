@@ -6,11 +6,11 @@ The top-level entry point [`save`](@ref) dispatches on the file extension:
 * `.mzML`  → [`save_mzml`](@ref)
 * `.mzXML` → [`save_mzxml`](@ref)
 
-Both writers round-trip through MassJ's own readers — i.e. `load(save_path)`
-recovers the same `MSscan` data. Format-level metadata (`fileDescription`,
-`instrumentConfiguration`, `dataProcessing`, the `cvList`) is emitted in a
-minimal-but-valid form; downstream tools that need rich provenance fields
-should expect them blank.
+Both writers stream directly to disk, one spectrum at a time, so peak memory
+stays bounded by the largest single spectrum (not by the total file size). The
+output round-trips through MassJ's own readers — `load(save_path)` recovers
+the same data. Format-level metadata (`fileDescription`, `instrumentConfiguration`,
+`dataProcessing`, the `cvList`) is emitted in a minimal-but-valid form.
 """
 
 # User Interface.
@@ -28,18 +28,21 @@ Export MassJ data to a file. The format is selected from the extension:
 | `.mzML`   | [`save_mzml`](@ref)  | PSI standard; little-endian arrays    |
 | `.mzXML`  | [`save_mzxml`](@ref) | Legacy format; big-endian arrays      |
 
-Accepts a single [`MSscan`](@ref) / [`MSscans`](@ref) or a `Vector{MSscan}`.
-Common keyword arguments:
+Accepts a single [`MSscan`](@ref) / [`MSscans`](@ref), a `Vector{MSscan}`, or
+a `Vector{MSscans}`. Common keyword arguments:
 
 * `precision::Int = 64`   — `64` for `Float64` arrays, `32` for `Float32`
 * `compress::Bool = true` — zlib-compress the binary arrays
+* `progress::Bool = true` — show a [`ProgressMeter`](https://github.com/timholy/ProgressMeter.jl)
+  progress bar while writing (set `false` in scripts / CI)
 
 # Examples
 ```julia
 scans = load("input.mzML")
-save(scans, "output.mzML")                     # round-trip
-save(scans, "output.mzXML"; precision = 32)    # smaller file, less precision
-save(scans[1], "single_scan.mzML")             # one scan
+save(scans, "output.mzML")                          # round-trip
+save(scans, "output.mzXML"; precision = 32)         # smaller file, lossy
+save(scans[1], "single_scan.mzML")                  # one scan
+save(scans, "quiet.mzML"; progress = false)         # no progress bar
 ```
 """
 function save(data, filename::AbstractString; kwargs...)
@@ -55,16 +58,16 @@ function save(data, filename::AbstractString; kwargs...)
 end
 
 
-# Binary encoding shared by mzML / mzXML writers.
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Binary encoding (shared)
+# ----------------------------------------------------------------------------
 
 """
     _encode_binary(data; precision = 64, compress = true, endian = :little)
         -> (base64_string, byte_length)
 Encode a real-valued vector to the base64-of-zlib-of-raw-bytes payload expected
-by mzML/mzXML `<binary>` / `<peaks>` elements.
-
-`endian` is `:little` for mzML or `:big` for mzXML (network byte order).
+by mzML/mzXML `<binary>` / `<peaks>` elements. `endian` is `:little` for mzML
+or `:big` for mzXML (network byte order).
 """
 function _encode_binary(data::AbstractVector{<:Real};
                         precision::Int  = 64,
@@ -84,626 +87,567 @@ function _encode_binary(data::AbstractVector{<:Real};
 end
 
 
-# Helper to add a cvParam child element with the usual attributes.
-function _cvParam(parent::XMLElement, accession::String, name::String;
-                  value::AbstractString = "",
-                  unit_cv::AbstractString = "",
-                  unit_acc::AbstractString = "",
-                  unit_name::AbstractString = "")
-    cv = new_child(parent, "cvParam")
-    set_attribute(cv, "cvRef", "MS")
-    set_attribute(cv, "accession", accession)
-    set_attribute(cv, "name", name)
+# ----------------------------------------------------------------------------
+# XML helpers — write directly to an IO, no in-memory tree.
+# ----------------------------------------------------------------------------
+
+# Escape the five XML metacharacters in attribute values / text content. Most
+# values we emit are numeric and don't need escaping; user-supplied labels
+# might.
+function _xmlescape(s::AbstractString)
+    needs = false
+    for c in s
+        if c == '&' || c == '<' || c == '>' || c == '"' || c == '\''
+            needs = true
+            break
+        end
+    end
+    needs || return s
+    buf = IOBuffer()
+    for c in s
+        c == '&'  ? print(buf, "&amp;")  :
+        c == '<'  ? print(buf, "&lt;")   :
+        c == '>'  ? print(buf, "&gt;")   :
+        c == '"'  ? print(buf, "&quot;") :
+        c == '\'' ? print(buf, "&apos;") :
+                    print(buf, c)
+    end
+    return String(take!(buf))
+end
+
+
+# Emit `<cvParam cvRef="MS" accession="..." name="..." [value="..."] [unit*]/>`
+function _stream_cvParam(io::IO, accession::AbstractString, pname::AbstractString;
+                        value::AbstractString    = "",
+                        unit_cv::AbstractString  = "",
+                        unit_acc::AbstractString = "",
+                        unit_name::AbstractString = "")
+    write(io, "<cvParam cvRef=\"MS\" accession=\"", accession,
+          "\" name=\"", _xmlescape(pname), "\"")
     if !isempty(value)
-        set_attribute(cv, "value", value)
+        write(io, " value=\"", _xmlescape(value), "\"")
     end
     if !isempty(unit_acc)
-        set_attribute(cv, "unitCvRef",     unit_cv)
-        set_attribute(cv, "unitAccession", unit_acc)
-        set_attribute(cv, "unitName",      unit_name)
+        write(io, " unitCvRef=\"", unit_cv,
+              "\" unitAccession=\"", unit_acc,
+              "\" unitName=\"", _xmlescape(unit_name), "\"")
     end
-    return cv
+    write(io, "/>\n")
 end
 
 
-# ============================================================================
-# mzML writer
-# ============================================================================
-
-"""
-    save_mzml(filename::AbstractString, data;
-              precision::Int = 64, compress::Bool = true) -> filename
-Write a [`MSscan`](@ref), [`MSscans`](@ref), or `Vector{MSscan}` to an mzML
-file. The emitted file is minimal-but-valid and round-trips through
-[`load`](@ref) — m/z, intensity, MS level, polarity, retention time, precursor
-m/z, charge state, activation method, and collision energy are preserved.
-
-Optional keywords:
-* `precision = 64` — `64` for `Float64` arrays, `32` for `Float32` (smaller, lossy)
-* `compress = true` — zlib-compress the binary arrays
-"""
-function save_mzml(filename::AbstractString, scans::Vector{MSscan};
-                   precision::Int = 64, compress::Bool = true)
-    return _save_mzml_vector(filename, scans;
-                             precision = precision, compress = compress,
-                             scalar = false)
-end
-
-function save_mzml(filename::AbstractString, scan::MSscan;
-                   precision::Int = 64, compress::Bool = true)
-    # `scalar = true` records that the input was a bare MSscan, so `load`
-    # returns a bare MSscan (not a 1-element Vector) on round-trip.
-    return _save_mzml_vector(filename, [scan];
-                             precision = precision, compress = compress,
-                             scalar = true)
-end
-
-function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
-                           precision::Int, compress::Bool, scalar::Bool)
-    xdoc  = XMLDocument()
-    xroot = create_root(xdoc, "mzML")
-    set_attribute(xroot, "xmlns",     "http://psi.hupo.org/ms/mzml")
-    set_attribute(xroot, "xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
-    set_attribute(xroot, "version",   "1.1.0")
-
-    _mzml_cvList(xroot)
-    _mzml_fileDescription(xroot)
-    _mzml_softwareList(xroot)
-    _mzml_instrumentConfigurationList(xroot)
-    _mzml_dataProcessingList(xroot)
-
-    run = new_child(xroot, "run")
-    set_attribute(run, "id", "run1")
-    set_attribute(run, "defaultInstrumentConfigurationRef", "IC1")
-
-    specList = new_child(run, "spectrumList")
-    set_attribute(specList, "count", string(length(scans)))
-    set_attribute(specList, "defaultDataProcessingRef", "MassJExport")
-
-    for (i, scan) in enumerate(scans)
-        _mzml_spectrum(specList, scan, i - 1;
-                       precision = precision, compress = compress,
-                       scalar = scalar)
+# Emit `<userParam name="..." [value="..."] type="xsd:string"/>`
+function _stream_userParam(io::IO, pname::AbstractString;
+                          value::AbstractString = "")
+    write(io, "<userParam name=\"", _xmlescape(pname), "\"")
+    if !isempty(value)
+        write(io, " value=\"", _xmlescape(value), "\"")
     end
-
-    save_file(xdoc, filename)
-    free(xdoc)
-    return filename
-end
-
-function save_mzml(filename::AbstractString, scan::MSscans;
-                   precision::Int = 64, compress::Bool = true)
-    return _save_mzml_msscans_vector(filename, [scan];
-                                     precision = precision, compress = compress,
-                                     scalar = true)
-end
-
-function save_mzml(filename::AbstractString, scans::Vector{MSscans};
-                   precision::Int = 64, compress::Bool = true)
-    return _save_mzml_msscans_vector(filename, scans;
-                                     precision = precision, compress = compress,
-                                     scalar = false)
-end
-
-function _save_mzml_msscans_vector(filename::AbstractString, scans::Vector{MSscans};
-                                   precision::Int, compress::Bool, scalar::Bool)
-    xdoc  = XMLDocument()
-    xroot = create_root(xdoc, "mzML")
-    set_attribute(xroot, "xmlns",     "http://psi.hupo.org/ms/mzml")
-    set_attribute(xroot, "xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
-    set_attribute(xroot, "version",   "1.1.0")
-
-    _mzml_cvList(xroot)
-    _mzml_fileDescription(xroot)
-    _mzml_softwareList(xroot)
-    _mzml_instrumentConfigurationList(xroot)
-    _mzml_dataProcessingList(xroot)
-
-    run = new_child(xroot, "run")
-    set_attribute(run, "id", "run1")
-    set_attribute(run, "defaultInstrumentConfigurationRef", "IC1")
-
-    specList = new_child(run, "spectrumList")
-    set_attribute(specList, "count", string(length(scans)))
-    set_attribute(specList, "defaultDataProcessingRef", "MassJExport")
-
-    for (i, sc) in enumerate(scans)
-        _mzml_msscans_spectrum(specList, sc, i - 1;
-                               precision = precision, compress = compress,
-                               scalar = scalar)
-    end
-
-    save_file(xdoc, filename)
-    free(xdoc)
-    return filename
+    write(io, " type=\"xsd:string\"/>\n")
 end
 
 
-# -- mzML header helpers ------------------------------------------------------
-
-function _mzml_cvList(root::XMLElement)
-    cvList = new_child(root, "cvList")
-    set_attribute(cvList, "count", "2")
-    cv1 = new_child(cvList, "cv")
-    set_attribute(cv1, "id",       "MS")
-    set_attribute(cv1, "fullName", "Proteomics Standards Initiative Mass Spectrometry Ontology")
-    set_attribute(cv1, "URI",      "https://raw.githubusercontent.com/HUPO-PSI/psi-ms-CV/master/psi-ms.obo")
-    set_attribute(cv1, "version",  "4.1.0")
-    cv2 = new_child(cvList, "cv")
-    set_attribute(cv2, "id",       "UO")
-    set_attribute(cv2, "fullName", "Unit Ontology")
-    set_attribute(cv2, "URI",      "http://obo.cvs.sourceforge.net/obo/obo/ontology/phenotype/unit.obo")
-    set_attribute(cv2, "version",  "12:10:2011")
-end
-
-function _mzml_fileDescription(root::XMLElement)
-    fd = new_child(root, "fileDescription")
-    fc = new_child(fd, "fileContent")
-    _cvParam(fc, "MS:1000579", "MS1 spectrum")
-end
-
-function _mzml_softwareList(root::XMLElement)
-    sl = new_child(root, "softwareList")
-    set_attribute(sl, "count", "1")
-    sw = new_child(sl, "software")
-    set_attribute(sw, "id",      "MassJ")
-    set_attribute(sw, "version", "0.1")
-    _cvParam(sw, "MS:1000799", "custom unreleased software tool"; value = "MassJ")
-end
-
-function _mzml_instrumentConfigurationList(root::XMLElement)
-    icl = new_child(root, "instrumentConfigurationList")
-    set_attribute(icl, "count", "1")
-    ic = new_child(icl, "instrumentConfiguration")
-    set_attribute(ic, "id", "IC1")
-    _cvParam(ic, "MS:1000031", "instrument model")
-end
-
-function _mzml_dataProcessingList(root::XMLElement)
-    dpl = new_child(root, "dataProcessingList")
-    set_attribute(dpl, "count", "1")
-    dp = new_child(dpl, "dataProcessing")
-    set_attribute(dp, "id", "MassJExport")
-    pm = new_child(dp, "processingMethod")
-    set_attribute(pm, "order",       "0")
-    set_attribute(pm, "softwareRef", "MassJ")
-    _cvParam(pm, "MS:1000544", "Conversion to mzML")
+# Serialise an MSscans provenance vector as a `userParam` (mzML).
+function _stream_vec_userParam(io::IO, pname::AbstractString, v::AbstractVector)
+    _stream_userParam(io, pname; value = isempty(v) ? "" : join(v, "|"))
 end
 
 
-# -- mzML spectrum body -------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Streaming mzML writer
+# ----------------------------------------------------------------------------
 
-function _mzml_spectrum(parent::XMLElement, scan::MSscan, index::Int;
-                        precision::Int = 64, compress::Bool = true,
-                        scalar::Bool = false)
-    spec = new_child(parent, "spectrum")
-    set_attribute(spec, "index",              string(index))
-    set_attribute(spec, "id",                 "scan=$(scan.num)")
-    set_attribute(spec, "defaultArrayLength", string(length(scan.mz)))
+function _stream_mzml_open(io::IO, scancount::Int)
+    write(io, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
+    write(io, "<mzML xmlns=\"http://psi.hupo.org/ms/mzml\"",
+          " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"",
+          " version=\"1.1.0\">\n")
+
+    write(io, "<cvList count=\"2\">\n",
+              "<cv id=\"MS\" fullName=\"Proteomics Standards Initiative Mass Spectrometry Ontology\"",
+              " URI=\"https://raw.githubusercontent.com/HUPO-PSI/psi-ms-CV/master/psi-ms.obo\"",
+              " version=\"4.1.0\"/>\n",
+              "<cv id=\"UO\" fullName=\"Unit Ontology\"",
+              " URI=\"http://obo.cvs.sourceforge.net/obo/obo/ontology/phenotype/unit.obo\"",
+              " version=\"12:10:2011\"/>\n",
+              "</cvList>\n")
+
+    write(io, "<fileDescription>\n<fileContent>\n")
+    _stream_cvParam(io, "MS:1000579", "MS1 spectrum")
+    write(io, "</fileContent>\n</fileDescription>\n")
+
+    write(io, "<softwareList count=\"1\">\n",
+              "<software id=\"MassJ\" version=\"0.1\">\n")
+    _stream_cvParam(io, "MS:1000799", "custom unreleased software tool"; value = "MassJ")
+    write(io, "</software>\n</softwareList>\n")
+
+    write(io, "<instrumentConfigurationList count=\"1\">\n",
+              "<instrumentConfiguration id=\"IC1\">\n")
+    _stream_cvParam(io, "MS:1000031", "instrument model")
+    write(io, "</instrumentConfiguration>\n</instrumentConfigurationList>\n")
+
+    write(io, "<dataProcessingList count=\"1\">\n",
+              "<dataProcessing id=\"MassJExport\">\n",
+              "<processingMethod order=\"0\" softwareRef=\"MassJ\">\n")
+    _stream_cvParam(io, "MS:1000544", "Conversion to mzML")
+    write(io, "</processingMethod>\n</dataProcessing>\n</dataProcessingList>\n")
+
+    write(io, "<run id=\"run1\" defaultInstrumentConfigurationRef=\"IC1\">\n",
+              "<spectrumList count=\"", string(scancount),
+              "\" defaultDataProcessingRef=\"MassJExport\">\n")
+end
+
+
+_stream_mzml_close(io::IO) = write(io, "</spectrumList>\n</run>\n</mzML>\n")
+
+
+function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
+                               precision::Int = 64, compress::Bool = true,
+                               scalar::Bool = false)
+    write(io, "<spectrum index=\"", string(index),
+              "\" id=\"scan=", string(scan.num),
+              "\" defaultArrayLength=\"", string(length(scan.mz)), "\">\n")
 
     if scalar
-        sm = new_child(spec, "userParam")
-        set_attribute(sm, "name",  MASSJ_SCALAR_PARAM)
-        set_attribute(sm, "value", "true")
-        set_attribute(sm, "type",  "xsd:string")
+        _stream_userParam(io, MASSJ_SCALAR_PARAM; value = "true")
     end
 
-    _cvParam(spec, CV_MS_LEVEL, "ms level"; value = string(scan.level))
+    _stream_cvParam(io, CV_MS_LEVEL, "ms level"; value = string(scan.level))
 
     if scan.polarity == "+"
-        _cvParam(spec, CV_POSITIVE_SCAN, "positive scan")
+        _stream_cvParam(io, CV_POSITIVE_SCAN, "positive scan")
     elseif scan.polarity == "-"
-        _cvParam(spec, CV_NEGATIVE_SCAN, "negative scan")
+        _stream_cvParam(io, CV_NEGATIVE_SCAN, "negative scan")
     end
 
     if scan.spectrumType === :centroid
-        _cvParam(spec, CV_CENTROID, "centroid spectrum")
+        _stream_cvParam(io, CV_CENTROID, "centroid spectrum")
     elseif scan.spectrumType === :profile
-        _cvParam(spec, CV_PROFILE, "profile spectrum")
+        _stream_cvParam(io, CV_PROFILE, "profile spectrum")
     end
 
-    _cvParam(spec, CV_TIC, "total ion current"; value = string(scan.tic))
+    _stream_cvParam(io, CV_TIC, "total ion current"; value = string(scan.tic))
     if scan.basePeakMz > 0
-        _cvParam(spec, CV_BASE_PEAK_MZ, "base peak m/z";
-                 value = string(scan.basePeakMz),
-                 unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
+        _stream_cvParam(io, CV_BASE_PEAK_MZ, "base peak m/z";
+                       value = string(scan.basePeakMz),
+                       unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
     end
     if scan.basePeakIntensity > 0
-        _cvParam(spec, CV_BASE_PEAK_INT, "base peak intensity";
-                 value = string(scan.basePeakIntensity),
-                 unit_cv = "MS", unit_acc = "MS:1000131",
-                 unit_name = "number of detector counts")
+        _stream_cvParam(io, CV_BASE_PEAK_INT, "base peak intensity";
+                       value = string(scan.basePeakIntensity),
+                       unit_cv = "MS", unit_acc = "MS:1000131",
+                       unit_name = "number of detector counts")
     end
 
-    # Scan list with retention time
-    scanList = new_child(spec, "scanList")
-    set_attribute(scanList, "count", "1")
-    _cvParam(scanList, "MS:1000795", "no combination")
-    sc = new_child(scanList, "scan")
-    _cvParam(sc, CV_SCAN_START_TIME, "scan start time";
-             value     = string(scan.rt),
-             unit_cv   = "UO",
-             unit_acc  = CV_UNIT_MINUTE,
-             unit_name = "minute")
+    write(io, "<scanList count=\"1\">\n")
+    _stream_cvParam(io, "MS:1000795", "no combination")
+    write(io, "<scan>\n")
+    _stream_cvParam(io, CV_SCAN_START_TIME, "scan start time";
+                   value = string(scan.rt), unit_cv = "UO",
+                   unit_acc = CV_UNIT_MINUTE, unit_name = "minute")
+    write(io, "</scan>\n</scanList>\n")
 
-    # Precursor list (for MS²+)
     if scan.level >= 2 && scan.precursor > 0
-        precList = new_child(spec, "precursorList")
-        set_attribute(precList, "count", "1")
-        prec   = new_child(precList, "precursor")
-        siList = new_child(prec, "selectedIonList")
-        set_attribute(siList, "count", "1")
-        si = new_child(siList, "selectedIon")
-        _cvParam(si, CV_SELECTED_ION_MZ, "selected ion m/z";
-                 value = string(scan.precursor),
-                 unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
+        write(io, "<precursorList count=\"1\">\n<precursor>\n",
+                  "<selectedIonList count=\"1\">\n<selectedIon>\n")
+        _stream_cvParam(io, CV_SELECTED_ION_MZ, "selected ion m/z";
+                       value = string(scan.precursor),
+                       unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
         if scan.chargeState != 0
-            _cvParam(si, CV_CHARGE_STATE, "charge state";
-                     value = string(scan.chargeState))
+            _stream_cvParam(io, CV_CHARGE_STATE, "charge state";
+                           value = string(scan.chargeState))
         end
-        act = new_child(prec, "activation")
+        write(io, "</selectedIon>\n</selectedIonList>\n<activation>\n")
         if !isempty(scan.activationMethod)
             for (accession, methodName) in ACTIVATION_METHODS
                 if methodName == scan.activationMethod
-                    _cvParam(act, accession, methodName)
+                    _stream_cvParam(io, accession, methodName)
                     break
                 end
             end
         end
         if scan.collisionEnergy > 0
-            _cvParam(act, CV_COLLISION_ENERGY, "collision energy";
-                     value = string(scan.collisionEnergy),
-                     unit_cv = "UO", unit_acc = "UO:0000266",
-                     unit_name = "electronvolt")
+            _stream_cvParam(io, CV_COLLISION_ENERGY, "collision energy";
+                           value = string(scan.collisionEnergy),
+                           unit_cv = "UO", unit_acc = "UO:0000266",
+                           unit_name = "electronvolt")
         end
+        write(io, "</activation>\n</precursor>\n</precursorList>\n")
     end
 
-    # Binary data arrays
-    bdaList = new_child(spec, "binaryDataArrayList")
-    set_attribute(bdaList, "count", "2")
-    _mzml_binaryDataArray(bdaList, scan.mz,  :mz;  precision = precision, compress = compress)
-    _mzml_binaryDataArray(bdaList, scan.int, :int; precision = precision, compress = compress)
-end
-
-function _mzml_binaryDataArray(parent::XMLElement, data::Vector{Float64},
-                               kind::Symbol;
-                               precision::Int = 64, compress::Bool = true)
-    b64, _ = _encode_binary(data; precision = precision, compress = compress,
-                            endian = :little)
-    bda = new_child(parent, "binaryDataArray")
-    set_attribute(bda, "encodedLength", string(length(b64)))
-
-    prec_acc, prec_name = precision == 64 ?
-        (CV_64BIT, "64-bit float") :
-        (CV_32BIT, "32-bit float")
-    _cvParam(bda, prec_acc, prec_name)
-
-    comp_acc, comp_name = compress ?
-        (CV_ZLIB, "zlib compression") :
-        (CV_NO_COMPRESSION, "no compression")
-    _cvParam(bda, comp_acc, comp_name)
-
-    if kind === :mz
-        _cvParam(bda, CV_MZ_ARRAY, "m/z array";
-                 unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
-    else
-        _cvParam(bda, CV_INT_ARRAY, "intensity array";
-                 unit_cv = "MS", unit_acc = "MS:1000131",
-                 unit_name = "number of detector counts")
-    end
-
-    bin = new_child(bda, "binary")
-    add_text(bin, b64)
+    write(io, "<binaryDataArrayList count=\"2\">\n")
+    _stream_mzml_binaryDataArray(io, scan.mz,  :mz;  precision = precision, compress = compress)
+    _stream_mzml_binaryDataArray(io, scan.int, :int; precision = precision, compress = compress)
+    write(io, "</binaryDataArrayList>\n</spectrum>\n")
 end
 
 
-# Pipe-separator used to serialise vector-valued provenance fields into a
-# single string-typed userParam (mzML) or custom attribute (mzXML).
-const MASSJ_VEC_SEP = "|"
-
-# Serialise an MSscans provenance vector as a `userParam` child of `parent`.
-# Empty vectors are written as an empty `value`.
-function _add_vec_userParam(parent::XMLElement, pname::String,
-                            v::AbstractVector)
-    up = new_child(parent, "userParam")
-    set_attribute(up, "name",  pname)
-    set_attribute(up, "value", isempty(v) ? "" : join(v, MASSJ_VEC_SEP))
-    set_attribute(up, "type",  "xsd:string")
-end
-
-# Same idea for mzXML, which has no userParam — use a custom attribute.
-function _set_vec_attr(elem::XMLElement, attrname::String, v::AbstractVector)
-    set_attribute(elem, attrname, isempty(v) ? "" : join(v, MASSJ_VEC_SEP))
-end
-
-
-# -- mzML MSscans spectrum (with variance + marker) ---------------------------
-
-function _mzml_msscans_spectrum(parent::XMLElement, scan::MSscans, index::Int = 0;
-                                precision::Int = 64, compress::Bool = true,
-                                scalar::Bool = true)
-    spec = new_child(parent, "spectrum")
+function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
+                                       precision::Int = 64, compress::Bool = true,
+                                       scalar::Bool = true)
     num0 = isempty(scan.num) ? 1 : scan.num[1]
-    set_attribute(spec, "index",              string(index))
-    set_attribute(spec, "id",                 "scan=$(num0)")
-    set_attribute(spec, "defaultArrayLength", string(length(scan.mz)))
+    write(io, "<spectrum index=\"", string(index),
+              "\" id=\"scan=", string(num0),
+              "\" defaultArrayLength=\"", string(length(scan.mz)), "\">\n")
 
-    # Marker that this spectrum carries an averaged-spectrum payload
-    up = new_child(spec, "userParam")
-    set_attribute(up, "name",  MASSJ_CONTAINER_PARAM)
-    set_attribute(up, "value", "MSscans")
-    set_attribute(up, "type",  "xsd:string")
-
-    # Scalar marker only when this MSscans was passed in bare, not as part of
-    # a Vector{MSscans} (where load should keep the surrounding Vector).
+    _stream_userParam(io, MASSJ_CONTAINER_PARAM; value = "MSscans")
     if scalar
-        sm = new_child(spec, "userParam")
-        set_attribute(sm, "name",  MASSJ_SCALAR_PARAM)
-        set_attribute(sm, "value", "true")
-        set_attribute(sm, "type",  "xsd:string")
+        _stream_userParam(io, MASSJ_SCALAR_PARAM; value = "true")
     end
 
-    # Preserve all vector-valued provenance fields so round-trip is loss-less.
-    _add_vec_userParam(spec, "MassJ:num",                 scan.num)
-    _add_vec_userParam(spec, "MassJ:rt",                  scan.rt)
-    _add_vec_userParam(spec, "MassJ:level",               scan.level)
-    _add_vec_userParam(spec, "MassJ:precursor",           scan.precursor)
-    _add_vec_userParam(spec, "MassJ:polarity",            scan.polarity)
-    _add_vec_userParam(spec, "MassJ:activationMethod",    scan.activationMethod)
-    _add_vec_userParam(spec, "MassJ:collisionEnergy",     scan.collisionEnergy)
-    _add_vec_userParam(spec, "MassJ:chargeState",         scan.chargeState)
-    _add_vec_userParam(spec, "MassJ:driftTime",           scan.driftTime)
-    _add_vec_userParam(spec, "MassJ:compensationVoltage", scan.compensationVoltage)
+    # Preserve all vector-valued provenance fields losslessly.
+    _stream_vec_userParam(io, "MassJ:num",                 scan.num)
+    _stream_vec_userParam(io, "MassJ:rt",                  scan.rt)
+    _stream_vec_userParam(io, "MassJ:level",               scan.level)
+    _stream_vec_userParam(io, "MassJ:precursor",           scan.precursor)
+    _stream_vec_userParam(io, "MassJ:polarity",            scan.polarity)
+    _stream_vec_userParam(io, "MassJ:activationMethod",    scan.activationMethod)
+    _stream_vec_userParam(io, "MassJ:collisionEnergy",     scan.collisionEnergy)
+    _stream_vec_userParam(io, "MassJ:chargeState",         scan.chargeState)
+    _stream_vec_userParam(io, "MassJ:driftTime",           scan.driftTime)
+    _stream_vec_userParam(io, "MassJ:compensationVoltage", scan.compensationVoltage)
 
     lvl = isempty(scan.level) ? 1 : scan.level[1]
-    _cvParam(spec, CV_MS_LEVEL, "ms level"; value = string(lvl))
+    _stream_cvParam(io, CV_MS_LEVEL, "ms level"; value = string(lvl))
 
     pol = isempty(scan.polarity) ? "" : scan.polarity[1]
     if pol == "+"
-        _cvParam(spec, CV_POSITIVE_SCAN, "positive scan")
+        _stream_cvParam(io, CV_POSITIVE_SCAN, "positive scan")
     elseif pol == "-"
-        _cvParam(spec, CV_NEGATIVE_SCAN, "negative scan")
+        _stream_cvParam(io, CV_NEGATIVE_SCAN, "negative scan")
     end
 
     if scan.spectrumType === :centroid
-        _cvParam(spec, CV_CENTROID, "centroid spectrum")
+        _stream_cvParam(io, CV_CENTROID, "centroid spectrum")
     elseif scan.spectrumType === :profile
-        _cvParam(spec, CV_PROFILE, "profile spectrum")
+        _stream_cvParam(io, CV_PROFILE, "profile spectrum")
     end
 
-    _cvParam(spec, CV_TIC, "total ion current"; value = string(scan.tic))
+    _stream_cvParam(io, CV_TIC, "total ion current"; value = string(scan.tic))
     if scan.basePeakMz > 0
-        _cvParam(spec, CV_BASE_PEAK_MZ, "base peak m/z";
-                 value = string(scan.basePeakMz),
-                 unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
+        _stream_cvParam(io, CV_BASE_PEAK_MZ, "base peak m/z";
+                       value = string(scan.basePeakMz),
+                       unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
     end
     if scan.basePeakIntensity > 0
-        _cvParam(spec, CV_BASE_PEAK_INT, "base peak intensity";
-                 value = string(scan.basePeakIntensity),
-                 unit_cv = "MS", unit_acc = "MS:1000131",
-                 unit_name = "number of detector counts")
+        _stream_cvParam(io, CV_BASE_PEAK_INT, "base peak intensity";
+                       value = string(scan.basePeakIntensity),
+                       unit_cv = "MS", unit_acc = "MS:1000131",
+                       unit_name = "number of detector counts")
     end
 
     rt0 = isempty(scan.rt) ? 0.0 : scan.rt[1]
-    scanList = new_child(spec, "scanList")
-    set_attribute(scanList, "count", "1")
-    _cvParam(scanList, "MS:1000795", "no combination")
-    sc = new_child(scanList, "scan")
-    _cvParam(sc, CV_SCAN_START_TIME, "scan start time";
-             value = string(rt0), unit_cv = "UO",
-             unit_acc = CV_UNIT_MINUTE, unit_name = "minute")
+    write(io, "<scanList count=\"1\">\n")
+    _stream_cvParam(io, "MS:1000795", "no combination")
+    write(io, "<scan>\n")
+    _stream_cvParam(io, CV_SCAN_START_TIME, "scan start time";
+                   value = string(rt0), unit_cv = "UO",
+                   unit_acc = CV_UNIT_MINUTE, unit_name = "minute")
+    write(io, "</scan>\n</scanList>\n")
 
     prec0 = isempty(scan.precursor) ? 0.0 : scan.precursor[1]
     if lvl >= 2 && prec0 > 0
-        precList = new_child(spec, "precursorList")
-        set_attribute(precList, "count", "1")
-        prec   = new_child(precList, "precursor")
-        siList = new_child(prec, "selectedIonList")
-        set_attribute(siList, "count", "1")
-        si = new_child(siList, "selectedIon")
-        _cvParam(si, CV_SELECTED_ION_MZ, "selected ion m/z";
-                 value = string(prec0),
-                 unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
+        write(io, "<precursorList count=\"1\">\n<precursor>\n",
+                  "<selectedIonList count=\"1\">\n<selectedIon>\n")
+        _stream_cvParam(io, CV_SELECTED_ION_MZ, "selected ion m/z";
+                       value = string(prec0),
+                       unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
         chg0 = isempty(scan.chargeState) ? 0 : scan.chargeState[1]
         if chg0 != 0
-            _cvParam(si, CV_CHARGE_STATE, "charge state"; value = string(chg0))
+            _stream_cvParam(io, CV_CHARGE_STATE, "charge state"; value = string(chg0))
         end
-        act = new_child(prec, "activation")
+        write(io, "</selectedIon>\n</selectedIonList>\n<activation>\n")
         am0 = isempty(scan.activationMethod) ? "" : scan.activationMethod[1]
         if !isempty(am0)
             for (accession, methodName) in ACTIVATION_METHODS
                 if methodName == am0
-                    _cvParam(act, accession, methodName)
+                    _stream_cvParam(io, accession, methodName)
                     break
                 end
             end
         end
         ce0 = isempty(scan.collisionEnergy) ? 0.0 : scan.collisionEnergy[1]
         if ce0 > 0
-            _cvParam(act, CV_COLLISION_ENERGY, "collision energy";
-                     value = string(ce0),
-                     unit_cv = "UO", unit_acc = "UO:0000266",
-                     unit_name = "electronvolt")
+            _stream_cvParam(io, CV_COLLISION_ENERGY, "collision energy";
+                           value = string(ce0),
+                           unit_cv = "UO", unit_acc = "UO:0000266",
+                           unit_name = "electronvolt")
         end
+        write(io, "</activation>\n</precursor>\n</precursorList>\n")
     end
 
-    # Three binary arrays: m/z, intensity, variance (s)
-    bdaList = new_child(spec, "binaryDataArrayList")
-    set_attribute(bdaList, "count", "3")
-    _mzml_binaryDataArray(bdaList, scan.mz,  :mz;  precision = precision, compress = compress)
-    _mzml_binaryDataArray(bdaList, scan.int, :int; precision = precision, compress = compress)
-    _mzml_binaryDataArray_variance(bdaList, scan.s;
-                                   precision = precision, compress = compress)
+    write(io, "<binaryDataArrayList count=\"3\">\n")
+    _stream_mzml_binaryDataArray(io, scan.mz,  :mz;  precision = precision, compress = compress)
+    _stream_mzml_binaryDataArray(io, scan.int, :int; precision = precision, compress = compress)
+    _stream_mzml_variance_array(io, scan.s; precision = precision, compress = compress)
+    write(io, "</binaryDataArrayList>\n</spectrum>\n")
 end
 
-function _mzml_binaryDataArray_variance(parent::XMLElement, data::Vector{Float64};
-                                        precision::Int = 64, compress::Bool = true)
+
+function _stream_mzml_binaryDataArray(io::IO, data::Vector{Float64}, kind::Symbol;
+                                      precision::Int = 64, compress::Bool = true)
     b64, _ = _encode_binary(data; precision = precision, compress = compress,
                             endian = :little)
-    bda = new_child(parent, "binaryDataArray")
-    set_attribute(bda, "encodedLength", string(length(b64)))
+    write(io, "<binaryDataArray encodedLength=\"", string(length(b64)), "\">\n")
 
-    prec_acc, prec_name = precision == 64 ?
-        (CV_64BIT, "64-bit float") : (CV_32BIT, "32-bit float")
-    _cvParam(bda, prec_acc, prec_name)
-
-    comp_acc, comp_name = compress ?
-        (CV_ZLIB, "zlib compression") : (CV_NO_COMPRESSION, "no compression")
-    _cvParam(bda, comp_acc, comp_name)
-
-    # MassJ-specific marker — not a PSI-MS CV term, so emit as userParam.
-    up = new_child(bda, "userParam")
-    set_attribute(up, "name", MASSJ_VARIANCE_PARAM)
-    set_attribute(up, "type", "xsd:string")
-
-    bin = new_child(bda, "binary")
-    add_text(bin, b64)
-end
-
-
-# ============================================================================
-# mzXML writer
-# ============================================================================
-
-"""
-    save_mzxml(filename::AbstractString, data;
-               precision::Int = 64, compress::Bool = true) -> filename
-Write a [`MSscan`](@ref), [`MSscans`](@ref), or `Vector{MSscan}` to an mzXML
-file. The emitted file is minimal-but-valid and round-trips through
-[`load`](@ref) — m/z, intensity, MS level, polarity, retention time, precursor
-m/z, activation method, and collision energy are preserved. mzXML interleaves
-m/z and intensity in a single `<peaks>` blob and uses *big-endian* byte order
-("network"), in contrast with mzML.
-
-Optional keywords:
-* `precision = 64` — `64` for `Float64` arrays, `32` for `Float32`
-* `compress = true` — zlib-compress the peaks blob
-"""
-function save_mzxml(filename::AbstractString, scans::Vector{MSscan};
-                    precision::Int = 64, compress::Bool = true)
-    return _save_mzxml_vector(filename, scans;
-                              precision = precision, compress = compress,
-                              scalar = false)
-end
-
-function save_mzxml(filename::AbstractString, scan::MSscan;
-                    precision::Int = 64, compress::Bool = true)
-    return _save_mzxml_vector(filename, [scan];
-                              precision = precision, compress = compress,
-                              scalar = true)
-end
-
-function _save_mzxml_vector(filename::AbstractString, scans::Vector{MSscan};
-                            precision::Int, compress::Bool, scalar::Bool)
-    xdoc  = XMLDocument()
-    xroot = create_root(xdoc, "mzXML")
-    set_attribute(xroot, "xmlns",     "http://sashimi.sourceforge.net/schema_revision/mzXML_3.2")
-    set_attribute(xroot, "xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
-
-    msRun = new_child(xroot, "msRun")
-    set_attribute(msRun, "scanCount", string(length(scans)))
-
-    for scan in scans
-        _mzxml_spectrum(msRun, scan;
-                        precision = precision, compress = compress,
-                        scalar = scalar)
+    if precision == 64
+        _stream_cvParam(io, CV_64BIT, "64-bit float")
+    else
+        _stream_cvParam(io, CV_32BIT, "32-bit float")
+    end
+    if compress
+        _stream_cvParam(io, CV_ZLIB, "zlib compression")
+    else
+        _stream_cvParam(io, CV_NO_COMPRESSION, "no compression")
+    end
+    if kind === :mz
+        _stream_cvParam(io, CV_MZ_ARRAY, "m/z array";
+                       unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
+    else
+        _stream_cvParam(io, CV_INT_ARRAY, "intensity array";
+                       unit_cv = "MS", unit_acc = "MS:1000131",
+                       unit_name = "number of detector counts")
     end
 
-    save_file(xdoc, filename)
-    free(xdoc)
-    return filename
+    write(io, "<binary>", b64, "</binary>\n</binaryDataArray>\n")
 end
 
-function save_mzxml(filename::AbstractString, scan::MSscans;
-                    precision::Int = 64, compress::Bool = true)
-    return _save_mzxml_msscans_vector(filename, [scan];
-                                      precision = precision, compress = compress,
-                                      scalar = true)
-end
 
-function save_mzxml(filename::AbstractString, scans::Vector{MSscans};
-                    precision::Int = 64, compress::Bool = true)
-    return _save_mzxml_msscans_vector(filename, scans;
-                                      precision = precision, compress = compress,
-                                      scalar = false)
-end
+function _stream_mzml_variance_array(io::IO, data::Vector{Float64};
+                                     precision::Int = 64, compress::Bool = true)
+    b64, _ = _encode_binary(data; precision = precision, compress = compress,
+                            endian = :little)
+    write(io, "<binaryDataArray encodedLength=\"", string(length(b64)), "\">\n")
 
-function _save_mzxml_msscans_vector(filename::AbstractString, scans::Vector{MSscans};
-                                    precision::Int, compress::Bool, scalar::Bool)
-    xdoc  = XMLDocument()
-    xroot = create_root(xdoc, "mzXML")
-    set_attribute(xroot, "xmlns",     "http://sashimi.sourceforge.net/schema_revision/mzXML_3.2")
-    set_attribute(xroot, "xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
-
-    msRun = new_child(xroot, "msRun")
-    set_attribute(msRun, "scanCount", string(length(scans)))
-
-    for sc in scans
-        _mzxml_msscans_spectrum(msRun, sc;
-                                precision = precision, compress = compress,
-                                scalar = scalar)
+    if precision == 64
+        _stream_cvParam(io, CV_64BIT, "64-bit float")
+    else
+        _stream_cvParam(io, CV_32BIT, "32-bit float")
     end
+    if compress
+        _stream_cvParam(io, CV_ZLIB, "zlib compression")
+    else
+        _stream_cvParam(io, CV_NO_COMPRESSION, "no compression")
+    end
+    _stream_userParam(io, MASSJ_VARIANCE_PARAM)
+    write(io, "<binary>", b64, "</binary>\n</binaryDataArray>\n")
+end
 
-    save_file(xdoc, filename)
-    free(xdoc)
+
+# -- save_mzml dispatch ------------------------------------------------------
+
+"""
+    save_mzml(filename::AbstractString, data;
+              precision::Int = 64, compress::Bool = true,
+              progress::Bool = true) -> filename
+Write a [`MSscan`](@ref), [`MSscans`](@ref), or `Vector{MSscan}` /
+`Vector{MSscans}` to an mzML file. The file is written one spectrum at a time;
+peak RAM is bounded by the largest single spectrum, not the total file size.
+
+When `progress = true` (default) a `ProgressMeter` bar is shown while writing.
+
+Round-trips through [`load`](@ref): the loaded value has the same type as the
+saved one (scalar `MSscan` / `MSscans` come back bare; vectors come back as
+vectors).
+"""
+function save_mzml(filename::AbstractString, scans::Vector{MSscan};
+                   precision::Int = 64, compress::Bool = true,
+                   progress::Bool = true)
+    return _save_mzml_vector(filename, scans;
+                             precision = precision, compress = compress,
+                             scalar = false, progress = progress)
+end
+
+function save_mzml(filename::AbstractString, scan::MSscan;
+                   precision::Int = 64, compress::Bool = true,
+                   progress::Bool = true)
+    return _save_mzml_vector(filename, [scan];
+                             precision = precision, compress = compress,
+                             scalar = true, progress = progress)
+end
+
+function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
+                           precision::Int, compress::Bool,
+                           scalar::Bool, progress::Bool)
+    open(filename, "w") do io
+        _stream_mzml_open(io, length(scans))
+        prog = progress && length(scans) > 1 ?
+            Progress(length(scans); desc = "Writing mzML: ") : nothing
+        for (i, scan) in enumerate(scans)
+            _stream_mzml_spectrum(io, scan, i - 1;
+                                  precision = precision, compress = compress,
+                                  scalar = scalar)
+            prog === nothing || next!(prog)
+        end
+        _stream_mzml_close(io)
+    end
     return filename
 end
 
 
-function _mzxml_msscans_spectrum(parent::XMLElement, scan::MSscans;
-                                 precision::Int = 64, compress::Bool = true,
-                                 scalar::Bool = true)
-    sc = new_child(parent, "scan")
-    num0 = isempty(scan.num) ? 1 : scan.num[1]
-    set_attribute(sc, "num",        string(num0))
-    lvl  = isempty(scan.level) ? 1 : scan.level[1]
-    set_attribute(sc, "msLevel",    string(lvl))
-    set_attribute(sc, "peaksCount", string(length(scan.mz)))
-    # MassJ-specific markers: averaged container + optional saved-as-scalar
-    set_attribute(sc, MASSJ_MZXML_CONTAINER_ATTR, "MSscans")
+function save_mzml(filename::AbstractString, scan::MSscans;
+                   precision::Int = 64, compress::Bool = true,
+                   progress::Bool = true)
+    return _save_mzml_msscans_vector(filename, [scan];
+                                     precision = precision, compress = compress,
+                                     scalar = true, progress = progress)
+end
+
+function save_mzml(filename::AbstractString, scans::Vector{MSscans};
+                   precision::Int = 64, compress::Bool = true,
+                   progress::Bool = true)
+    return _save_mzml_msscans_vector(filename, scans;
+                                     precision = precision, compress = compress,
+                                     scalar = false, progress = progress)
+end
+
+function _save_mzml_msscans_vector(filename::AbstractString, scans::Vector{MSscans};
+                                   precision::Int, compress::Bool,
+                                   scalar::Bool, progress::Bool)
+    open(filename, "w") do io
+        _stream_mzml_open(io, length(scans))
+        prog = progress && length(scans) > 1 ?
+            Progress(length(scans); desc = "Writing mzML: ") : nothing
+        for (i, sc) in enumerate(scans)
+            _stream_mzml_msscans_spectrum(io, sc, i - 1;
+                                          precision = precision, compress = compress,
+                                          scalar = scalar)
+            prog === nothing || next!(prog)
+        end
+        _stream_mzml_close(io)
+    end
+    return filename
+end
+
+
+# ----------------------------------------------------------------------------
+# Streaming mzXML writer
+# ----------------------------------------------------------------------------
+
+function _stream_mzxml_open(io::IO, scancount::Int)
+    write(io, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
+              "<mzXML xmlns=\"http://sashimi.sourceforge.net/schema_revision/mzXML_3.2\"",
+              " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n",
+              "<msRun scanCount=\"", string(scancount), "\">\n")
+end
+
+
+_stream_mzxml_close(io::IO) = write(io, "</msRun>\n</mzXML>\n")
+
+
+# Pipe-joined vector attribute for mzXML.
+function _attr_vec(v::AbstractVector)
+    isempty(v) ? "" : join(v, "|")
+end
+
+
+function _stream_mzxml_spectrum(io::IO, scan::MSscan;
+                                precision::Int = 64, compress::Bool = true,
+                                scalar::Bool = false)
+    write(io, "<scan num=\"", string(scan.num),
+              "\" msLevel=\"", string(scan.level),
+              "\" peaksCount=\"", string(length(scan.mz)), "\"")
     if scalar
-        set_attribute(sc, MASSJ_MZXML_SCALAR_ATTR, "true")
+        write(io, " ", MASSJ_MZXML_SCALAR_ATTR, "=\"true\"")
+    end
+    if !isempty(scan.polarity)
+        write(io, " polarity=\"", _xmlescape(scan.polarity), "\"")
+    end
+    write(io, " retentionTime=\"PT", string(scan.rt), "M\"")
+    write(io, " totIonCurrent=\"", string(scan.tic), "\"")
+    if scan.basePeakMz > 0
+        write(io, " basePeakMz=\"",        string(scan.basePeakMz),
+                  "\" basePeakIntensity=\"", string(scan.basePeakIntensity), "\"")
+    end
+    if scan.collisionEnergy > 0
+        write(io, " collisionEnergy=\"", string(scan.collisionEnergy), "\"")
+    end
+    write(io, ">\n")
+
+    if scan.level >= 2 && scan.precursor > 0
+        write(io, "<precursorMz")
+        if !isempty(scan.activationMethod)
+            write(io, " activationMethod=\"", _xmlescape(scan.activationMethod), "\"")
+        end
+        write(io, ">", string(scan.precursor), "</precursorMz>\n")
     end
 
-    # Vector-valued provenance fields, joined with | as a custom attribute each.
-    _set_vec_attr(sc, "MassJNum",                 scan.num)
-    _set_vec_attr(sc, "MassJRt",                  scan.rt)
-    _set_vec_attr(sc, "MassJLevel",               scan.level)
-    _set_vec_attr(sc, "MassJPrecursor",           scan.precursor)
-    _set_vec_attr(sc, "MassJPolarity",            scan.polarity)
-    _set_vec_attr(sc, "MassJActivationMethod",    scan.activationMethod)
-    _set_vec_attr(sc, "MassJCollisionEnergy",     scan.collisionEnergy)
-    _set_vec_attr(sc, "MassJChargeState",         scan.chargeState)
-    _set_vec_attr(sc, "MassJDriftTime",           scan.driftTime)
-    _set_vec_attr(sc, "MassJCompensationVoltage", scan.compensationVoltage)
+    # Interleaved m/z, intensity, m/z, intensity, …
+    n = length(scan.mz)
+    interleaved = Vector{Float64}(undef, 2n)
+    @inbounds for i in 1:n
+        interleaved[2i - 1] = scan.mz[i]
+        interleaved[2i]     = scan.int[i]
+    end
+    b64, byte_len = _encode_binary(interleaved;
+                                   precision = precision, compress = compress,
+                                   endian = :big)
+    write(io, "<peaks precision=\"", string(precision),
+              "\" byteOrder=\"network\" pairOrder=\"m/z-int\" contentType=\"m/z-int\"",
+              " compressionType=\"", compress ? "zlib" : "none", "\"")
+    if compress
+        write(io, " compressedLen=\"", string(byte_len), "\"")
+    end
+    write(io, ">", b64, "</peaks>\n")
+
+    write(io, "</scan>\n")
+end
+
+
+function _stream_mzxml_msscans_spectrum(io::IO, scan::MSscans;
+                                        precision::Int = 64, compress::Bool = true,
+                                        scalar::Bool = true)
+    num0 = isempty(scan.num) ? 1 : scan.num[1]
+    lvl  = isempty(scan.level) ? 1 : scan.level[1]
+
+    write(io, "<scan num=\"", string(num0),
+              "\" msLevel=\"", string(lvl),
+              "\" peaksCount=\"", string(length(scan.mz)), "\"")
+
+    # MassJ markers + serialised vector provenance, all as custom attributes.
+    write(io, " ", MASSJ_MZXML_CONTAINER_ATTR, "=\"MSscans\"")
+    if scalar
+        write(io, " ", MASSJ_MZXML_SCALAR_ATTR, "=\"true\"")
+    end
+    write(io, " MassJNum=\"",                 _xmlescape(_attr_vec(scan.num)),                 "\"")
+    write(io, " MassJRt=\"",                  _xmlescape(_attr_vec(scan.rt)),                  "\"")
+    write(io, " MassJLevel=\"",               _xmlescape(_attr_vec(scan.level)),               "\"")
+    write(io, " MassJPrecursor=\"",           _xmlescape(_attr_vec(scan.precursor)),           "\"")
+    write(io, " MassJPolarity=\"",            _xmlescape(_attr_vec(scan.polarity)),            "\"")
+    write(io, " MassJActivationMethod=\"",    _xmlescape(_attr_vec(scan.activationMethod)),    "\"")
+    write(io, " MassJCollisionEnergy=\"",     _xmlescape(_attr_vec(scan.collisionEnergy)),     "\"")
+    write(io, " MassJChargeState=\"",         _xmlescape(_attr_vec(scan.chargeState)),         "\"")
+    write(io, " MassJDriftTime=\"",           _xmlescape(_attr_vec(scan.driftTime)),           "\"")
+    write(io, " MassJCompensationVoltage=\"", _xmlescape(_attr_vec(scan.compensationVoltage)), "\"")
 
     pol = isempty(scan.polarity) ? "" : scan.polarity[1]
     if !isempty(pol)
-        set_attribute(sc, "polarity", pol)
+        write(io, " polarity=\"", _xmlescape(pol), "\"")
     end
     rt0 = isempty(scan.rt) ? 0.0 : scan.rt[1]
-    set_attribute(sc, "retentionTime", "PT$(rt0)M")
-    set_attribute(sc, "totIonCurrent", string(scan.tic))
+    write(io, " retentionTime=\"PT", string(rt0), "M\"")
+    write(io, " totIonCurrent=\"", string(scan.tic), "\"")
     if scan.basePeakMz > 0
-        set_attribute(sc, "basePeakMz",        string(scan.basePeakMz))
-        set_attribute(sc, "basePeakIntensity", string(scan.basePeakIntensity))
+        write(io, " basePeakMz=\"",        string(scan.basePeakMz),
+                  "\" basePeakIntensity=\"", string(scan.basePeakIntensity), "\"")
     end
     ce0 = isempty(scan.collisionEnergy) ? 0.0 : scan.collisionEnergy[1]
     if ce0 > 0
-        set_attribute(sc, "collisionEnergy", string(ce0))
+        write(io, " collisionEnergy=\"", string(ce0), "\"")
     end
+    write(io, ">\n")
 
     prec0 = isempty(scan.precursor) ? 0.0 : scan.precursor[1]
     if lvl >= 2 && prec0 > 0
-        pm = new_child(sc, "precursorMz")
+        write(io, "<precursorMz")
         am0 = isempty(scan.activationMethod) ? "" : scan.activationMethod[1]
         if !isempty(am0)
-            set_attribute(pm, "activationMethod", am0)
+            write(io, " activationMethod=\"", _xmlescape(am0), "\"")
         end
-        add_text(pm, string(prec0))
+        write(io, ">", string(prec0), "</precursorMz>\n")
     end
 
-    # Standard interleaved (m/z, intensity) peaks blob
+    # Standard m/z+intensity peaks blob
     n = length(scan.mz)
     interleaved = Vector{Float64}(undef, 2n)
     @inbounds for i in 1:n
@@ -711,87 +655,109 @@ function _mzxml_msscans_spectrum(parent::XMLElement, scan::MSscans;
         interleaved[2i]     = scan.int[i]
     end
     b64, byte_len = _encode_binary(interleaved;
-                                   precision = precision,
-                                   compress  = compress,
-                                   endian    = :big)
-    peaks = new_child(sc, "peaks")
-    set_attribute(peaks, "precision",       string(precision))
-    set_attribute(peaks, "byteOrder",       "network")
-    set_attribute(peaks, "pairOrder",       "m/z-int")
-    set_attribute(peaks, "contentType",     "m/z-int")
-    set_attribute(peaks, "compressionType", compress ? "zlib" : "none")
-    compress && set_attribute(peaks, "compressedLen", string(byte_len))
-    add_text(peaks, b64)
+                                   precision = precision, compress = compress,
+                                   endian = :big)
+    write(io, "<peaks precision=\"", string(precision),
+              "\" byteOrder=\"network\" pairOrder=\"m/z-int\" contentType=\"m/z-int\"",
+              " compressionType=\"", compress ? "zlib" : "none", "\"")
+    if compress
+        write(io, " compressedLen=\"", string(byte_len), "\"")
+    end
+    write(io, ">", b64, "</peaks>\n")
 
-    # Variance blob — a second <peaks> child with pairOrder="variance"
+    # Variance blob — second <peaks> child
     b64v, byte_len_v = _encode_binary(scan.s;
-                                      precision = precision,
-                                      compress  = compress,
-                                      endian    = :big)
-    vpeaks = new_child(sc, "peaks")
-    set_attribute(vpeaks, "precision",       string(precision))
-    set_attribute(vpeaks, "byteOrder",       "network")
-    set_attribute(vpeaks, "pairOrder",       MASSJ_MZXML_VARIANCE_PAIR)
-    set_attribute(vpeaks, "contentType",     MASSJ_MZXML_VARIANCE_PAIR)
-    set_attribute(vpeaks, "compressionType", compress ? "zlib" : "none")
-    compress && set_attribute(vpeaks, "compressedLen", string(byte_len_v))
-    add_text(vpeaks, b64v)
+                                       precision = precision, compress = compress,
+                                       endian = :big)
+    write(io, "<peaks precision=\"", string(precision),
+              "\" byteOrder=\"network\" pairOrder=\"", MASSJ_MZXML_VARIANCE_PAIR,
+              "\" contentType=\"", MASSJ_MZXML_VARIANCE_PAIR, "\"",
+              " compressionType=\"", compress ? "zlib" : "none", "\"")
+    if compress
+        write(io, " compressedLen=\"", string(byte_len_v), "\"")
+    end
+    write(io, ">", b64v, "</peaks>\n")
+
+    write(io, "</scan>\n")
 end
 
 
-function _mzxml_spectrum(parent::XMLElement, scan::MSscan;
-                         precision::Int = 64, compress::Bool = true,
-                         scalar::Bool = false)
-    sc = new_child(parent, "scan")
-    set_attribute(sc, "num",     string(scan.num))
-    set_attribute(sc, "msLevel", string(scan.level))
-    set_attribute(sc, "peaksCount", string(length(scan.mz)))
-    if scalar
-        set_attribute(sc, MASSJ_MZXML_SCALAR_ATTR, "true")
-    end
-    if !isempty(scan.polarity)
-        set_attribute(sc, "polarity", scan.polarity)
-    end
-    # ISO-8601 duration in minutes, e.g. "PT0.1384M" — read side strips "PT…M"
-    set_attribute(sc, "retentionTime", "PT$(scan.rt)M")
-    set_attribute(sc, "totIonCurrent", string(scan.tic))
-    if scan.basePeakMz > 0
-        set_attribute(sc, "basePeakMz",        string(scan.basePeakMz))
-        set_attribute(sc, "basePeakIntensity", string(scan.basePeakIntensity))
-    end
-    if scan.collisionEnergy > 0
-        set_attribute(sc, "collisionEnergy", string(scan.collisionEnergy))
-    end
+# -- save_mzxml dispatch -----------------------------------------------------
 
-    if scan.level >= 2 && scan.precursor > 0
-        pm = new_child(sc, "precursorMz")
-        if !isempty(scan.activationMethod)
-            set_attribute(pm, "activationMethod", scan.activationMethod)
+"""
+    save_mzxml(filename::AbstractString, data;
+               precision::Int = 64, compress::Bool = true,
+               progress::Bool = true) -> filename
+Write a [`MSscan`](@ref), [`MSscans`](@ref), or `Vector{MSscan}` /
+`Vector{MSscans}` to an mzXML file. Streams one spectrum at a time; peak RAM is
+bounded by the largest single spectrum. mzXML interleaves m/z and intensity in
+a single `<peaks>` blob and uses big-endian (network) byte order.
+"""
+function save_mzxml(filename::AbstractString, scans::Vector{MSscan};
+                    precision::Int = 64, compress::Bool = true,
+                    progress::Bool = true)
+    return _save_mzxml_vector(filename, scans;
+                              precision = precision, compress = compress,
+                              scalar = false, progress = progress)
+end
+
+function save_mzxml(filename::AbstractString, scan::MSscan;
+                    precision::Int = 64, compress::Bool = true,
+                    progress::Bool = true)
+    return _save_mzxml_vector(filename, [scan];
+                              precision = precision, compress = compress,
+                              scalar = true, progress = progress)
+end
+
+function _save_mzxml_vector(filename::AbstractString, scans::Vector{MSscan};
+                            precision::Int, compress::Bool,
+                            scalar::Bool, progress::Bool)
+    open(filename, "w") do io
+        _stream_mzxml_open(io, length(scans))
+        prog = progress && length(scans) > 1 ?
+            Progress(length(scans); desc = "Writing mzXML: ") : nothing
+        for scan in scans
+            _stream_mzxml_spectrum(io, scan;
+                                   precision = precision, compress = compress,
+                                   scalar = scalar)
+            prog === nothing || next!(prog)
         end
-        add_text(pm, string(scan.precursor))
+        _stream_mzxml_close(io)
     end
+    return filename
+end
 
-    # Interleave m/z and intensity: [mz1, int1, mz2, int2, ...]
-    n = length(scan.mz)
-    interleaved = Vector{Float64}(undef, 2n)
-    @inbounds for i in 1:n
-        interleaved[2i - 1] = scan.mz[i]
-        interleaved[2i]     = scan.int[i]
+
+function save_mzxml(filename::AbstractString, scan::MSscans;
+                    precision::Int = 64, compress::Bool = true,
+                    progress::Bool = true)
+    return _save_mzxml_msscans_vector(filename, [scan];
+                                      precision = precision, compress = compress,
+                                      scalar = true, progress = progress)
+end
+
+function save_mzxml(filename::AbstractString, scans::Vector{MSscans};
+                    precision::Int = 64, compress::Bool = true,
+                    progress::Bool = true)
+    return _save_mzxml_msscans_vector(filename, scans;
+                                      precision = precision, compress = compress,
+                                      scalar = false, progress = progress)
+end
+
+function _save_mzxml_msscans_vector(filename::AbstractString, scans::Vector{MSscans};
+                                    precision::Int, compress::Bool,
+                                    scalar::Bool, progress::Bool)
+    open(filename, "w") do io
+        _stream_mzxml_open(io, length(scans))
+        prog = progress && length(scans) > 1 ?
+            Progress(length(scans); desc = "Writing mzXML: ") : nothing
+        for sc in scans
+            _stream_mzxml_msscans_spectrum(io, sc;
+                                           precision = precision, compress = compress,
+                                           scalar = scalar)
+            prog === nothing || next!(prog)
+        end
+        _stream_mzxml_close(io)
     end
-
-    b64, byte_len = _encode_binary(interleaved;
-                                   precision = precision,
-                                   compress  = compress,
-                                   endian    = :big)
-
-    peaks = new_child(sc, "peaks")
-    set_attribute(peaks, "precision",     string(precision))
-    set_attribute(peaks, "byteOrder",     "network")
-    set_attribute(peaks, "pairOrder",     "m/z-int")
-    set_attribute(peaks, "contentType",   "m/z-int")
-    set_attribute(peaks, "compressionType", compress ? "zlib" : "none")
-    if compress
-        set_attribute(peaks, "compressedLen", string(byte_len))
-    end
-    add_text(peaks, b64)
+    return filename
 end
