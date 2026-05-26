@@ -50,6 +50,36 @@ The mzXML reader supports both 32-bit and 64-bit precision data, zlib compressio
 ### mzML
 The mzML reader supports the PSI (Proteomics Standards Initiative) standard format. It handles both `indexedmzML` and raw `mzML` files. Binary data arrays are decoded from base64 with optional zlib compression in little-endian byte order. Retention times are automatically converted to minutes regardless of the unit in the file (minutes or seconds). Ion mobility metadata (drift time, 1/K0, compensation voltage) is extracted when present.
 
+Several optional cvParams that don't have a dedicated [`MassJ.MSscan`](@ref)
+field are extracted into the scan's `metadata::Dict{String,Any}`. Keys are
+added only when the corresponding cvParam is present in the source file
+(absent fields stay absent — no zero or `missing` placeholders):
+
+| metadata key             | mzML cvParam                       | type     |
+|--------------------------|------------------------------------|----------|
+| `"spectrum_title"`       | MS:1000796 spectrum title          | `String` |
+| `"lowest_observed_mz"`   | MS:1000528 lowest observed m/z     | `Float64`|
+| `"highest_observed_mz"`  | MS:1000527 highest observed m/z    | `Float64`|
+| `"mass_resolving_power"` | MS:1000800 mass resolving power    | `Float64`|
+| `"ion_injection_time"`   | MS:1000927 ion injection time (ms) | `Float64`|
+| `"scan_window_lower"`    | MS:1000501 scan window lower limit | `Float64`|
+| `"scan_window_upper"`    | MS:1000500 scan window upper limit | `Float64`|
+
+These are commonly needed in proteomics workflows (e.g. ion injection time
+for TMT/iTRAQ ratio correction, scan window bounds for QC filtering). They
+also round-trip cleanly through [`save`](@ref) — saving a scan with these
+keys populated emits them back as the appropriate cvParams.
+
+```julia-repl
+julia> scans = load("input.mzML");
+
+julia> scans[1].metadata["ion_injection_time"]
+9.80973815918
+
+julia> scans[1].metadata["scan_window_upper"]
+1650.0
+```
+
 ### MGF
 The MGF (Mascot Generic Format) reader loads centroided peak lists. Each `BEGIN IONS`...`END IONS` block becomes one `MSscan`. The `PEPMASS` field sets the precursor m/z, `CHARGE` sets the charge state, and `RTINSECONDS` is converted to minutes. The `TITLE` and original `SCANS` values are stored in the `metadata` dictionary.
 
