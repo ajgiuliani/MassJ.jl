@@ -177,7 +177,7 @@ function _stream_mzml_metadata_spectrum_cvs(io::IO, md::Dict{String,Any})
     end
 end
 
-# Inside <scanList>/<scan>: mass_resolving_power, ion_injection_time.
+# Inside <scanList>/<scan>: mass_resolving_power, ion_injection_time, filter_string.
 function _stream_mzml_metadata_scan_cvs(io::IO, md::Dict{String,Any})
     if haskey(md, "mass_resolving_power")
         _stream_cvParam(io, CV_MASS_RESOLVING_POWER, "mass resolving power";
@@ -188,6 +188,10 @@ function _stream_mzml_metadata_scan_cvs(io::IO, md::Dict{String,Any})
                        value = string(md["ion_injection_time"]),
                        unit_cv = "UO", unit_acc = CV_UNIT_MILLISECOND,
                        unit_name = "millisecond")
+    end
+    if haskey(md, "filter_string")
+        _stream_cvParam(io, CV_FILTER_STRING, "filter string";
+                       value = string(md["filter_string"]))
     end
 end
 
@@ -211,17 +215,54 @@ function _stream_mzml_scan_window(io::IO, md::Dict{String,Any})
     write(io, "</scanWindow>\n</scanWindowList>\n")
 end
 
+# Inside <precursor>: <isolationWindow> with target + offsets, when any is
+# present in metadata.
+function _stream_mzml_isolation_window(io::IO, md::Dict{String,Any})
+    has_t = haskey(md, "isolation_window_target_mz")
+    has_l = haskey(md, "isolation_window_lower_offset")
+    has_u = haskey(md, "isolation_window_upper_offset")
+    (has_t || has_l || has_u) || return
+    write(io, "<isolationWindow>\n")
+    if has_t
+        _stream_cvParam(io, CV_ISO_WINDOW_TARGET, "isolation window target m/z";
+                       value = string(md["isolation_window_target_mz"]),
+                       unit_cv = "MS", unit_acc = CV_UNIT_MZ, unit_name = "m/z")
+    end
+    if has_l
+        _stream_cvParam(io, CV_ISO_WINDOW_LOWER, "isolation window lower offset";
+                       value = string(md["isolation_window_lower_offset"]),
+                       unit_cv = "MS", unit_acc = CV_UNIT_MZ, unit_name = "m/z")
+    end
+    if has_u
+        _stream_cvParam(io, CV_ISO_WINDOW_UPPER, "isolation window upper offset";
+                       value = string(md["isolation_window_upper_offset"]),
+                       unit_cv = "MS", unit_acc = CV_UNIT_MZ, unit_name = "m/z")
+    end
+    write(io, "</isolationWindow>\n")
+end
+
+# Inside <selectedIon>: peak intensity of the selected precursor.
+function _stream_mzml_selected_ion_intensity(io::IO, md::Dict{String,Any})
+    haskey(md, "selected_ion_peak_intensity") || return
+    _stream_cvParam(io, CV_SELECTED_PEAK_INT, "peak intensity";
+                   value = string(md["selected_ion_peak_intensity"]),
+                   unit_cv = "MS", unit_acc = "MS:1000131",
+                   unit_name = "number of detector counts")
+end
+
 
 # ----------------------------------------------------------------------------
 # Streaming mzML writer
 # ----------------------------------------------------------------------------
 
-function _stream_mzml_open(io::IO, scancount::Int)
+function _stream_mzml_open(io::IO, scancount::Int;
+                           file_metadata::Dict{String,Any} = Dict{String,Any}())
     write(io, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
     write(io, "<mzML xmlns=\"http://psi.hupo.org/ms/mzml\"",
           " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"",
           " version=\"1.1.0\">\n")
 
+    # cvList is fixed (MS + UO) — same in any mzML file we emit.
     write(io, "<cvList count=\"2\">\n",
               "<cv id=\"MS\" fullName=\"Proteomics Standards Initiative Mass Spectrometry Ontology\"",
               " URI=\"https://raw.githubusercontent.com/HUPO-PSI/psi-ms-CV/master/psi-ms.obo\"",
@@ -231,33 +272,38 @@ function _stream_mzml_open(io::IO, scancount::Int)
               " version=\"12:10:2011\"/>\n",
               "</cvList>\n")
 
-    write(io, "<fileDescription>\n<fileContent>\n")
-    _stream_cvParam(io, "MS:1000579", "MS1 spectrum")
-    write(io, "</fileContent>\n</fileDescription>\n")
+    # File description, source files, param groups, software, instruments,
+    # data processing — emitted from parsed metadata when available, falls
+    # back to a minimal stub otherwise.
+    _stream_mzml_file_metadata(io, file_metadata)
 
-    write(io, "<softwareList count=\"1\">\n",
-              "<software id=\"MassJ\" version=\"0.1\">\n")
-    _stream_cvParam(io, "MS:1000799", "custom unreleased software tool"; value = "MassJ")
-    write(io, "</software>\n</softwareList>\n")
-
-    write(io, "<instrumentConfigurationList count=\"1\">\n",
-              "<instrumentConfiguration id=\"IC1\">\n")
-    _stream_cvParam(io, "MS:1000031", "instrument model")
-    write(io, "</instrumentConfiguration>\n</instrumentConfigurationList>\n")
-
-    write(io, "<dataProcessingList count=\"1\">\n",
-              "<dataProcessing id=\"MassJExport\">\n",
-              "<processingMethod order=\"0\" softwareRef=\"MassJ\">\n")
-    _stream_cvParam(io, "MS:1000544", "Conversion to mzML")
-    write(io, "</processingMethod>\n</dataProcessing>\n</dataProcessingList>\n")
-
-    write(io, "<run id=\"run1\" defaultInstrumentConfigurationRef=\"IC1\">\n",
+    # Pick the first instrument id (if any) and first data-processing id for
+    # the run's defaultInstrumentConfigurationRef / defaultDataProcessingRef.
+    instr_id = _first_id(get(file_metadata, "instruments", nothing), "IC1")
+    dp_id    = _first_id(get(file_metadata, "data_processing", nothing), "MassJExport")
+    write(io, "<run id=\"run1\" defaultInstrumentConfigurationRef=\"", instr_id, "\">\n",
               "<spectrumList count=\"", string(scancount),
-              "\" defaultDataProcessingRef=\"MassJExport\">\n")
+              "\" defaultDataProcessingRef=\"", dp_id, "\">\n")
+end
+
+# Pick the id of the first dict in a vector, with a fallback when the vector
+# is missing or empty. Used to wire up the run element's default refs.
+function _first_id(v, fallback::String)
+    v === nothing && return fallback
+    isempty(v) && return fallback
+    id = get(v[1], "id", nothing)
+    id === nothing ? fallback : id
 end
 
 
-_stream_mzml_close(io::IO) = write(io, "</spectrumList>\n</run>\n</mzML>\n")
+function _stream_mzml_close(io::IO;
+                            chromatograms::Vector{Chromatogram} = Chromatogram[],
+                            precision::Int = 64, compress::Bool = true)
+    write(io, "</spectrumList>\n")
+    _stream_mzml_chromatogramList(io, chromatograms;
+                                  precision = precision, compress = compress)
+    write(io, "</run>\n</mzML>\n")
+end
 
 
 function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
@@ -272,6 +318,9 @@ function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
     end
 
     _stream_cvParam(io, CV_MS_LEVEL, "ms level"; value = string(scan.level))
+    if scan.level >= 2
+        _stream_cvParam(io, CV_MSN_SPECTRUM, "MSn spectrum")
+    end
 
     if scan.polarity == "+"
         _stream_cvParam(io, CV_POSITIVE_SCAN, "positive scan")
@@ -310,8 +359,9 @@ function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
     write(io, "</scan>\n</scanList>\n")
 
     if scan.level >= 2 && scan.precursor > 0
-        write(io, "<precursorList count=\"1\">\n<precursor>\n",
-                  "<selectedIonList count=\"1\">\n<selectedIon>\n")
+        write(io, "<precursorList count=\"1\">\n<precursor>\n")
+        _stream_mzml_isolation_window(io, scan.metadata)
+        write(io, "<selectedIonList count=\"1\">\n<selectedIon>\n")
         _stream_cvParam(io, CV_SELECTED_ION_MZ, "selected ion m/z";
                        value = string(scan.precursor),
                        unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
@@ -319,6 +369,7 @@ function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
             _stream_cvParam(io, CV_CHARGE_STATE, "charge state";
                            value = string(scan.chargeState))
         end
+        _stream_mzml_selected_ion_intensity(io, scan.metadata)
         write(io, "</selectedIon>\n</selectedIonList>\n<activation>\n")
         if !isempty(scan.activationMethod)
             for (accession, methodName) in ACTIVATION_METHODS
@@ -371,6 +422,9 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
 
     lvl = isempty(scan.level) ? 1 : scan.level[1]
     _stream_cvParam(io, CV_MS_LEVEL, "ms level"; value = string(lvl))
+    if lvl >= 2
+        _stream_cvParam(io, CV_MSN_SPECTRUM, "MSn spectrum")
+    end
 
     pol = isempty(scan.polarity) ? "" : scan.polarity[1]
     if pol == "+"
@@ -412,8 +466,9 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
 
     prec0 = isempty(scan.precursor) ? 0.0 : scan.precursor[1]
     if lvl >= 2 && prec0 > 0
-        write(io, "<precursorList count=\"1\">\n<precursor>\n",
-                  "<selectedIonList count=\"1\">\n<selectedIon>\n")
+        write(io, "<precursorList count=\"1\">\n<precursor>\n")
+        _stream_mzml_isolation_window(io, scan.metadata)
+        write(io, "<selectedIonList count=\"1\">\n<selectedIon>\n")
         _stream_cvParam(io, CV_SELECTED_ION_MZ, "selected ion m/z";
                        value = string(prec0),
                        unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
@@ -421,6 +476,7 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
         if chg0 != 0
             _stream_cvParam(io, CV_CHARGE_STATE, "charge state"; value = string(chg0))
         end
+        _stream_mzml_selected_ion_intensity(io, scan.metadata)
         write(io, "</selectedIon>\n</selectedIonList>\n<activation>\n")
         am0 = isempty(scan.activationMethod) ? "" : scan.activationMethod[1]
         if !isempty(am0)
@@ -520,7 +576,19 @@ function save_mzml(filename::AbstractString, scans::Vector{MSscan};
                    progress::Bool = true)
     return _save_mzml_vector(filename, scans;
                              precision = precision, compress = compress,
-                             scalar = false, progress = progress)
+                             scalar = false, progress = progress,
+                             file_metadata = Dict{String,Any}())
+end
+
+# MSrun preserves file-level metadata + chromatograms across the round-trip.
+function save_mzml(filename::AbstractString, run::MSrun;
+                   precision::Int = 64, compress::Bool = true,
+                   progress::Bool = true)
+    return _save_mzml_vector(filename, run.scans;
+                             precision = precision, compress = compress,
+                             scalar = false, progress = progress,
+                             file_metadata = run.metadata,
+                             chromatograms = run.chromatograms)
 end
 
 function save_mzml(filename::AbstractString, scan::MSscan;
@@ -528,14 +596,17 @@ function save_mzml(filename::AbstractString, scan::MSscan;
                    progress::Bool = true)
     return _save_mzml_vector(filename, [scan];
                              precision = precision, compress = compress,
-                             scalar = true, progress = progress)
+                             scalar = true, progress = progress,
+                             file_metadata = Dict{String,Any}())
 end
 
 function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
                            precision::Int, compress::Bool,
-                           scalar::Bool, progress::Bool)
+                           scalar::Bool, progress::Bool,
+                           file_metadata::Dict{String,Any} = Dict{String,Any}(),
+                           chromatograms::Vector{Chromatogram} = Chromatogram[])
     open(filename, "w") do io
-        _stream_mzml_open(io, length(scans))
+        _stream_mzml_open(io, length(scans); file_metadata = file_metadata)
         prog = progress && length(scans) > 1 ?
             Progress(length(scans); desc = "Writing mzML: ") : nothing
         for (i, scan) in enumerate(scans)
@@ -544,7 +615,8 @@ function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
                                   scalar = scalar)
             prog === nothing || next!(prog)
         end
-        _stream_mzml_close(io)
+        _stream_mzml_close(io; chromatograms = chromatograms,
+                          precision = precision, compress = compress)
     end
     return filename
 end
@@ -568,9 +640,10 @@ end
 
 function _save_mzml_msscans_vector(filename::AbstractString, scans::Vector{MSscans};
                                    precision::Int, compress::Bool,
-                                   scalar::Bool, progress::Bool)
+                                   scalar::Bool, progress::Bool,
+                                   file_metadata::Dict{String,Any} = Dict{String,Any}())
     open(filename, "w") do io
-        _stream_mzml_open(io, length(scans))
+        _stream_mzml_open(io, length(scans); file_metadata = file_metadata)
         prog = progress && length(scans) > 1 ?
             Progress(length(scans); desc = "Writing mzML: ") : nothing
         for (i, sc) in enumerate(scans)
@@ -825,4 +898,239 @@ function _save_mzxml_msscans_vector(filename::AbstractString, scans::Vector{MSsc
         _stream_mzxml_close(io)
     end
     return filename
+end
+
+
+# ============================================================================
+# File-level metadata writing (matches _read_mzml_file_metadata)
+# ============================================================================
+
+# Emit a cvParam from a parsed Dict (the shape produced by _cvparams_to_dicts).
+function _stream_cvParam_from_dict(io::IO, d::AbstractDict)
+    acc  = get(d, "accession", "")
+    nm   = get(d, "name", "")
+    isempty(acc) && return
+    _stream_cvParam(io, acc, nm;
+                   value     = get(d, "value", ""),
+                   unit_cv   = get(d, "unitCvRef", ""),
+                   unit_acc  = get(d, "unitAccession", ""),
+                   unit_name = get(d, "unitName", ""))
+end
+
+# Top-level: <fileDescription>, <referenceableParamGroupList>, <softwareList>,
+# <instrumentConfigurationList>, <dataProcessingList>. Falls back to the
+# original minimal stub when `file_metadata` is empty.
+function _stream_mzml_file_metadata(io::IO, md::Dict{String,Any})
+    isempty(md) && return _stream_mzml_minimal_stub(io)
+
+    # -- fileDescription ----------------------------------------------------
+    write(io, "<fileDescription>\n<fileContent>\n")
+    fc = get(md, "file_content", nothing)
+    if fc !== nothing && !isempty(fc)
+        for cv in fc
+            _stream_cvParam_from_dict(io, cv)
+        end
+    else
+        _stream_cvParam(io, "MS:1000579", "MS1 spectrum")
+    end
+    write(io, "</fileContent>\n")
+
+    sfs = get(md, "source_files", nothing)
+    if sfs !== nothing && !isempty(sfs)
+        write(io, "<sourceFileList count=\"", string(length(sfs)), "\">\n")
+        for sf in sfs
+            write(io, "<sourceFile")
+            for attr in ("id", "name", "location")
+                v = get(sf, attr, "")
+                isempty(v) || write(io, " ", attr, "=\"", _xmlescape(v), "\"")
+            end
+            write(io, ">\n")
+            for cv in get(sf, "cv_params", [])
+                _stream_cvParam_from_dict(io, cv)
+            end
+            write(io, "</sourceFile>\n")
+        end
+        write(io, "</sourceFileList>\n")
+    end
+    write(io, "</fileDescription>\n")
+
+    # -- referenceableParamGroupList ----------------------------------------
+    pgs = get(md, "param_groups", nothing)
+    if pgs !== nothing && !isempty(pgs)
+        write(io, "<referenceableParamGroupList count=\"", string(length(pgs)), "\">\n")
+        for pg in pgs
+            id = get(pg, "id", "")
+            write(io, "<referenceableParamGroup id=\"", _xmlescape(id), "\">\n")
+            for cv in get(pg, "cv_params", [])
+                _stream_cvParam_from_dict(io, cv)
+            end
+            write(io, "</referenceableParamGroup>\n")
+        end
+        write(io, "</referenceableParamGroupList>\n")
+    end
+
+    # -- softwareList -------------------------------------------------------
+    sws = get(md, "software", nothing)
+    if sws !== nothing && !isempty(sws)
+        write(io, "<softwareList count=\"", string(length(sws)), "\">\n")
+        for sw in sws
+            write(io, "<software")
+            for attr in ("id", "version")
+                v = get(sw, attr, "")
+                isempty(v) || write(io, " ", attr, "=\"", _xmlescape(v), "\"")
+            end
+            write(io, ">\n")
+            for cv in get(sw, "cv_params", [])
+                _stream_cvParam_from_dict(io, cv)
+            end
+            write(io, "</software>\n")
+        end
+        write(io, "</softwareList>\n")
+    else
+        write(io, "<softwareList count=\"1\">\n",
+                  "<software id=\"MassJ\" version=\"0.1\">\n")
+        _stream_cvParam(io, "MS:1000799", "custom unreleased software tool"; value = "MassJ")
+        write(io, "</software>\n</softwareList>\n")
+    end
+
+    # -- instrumentConfigurationList ----------------------------------------
+    instrs = get(md, "instruments", nothing)
+    if instrs !== nothing && !isempty(instrs)
+        write(io, "<instrumentConfigurationList count=\"", string(length(instrs)), "\">\n")
+        for ic in instrs
+            id = get(ic, "id", "")
+            write(io, "<instrumentConfiguration id=\"", _xmlescape(id), "\">\n")
+            for ref in get(ic, "param_group_refs", String[])
+                write(io, "<referenceableParamGroupRef ref=\"", _xmlescape(ref), "\"/>\n")
+            end
+            for cv in get(ic, "cv_params", [])
+                _stream_cvParam_from_dict(io, cv)
+            end
+            comps = get(ic, "components", [])
+            if !isempty(comps)
+                write(io, "<componentList count=\"", string(length(comps)), "\">\n")
+                for c in comps
+                    t   = get(c, "type", "source")
+                    ord = get(c, "order", "1")
+                    write(io, "<", t, " order=\"", _xmlescape(ord), "\">\n")
+                    for cv in get(c, "cv_params", [])
+                        _stream_cvParam_from_dict(io, cv)
+                    end
+                    write(io, "</", t, ">\n")
+                end
+                write(io, "</componentList>\n")
+            end
+            swRef = get(ic, "software_ref", "")
+            isempty(swRef) || write(io, "<softwareRef ref=\"", _xmlescape(swRef), "\"/>\n")
+            write(io, "</instrumentConfiguration>\n")
+        end
+        write(io, "</instrumentConfigurationList>\n")
+    else
+        write(io, "<instrumentConfigurationList count=\"1\">\n",
+                  "<instrumentConfiguration id=\"IC1\">\n")
+        _stream_cvParam(io, "MS:1000031", "instrument model")
+        write(io, "</instrumentConfiguration>\n</instrumentConfigurationList>\n")
+    end
+
+    # -- dataProcessingList -------------------------------------------------
+    dps = get(md, "data_processing", nothing)
+    if dps !== nothing && !isempty(dps)
+        write(io, "<dataProcessingList count=\"", string(length(dps)), "\">\n")
+        for dp in dps
+            id = get(dp, "id", "")
+            write(io, "<dataProcessing id=\"", _xmlescape(id), "\">\n")
+            for m in get(dp, "methods", [])
+                ord = get(m, "order", "0")
+                swR = get(m, "softwareRef", "")
+                write(io, "<processingMethod order=\"", _xmlescape(ord), "\"")
+                isempty(swR) || write(io, " softwareRef=\"", _xmlescape(swR), "\"")
+                write(io, ">\n")
+                for cv in get(m, "cv_params", [])
+                    _stream_cvParam_from_dict(io, cv)
+                end
+                write(io, "</processingMethod>\n")
+            end
+            write(io, "</dataProcessing>\n")
+        end
+        write(io, "</dataProcessingList>\n")
+    else
+        write(io, "<dataProcessingList count=\"1\">\n",
+                  "<dataProcessing id=\"MassJExport\">\n",
+                  "<processingMethod order=\"0\" softwareRef=\"MassJ\">\n")
+        _stream_cvParam(io, "MS:1000544", "Conversion to mzML")
+        write(io, "</processingMethod>\n</dataProcessing>\n</dataProcessingList>\n")
+    end
+end
+
+# Minimal placeholder block used when no metadata is supplied (Vector{MSscan}
+# save without an MSrun). Identical to the pre-MSrun output.
+function _stream_mzml_minimal_stub(io::IO)
+    write(io, "<fileDescription>\n<fileContent>\n")
+    _stream_cvParam(io, "MS:1000579", "MS1 spectrum")
+    write(io, "</fileContent>\n</fileDescription>\n")
+
+    write(io, "<softwareList count=\"1\">\n",
+              "<software id=\"MassJ\" version=\"0.1\">\n")
+    _stream_cvParam(io, "MS:1000799", "custom unreleased software tool"; value = "MassJ")
+    write(io, "</software>\n</softwareList>\n")
+
+    write(io, "<instrumentConfigurationList count=\"1\">\n",
+              "<instrumentConfiguration id=\"IC1\">\n")
+    _stream_cvParam(io, "MS:1000031", "instrument model")
+    write(io, "</instrumentConfiguration>\n</instrumentConfigurationList>\n")
+
+    write(io, "<dataProcessingList count=\"1\">\n",
+              "<dataProcessing id=\"MassJExport\">\n",
+              "<processingMethod order=\"0\" softwareRef=\"MassJ\">\n")
+    _stream_cvParam(io, "MS:1000544", "Conversion to mzML")
+    write(io, "</processingMethod>\n</dataProcessing>\n</dataProcessingList>\n")
+end
+
+
+# ----------------------------------------------------------------------------
+# Chromatogram block emission (Phase 3)
+# ----------------------------------------------------------------------------
+
+# Emit a <chromatogramList> after </spectrumList> when run.chromatograms is
+# non-empty. Each Chromatogram is written as a TIC chromatogram with two
+# binary arrays: time (UO:0000031, minutes) and intensity.
+function _stream_mzml_chromatogramList(io::IO, chroms::Vector{Chromatogram};
+                                       precision::Int = 64, compress::Bool = true)
+    isempty(chroms) && return
+    write(io, "<chromatogramList count=\"", string(length(chroms)), "\""
+              * " defaultDataProcessingRef=\"MassJExport\">\n")
+    for (i, c) in enumerate(chroms)
+        write(io, "<chromatogram id=\"chrom_", string(i),
+                  "\" index=\"", string(i - 1),
+                  "\" defaultArrayLength=\"", string(length(c.rt)), "\">\n")
+        _stream_cvParam(io, CV_TIC_CHROMATOGRAM, "total ion current chromatogram")
+        write(io, "<binaryDataArrayList count=\"2\">\n")
+        _stream_mzml_chrom_binary(io, c.rt,  :time;
+                                  precision = precision, compress = compress)
+        _stream_mzml_chrom_binary(io, c.ic,  :intensity;
+                                  precision = precision, compress = compress)
+        write(io, "</binaryDataArrayList>\n</chromatogram>\n")
+    end
+    write(io, "</chromatogramList>\n")
+end
+
+function _stream_mzml_chrom_binary(io::IO, data::Vector{Float64}, kind::Symbol;
+                                   precision::Int = 64, compress::Bool = true)
+    b64, _ = _encode_binary(data; precision = precision, compress = compress,
+                            endian = :little)
+    write(io, "<binaryDataArray encodedLength=\"", string(length(b64)), "\">\n")
+    _stream_cvParam(io, precision == 64 ? CV_64BIT : CV_32BIT,
+                   precision == 64 ? "64-bit float" : "32-bit float")
+    _stream_cvParam(io, compress ? CV_ZLIB : CV_NO_COMPRESSION,
+                   compress ? "zlib compression" : "no compression")
+    if kind === :time
+        _stream_cvParam(io, CV_TIME_ARRAY, "time array";
+                       unit_cv = "UO", unit_acc = CV_UNIT_MINUTE,
+                       unit_name = "minute")
+    else
+        _stream_cvParam(io, CV_INT_ARRAY, "intensity array";
+                       unit_cv = "MS", unit_acc = "MS:1000131",
+                       unit_name = "number of detector counts")
+    end
+    write(io, "<binary>", b64, "</binary>\n</binaryDataArray>\n")
 end
