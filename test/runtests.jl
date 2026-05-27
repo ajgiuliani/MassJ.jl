@@ -924,8 +924,11 @@ function test_export()
         @test typeof(back_plain) == typeof(scans)
         rm(tmp_plain)
 
-        # -- External (non-MassJ) file still returns Vector{MSscan} ---------
-        @test MassJ.load("test.mzML") isa Vector{MassJ.MSscan}
+        # -- External (non-MassJ) file returns MSrun (subtype of AbstractVector{MSscan})
+        ext_loaded = MassJ.load("test.mzML")
+        @test ext_loaded isa MassJ.MSrun
+        @test ext_loaded isa AbstractVector{MassJ.MSscan}
+        @test length(ext_loaded) == 3   # iteration / length still work
 
         # -- Vector{MSscans} round-trip (mzML and mzXML) --------------------
         vec_ms = MassJ.MSscans[MassJ.average(scans), MassJ.average(scans)]
@@ -990,6 +993,156 @@ function test_export()
             @test !haskey(back_empty[1].metadata, k)
         end
         rm(tmp_empty)
+
+        # -- Phase 1 cvParams: per-spectrum round-trip ---------------------
+        # Build a scan with the 5 new per-spectrum cvParams + the previous 7.
+        meta_phase1 = Dict{String,Any}(
+            "spectrum_title"                 => "phase1 test",
+            "lowest_observed_mz"             => 101.0,
+            "highest_observed_mz"            => 1499.0,
+            "mass_resolving_power"           => 60000.0,
+            "ion_injection_time"             => 25.5,
+            "scan_window_lower"              => 100.0,
+            "scan_window_upper"              => 1500.0,
+            "filter_string"                  => "FTMS + p NSI Full ms",
+            "isolation_window_target_mz"     => 500.5,
+            "isolation_window_lower_offset"  => 0.5,
+            "isolation_window_upper_offset"  => 0.5,
+            "selected_ion_peak_intensity"    => 4.2e6,
+        )
+        s_ms2 = MassJ.MSscan(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
+                             2, 200.0, 20.0, 500.5, "+", "HCD", 30.0,
+                             2, :centroid, -1.0, 0.0, :none, meta_phase1)
+        tmp_p1 = tempname() * ".mzML"
+        MassJ.save([s_ms2], tmp_p1; progress = false)
+        back_p1 = MassJ.load(tmp_p1)
+        for k in keys(meta_phase1)
+            @test back_p1[1].metadata[k] == meta_phase1[k]
+        end
+        rm(tmp_p1)
+
+        # -- Phase 2: MSrun wrapper + file-level metadata round-trip -------
+        # Build a synthetic MSrun with one of each metadata section.
+        scans_src   = MassJ.load("test.mzML")    # already an MSrun
+        @test scans_src isa MassJ.MSrun
+        @test length(scans_src) == 3              # AbstractVector behavior
+        @test scans_src[1] isa MassJ.MSscan      # indexing works
+
+        run_md = Dict{String,Any}(
+            "file_content" => [
+                Dict{String,String}("accession" => "MS:1000579", "name" => "MS1 spectrum"),
+            ],
+            "source_files" => [
+                Dict{String,Any}("id" => "RAW1", "name" => "test.raw",
+                                 "location" => "file:///data/",
+                                 "cv_params" => [
+                                     Dict{String,String}("accession" => "MS:1000563",
+                                                         "name" => "Thermo RAW format"),
+                                 ]),
+            ],
+            "software" => [
+                Dict{String,Any}("id" => "Xcalibur", "version" => "3.5",
+                                 "cv_params" => [
+                                     Dict{String,String}("accession" => "MS:1000532",
+                                                         "name" => "Xcalibur"),
+                                 ]),
+            ],
+            "instruments" => [
+                Dict{String,Any}("id" => "IC1",
+                                 "param_group_refs" => String[],
+                                 "cv_params" => [
+                                     Dict{String,String}("accession" => "MS:1003029",
+                                                         "name" => "Orbitrap Eclipse"),
+                                 ],
+                                 "components" => Dict{String,Any}[
+                                     Dict{String,Any}("type" => "source",   "order" => "1",
+                                                      "cv_params" => Dict{String,String}[
+                                                          Dict("accession" => "MS:1000398",
+                                                               "name" => "nanoelectrospray"),
+                                                      ]),
+                                     Dict{String,Any}("type" => "analyzer", "order" => "2",
+                                                      "cv_params" => Dict{String,String}[
+                                                          Dict("accession" => "MS:1000484",
+                                                               "name" => "orbitrap"),
+                                                      ]),
+                                 ]),
+            ],
+        )
+        run_in = MassJ.MSrun(scans_src.scans, run_md, MassJ.Chromatogram[])
+        tmp_run = tempname() * ".mzML"
+        MassJ.save(run_in, tmp_run; progress = false)
+        run_out = MassJ.load(tmp_run)
+        @test run_out isa MassJ.MSrun
+        @test length(run_out.metadata["source_files"]) == 1
+        @test run_out.metadata["source_files"][1]["id"] == "RAW1"
+        @test run_out.metadata["software"][1]["id"] == "Xcalibur"
+        @test run_out.metadata["software"][1]["cv_params"][1]["accession"] == "MS:1000532"
+        @test run_out.metadata["instruments"][1]["cv_params"][1]["accession"] == "MS:1003029"
+        @test length(run_out.metadata["instruments"][1]["components"]) == 2
+        @test run_out.metadata["instruments"][1]["components"][1]["type"] == "source"
+        @test run_out.metadata["instruments"][1]["components"][1]["cv_params"][1]["accession"] == "MS:1000398"
+        rm(tmp_run)
+
+        # -- Phase 3: chromatogram round-trip ------------------------------
+        rt_vec  = collect(0.0:0.5:5.0)
+        ic_vec  = Float64[100, 200, 350, 500, 600, 720, 690, 540, 400, 250, 110]
+        chrom_in = MassJ.Chromatogram(rt_vec, ic_vec, maximum(ic_vec))
+        run_with_chrom = MassJ.MSrun(scans_src.scans, Dict{String,Any}(),
+                                      [chrom_in])
+        tmp_chrom = tempname() * ".mzML"
+        MassJ.save(run_with_chrom, tmp_chrom; progress = false)
+        run_chrom_back = MassJ.load(tmp_chrom)
+        @test length(run_chrom_back.chromatograms) == 1
+        @test run_chrom_back.chromatograms[1].rt    == rt_vec
+        @test run_chrom_back.chromatograms[1].ic    == ic_vec
+        @test run_chrom_back.chromatograms[1].maxic ≈ maximum(ic_vec)
+        rm(tmp_chrom)
+
+        # -- Schema compliance: validate against the official PSI mzML 1.1.0
+        #    XSD when xmllint is available. Skipped silently otherwise so the
+        #    test suite doesn't require an external tool to pass.
+        if Sys.which("xmllint") !== nothing
+            xsd_candidates = String[
+                joinpath("schema", "mzML1.1.0.xsd"),
+                "mzML1.1.0.xsd",
+                "/tmp/mzML1.1.0.xsd",
+            ]
+            xsd = nothing
+            for c in xsd_candidates
+                if isfile(c)
+                    xsd = c
+                    break
+                end
+            end
+            if xsd !== nothing
+                # Save a representative file: an MSrun with metadata,
+                # spectra, and a chromatogram.
+                rt_v = collect(0.0:0.5:5.0)
+                ic_v = Float64[100, 200, 350, 500, 600, 720, 690, 540, 400, 250, 110]
+                run_full = MassJ.MSrun(scans_src.scans,
+                                       Dict{String,Any}(
+                                           "software" => [
+                                               Dict{String,Any}(
+                                                   "id" => "Xcalibur", "version" => "3.5",
+                                                   "cv_params" => [
+                                                       Dict{String,String}(
+                                                           "accession" => "MS:1000532",
+                                                           "name" => "Xcalibur"),
+                                                   ]),
+                                           ],
+                                       ),
+                                       [MassJ.Chromatogram(rt_v, ic_v, maximum(ic_v))])
+                tmp_xsd = tempname() * ".mzML"
+                MassJ.save(run_full, tmp_xsd; progress = false)
+                rc = run(`xmllint --noout --schema $xsd $tmp_xsd`)
+                @test rc.exitcode == 0
+                rm(tmp_xsd)
+            else
+                @info "PSI mzML XSD not found; skipping schema-compliance test"
+            end
+        else
+            @info "xmllint not available; skipping schema-compliance test"
+        end
     end
 end
 

@@ -50,20 +50,56 @@ The mzXML reader supports both 32-bit and 64-bit precision data, zlib compressio
 ### mzML
 The mzML reader supports the PSI (Proteomics Standards Initiative) standard format. It handles both `indexedmzML` and raw `mzML` files. Binary data arrays are decoded from base64 with optional zlib compression in little-endian byte order. Retention times are automatically converted to minutes regardless of the unit in the file (minutes or seconds). Ion mobility metadata (drift time, 1/K0, compensation voltage) is extracted when present.
 
+For mzML files, [`load`](@ref) returns a [`MassJ.MSrun`](@ref) — a wrapper
+that holds the spectrum vector alongside the *file-level* metadata
+(instrument configuration, software list, source file, data processing,
+referenceable parameter groups) and any pre-computed chromatograms baked
+into the source file. `MSrun` is a subtype of `AbstractVector{MSscan}`, so
+code that treated `load`'s output as a vector keeps working unchanged:
+
+```julia-repl
+julia> run = load("input.mzML");
+
+julia> typeof(run)
+MassJ.MSrun
+
+julia> length(run), eltype(run)
+(26906, MassJ.MSscan)
+
+julia> run[1]                                  # indexing
+MSscan(…)
+
+julia> run.metadata["instruments"][1]["id"]    # file-level metadata
+"IC1"
+
+julia> run.chromatograms                        # pre-computed TIC etc.
+Chromatogram[]
+```
+
+Slicing with a range (`run[1:5]`) returns a plain `Vector{MSscan}` — the
+file-level metadata is dropped because the slice no longer represents a
+complete run. For other formats (mzXML, MGF, MSP, imzML, TXT) `load`
+continues to return `Vector{MSscan}` directly.
+
 Several optional cvParams that don't have a dedicated [`MassJ.MSscan`](@ref)
 field are extracted into the scan's `metadata::Dict{String,Any}`. Keys are
 added only when the corresponding cvParam is present in the source file
 (absent fields stay absent — no zero or `missing` placeholders):
 
-| metadata key             | mzML cvParam                       | type     |
-|--------------------------|------------------------------------|----------|
-| `"spectrum_title"`       | MS:1000796 spectrum title          | `String` |
-| `"lowest_observed_mz"`   | MS:1000528 lowest observed m/z     | `Float64`|
-| `"highest_observed_mz"`  | MS:1000527 highest observed m/z    | `Float64`|
-| `"mass_resolving_power"` | MS:1000800 mass resolving power    | `Float64`|
-| `"ion_injection_time"`   | MS:1000927 ion injection time (ms) | `Float64`|
-| `"scan_window_lower"`    | MS:1000501 scan window lower limit | `Float64`|
-| `"scan_window_upper"`    | MS:1000500 scan window upper limit | `Float64`|
+| metadata key                          | mzML cvParam                       | type     |
+|---------------------------------------|------------------------------------|----------|
+| `"spectrum_title"`                    | MS:1000796 spectrum title          | `String` |
+| `"lowest_observed_mz"`                | MS:1000528 lowest observed m/z     | `Float64`|
+| `"highest_observed_mz"`               | MS:1000527 highest observed m/z    | `Float64`|
+| `"mass_resolving_power"`              | MS:1000800 mass resolving power    | `Float64`|
+| `"ion_injection_time"`                | MS:1000927 ion injection time (ms) | `Float64`|
+| `"scan_window_lower"`                 | MS:1000501 scan window lower limit | `Float64`|
+| `"scan_window_upper"`                 | MS:1000500 scan window upper limit | `Float64`|
+| `"filter_string"`                     | MS:1000512 filter string (Thermo)  | `String` |
+| `"isolation_window_target_mz"`        | MS:1000827 isolation window target | `Float64`|
+| `"isolation_window_lower_offset"`     | MS:1000828 isolation window lower offset | `Float64`|
+| `"isolation_window_upper_offset"`     | MS:1000829 isolation window upper offset | `Float64`|
+| `"selected_ion_peak_intensity"`       | MS:1000042 peak intensity          | `Float64`|
 
 These are commonly needed in proteomics workflows (e.g. ion injection time
 for TMT/iTRAQ ratio correction, scan window bounds for QC filtering). They

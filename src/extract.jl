@@ -130,3 +130,20 @@ function build_subset(scans::Vector{MSscan}, indices::Vector{Int})
 end
 
 
+
+
+# ----------------------------------------------------------------------------
+# MSrun adapter methods — unwrap to the underlying Vector{MSscan} and delegate
+# to the existing implementations. This avoids widening every internal
+# signature from `Vector{MSscan}` to `AbstractVector{MSscan}`.
+# ----------------------------------------------------------------------------
+
+extract(run::MSrun, arguments::FilterType...) = extract(run.scans, arguments...)
+
+chromatogram(run::MSrun, filters::FilterType...; method::MethodType = TIC()) =
+    chromatogram(run.scans, filters...; method = method)
+
+average(run::MSrun, arguments::FilterType...; stats::Bool = true) =
+    average(run.scans, arguments...; stats = stats)
+
+retention_time(run::MSrun) = retention_time(run.scans)
