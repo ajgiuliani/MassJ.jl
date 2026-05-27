@@ -313,10 +313,8 @@ function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
               "\" id=\"scan=", string(scan.num),
               "\" defaultArrayLength=\"", string(length(scan.mz)), "\">\n")
 
-    if scalar
-        _stream_userParam(io, MASSJ_SCALAR_PARAM; value = "true")
-    end
-
+    # mzML 1.1 schema requires: cvParam* userParam* (then child elements).
+    # All cvParams come first; any userParams emitted strictly after.
     _stream_cvParam(io, CV_MS_LEVEL, "ms level"; value = string(scan.level))
     if scan.level >= 2
         _stream_cvParam(io, CV_MSN_SPECTRUM, "MSn spectrum")
@@ -347,6 +345,11 @@ function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
                        unit_name = "number of detector counts")
     end
     _stream_mzml_metadata_spectrum_cvs(io, scan.metadata)
+
+    # userParams after cvParams (schema order).
+    if scalar
+        _stream_userParam(io, MASSJ_SCALAR_PARAM; value = "true")
+    end
 
     write(io, "<scanList count=\"1\">\n")
     _stream_cvParam(io, "MS:1000795", "no combination")
@@ -398,28 +401,16 @@ end
 function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
                                        precision::Int = 64, compress::Bool = true,
                                        scalar::Bool = true)
-    num0 = isempty(scan.num) ? 1 : scan.num[1]
+    # The original first scan number is preserved in MassJ:num (see below);
+    # the spectrum's `id` attribute is derived from the index so the schema's
+    # uniqueness constraint on spectrum ids holds when several MSscans are
+    # saved together.
     write(io, "<spectrum index=\"", string(index),
-              "\" id=\"scan=", string(num0),
+              "\" id=\"scan=", string(index + 1),
               "\" defaultArrayLength=\"", string(length(scan.mz)), "\">\n")
 
-    _stream_userParam(io, MASSJ_CONTAINER_PARAM; value = "MSscans")
-    if scalar
-        _stream_userParam(io, MASSJ_SCALAR_PARAM; value = "true")
-    end
-
-    # Preserve all vector-valued provenance fields losslessly.
-    _stream_vec_userParam(io, "MassJ:num",                 scan.num)
-    _stream_vec_userParam(io, "MassJ:rt",                  scan.rt)
-    _stream_vec_userParam(io, "MassJ:level",               scan.level)
-    _stream_vec_userParam(io, "MassJ:precursor",           scan.precursor)
-    _stream_vec_userParam(io, "MassJ:polarity",            scan.polarity)
-    _stream_vec_userParam(io, "MassJ:activationMethod",    scan.activationMethod)
-    _stream_vec_userParam(io, "MassJ:collisionEnergy",     scan.collisionEnergy)
-    _stream_vec_userParam(io, "MassJ:chargeState",         scan.chargeState)
-    _stream_vec_userParam(io, "MassJ:driftTime",           scan.driftTime)
-    _stream_vec_userParam(io, "MassJ:compensationVoltage", scan.compensationVoltage)
-
+    # mzML 1.1 schema requires: cvParam* userParam* (then child elements).
+    # All cvParams come first; userParams are emitted after the metadata cvs.
     lvl = isempty(scan.level) ? 1 : scan.level[1]
     _stream_cvParam(io, CV_MS_LEVEL, "ms level"; value = string(lvl))
     if lvl >= 2
@@ -452,6 +443,22 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
                        unit_name = "number of detector counts")
     end
     _stream_mzml_metadata_spectrum_cvs(io, scan.metadata)
+
+    # userParams (schema-mandated to come after cvParams).
+    _stream_userParam(io, MASSJ_CONTAINER_PARAM; value = "MSscans")
+    if scalar
+        _stream_userParam(io, MASSJ_SCALAR_PARAM; value = "true")
+    end
+    _stream_vec_userParam(io, "MassJ:num",                 scan.num)
+    _stream_vec_userParam(io, "MassJ:rt",                  scan.rt)
+    _stream_vec_userParam(io, "MassJ:level",               scan.level)
+    _stream_vec_userParam(io, "MassJ:precursor",           scan.precursor)
+    _stream_vec_userParam(io, "MassJ:polarity",            scan.polarity)
+    _stream_vec_userParam(io, "MassJ:activationMethod",    scan.activationMethod)
+    _stream_vec_userParam(io, "MassJ:collisionEnergy",     scan.collisionEnergy)
+    _stream_vec_userParam(io, "MassJ:chargeState",         scan.chargeState)
+    _stream_vec_userParam(io, "MassJ:driftTime",           scan.driftTime)
+    _stream_vec_userParam(io, "MassJ:compensationVoltage", scan.compensationVoltage)
 
     rt0 = isempty(scan.rt) ? 0.0 : scan.rt[1]
     write(io, "<scanList count=\"1\">\n")
@@ -970,28 +977,33 @@ function _stream_mzml_file_metadata(io::IO, md::Dict{String,Any})
     end
 
     # -- softwareList -------------------------------------------------------
+    # Always include a MassJ software entry so any data_processing stub
+    # referencing softwareRef="MassJ" satisfies the schema's keyref.
     sws = get(md, "software", nothing)
-    if sws !== nothing && !isempty(sws)
-        write(io, "<softwareList count=\"", string(length(sws)), "\">\n")
-        for sw in sws
-            write(io, "<software")
-            for attr in ("id", "version")
-                v = get(sw, attr, "")
-                isempty(v) || write(io, " ", attr, "=\"", _xmlescape(v), "\"")
-            end
-            write(io, ">\n")
-            for cv in get(sw, "cv_params", [])
-                _stream_cvParam_from_dict(io, cv)
-            end
-            write(io, "</software>\n")
+    has_massj = sws !== nothing &&
+                any(sw -> get(sw, "id", "") == "MassJ", sws)
+    base_sws = sws === nothing ? Dict{String,Any}[] : sws
+    n_total  = length(base_sws) + (has_massj ? 0 : 1)
+
+    write(io, "<softwareList count=\"", string(n_total), "\">\n")
+    for sw in base_sws
+        write(io, "<software")
+        for attr in ("id", "version")
+            v = get(sw, attr, "")
+            isempty(v) || write(io, " ", attr, "=\"", _xmlescape(v), "\"")
         end
-        write(io, "</softwareList>\n")
-    else
-        write(io, "<softwareList count=\"1\">\n",
-                  "<software id=\"MassJ\" version=\"0.1\">\n")
-        _stream_cvParam(io, "MS:1000799", "custom unreleased software tool"; value = "MassJ")
-        write(io, "</software>\n</softwareList>\n")
+        write(io, ">\n")
+        for cv in get(sw, "cv_params", [])
+            _stream_cvParam_from_dict(io, cv)
+        end
+        write(io, "</software>\n")
     end
+    if !has_massj
+        write(io, "<software id=\"MassJ\" version=\"0.1\">\n")
+        _stream_cvParam(io, "MS:1000799", "custom unreleased software tool"; value = "MassJ")
+        write(io, "</software>\n")
+    end
+    write(io, "</softwareList>\n")
 
     # -- instrumentConfigurationList ----------------------------------------
     instrs = get(md, "instruments", nothing)
