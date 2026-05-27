@@ -229,18 +229,33 @@ function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
     cmethod = do_centroid && centroid_method === nothing ? SNRA(1.0, 100) : centroid_method
 
     for (i, f) in enumerate(files)
-        spec = average(f)
-        cen  = do_centroid ? centroid(spec; method = cmethod) : nothing
+        # Load each file as a vector of scans. The averaged spectrum is used
+        # only for *locating* the peak window (stable position); the error on
+        # each integrated area is computed from the variance across per-scan
+        # integrals, which correctly accounts for inter-bin correlation
+        # within a peak.
+        scans    = load(f)
+        spec     = average(scans)
+        cen      = do_centroid ? centroid(spec; method = cmethod) : nothing
+        nscans   = length(scans)
+
         rowtic     = 0.0
         rowvar_acc = 0.0
         any_err    = false
         for (p, peak) in enumerate(peaks)
             lo, hi, found  = _resolve_peak(spec, cen, peak)
-            a, σ           = _integrate_window_with_err(spec, lo, hi)
-            Y[i, p]        = a
-            Y_err[i, p]    = σ
             found_mz[i, p] = found
-            rowtic        += a
+
+            # Integrate the located window in every scan, then take the
+            # standard error of the mean across those per-scan areas.
+            areas = Vector{Float64}(undef, nscans)
+            @inbounds for k in 1:nscans
+                areas[k] = integrate_window(scans[k], lo, hi)
+            end
+            Y[i, p] = sum(areas) / nscans
+            σ = nscans > 1 ? std(areas; corrected = true) / sqrt(nscans) : NaN
+            Y_err[i, p] = σ
+            rowtic += Y[i, p]
             if isfinite(σ)
                 rowvar_acc += σ * σ
                 any_err = true
