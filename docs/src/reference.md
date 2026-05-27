@@ -27,6 +27,7 @@ MassJ.MScontainer
 MassJ.MSscan
 MassJ.MSscans
 MassJ.Chromatogram
+MassJ.MSrun
 MassJ.Mobilogram
 MassJ.Ionogram
 MassJ.Isotope

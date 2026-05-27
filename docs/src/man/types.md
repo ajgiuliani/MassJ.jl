@@ -37,6 +37,33 @@ struct Chromatogram  <: MScontainer
 end
 ```
 
+## mzML run wrapper: `MSrun`
+
+[`MassJ.MSrun`](@ref) wraps the result of [`load`](@ref) on an mzML file:
+```julia
+struct MSrun <: AbstractVector{MSscan}
+    scans::Vector{MSscan}             # spectrum list
+    metadata::Dict{String,Any}        # file-level cvParams (instrument, software, …)
+    chromatograms::Vector{Chromatogram}  # pre-computed chromatograms
+end
+```
+
+`MSrun` is a subtype of `AbstractVector{MSscan}`, so the standard array
+interface (`length`, indexing, iteration, broadcasting) is delegated to the
+underlying `scans` vector. Slicing returns a plain `Vector{MSscan}` — the
+metadata is dropped because the slice no longer corresponds to a complete
+run.
+
+`metadata` is populated by [`load`](@ref) from the top-level mzML sections
+(`fileDescription`, `softwareList`, `instrumentConfigurationList`,
+`dataProcessingList`, `referenceableParamGroupList`) and re-emitted by
+[`save`](@ref) so that the round-trip preserves instrument configuration,
+source file information, processing history, and so on.
+
+For non-mzML formats (mzXML, MGF, MSP, imzML, TXT), `load` returns
+`Vector{MSscan}` directly.
+
+
 ## Ion mobility container types
 
 Two additional container types are provided for ion mobility data:
