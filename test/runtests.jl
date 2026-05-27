@@ -1347,10 +1347,18 @@ function test_yields_targetpeak()
         @test_throws ErrorException MassJ.TargetPeak(100.0, "c"; tol = 0.5, method = :bad)
         @test_throws ErrorException MassJ.TargetPeak(100.0, "c")     # neither tol nor ppm
 
-        # Locate the global max in the averaged test fixture
-        spec = MassJ.average("test.mzXML")
-        peak_idx  = argmax(spec.int)
-        target_mz = spec.mz[peak_idx]
+        # Use the MS1 scans' actual base-peak m/z (~628.33) — a real,
+        # well-covered peak. Picking the global argmax of the heterogeneous
+        # averaged spectrum can land at an m/z covered by only some scans
+        # (MS3 starts at 50, MS1 at 140, MS2 at 345); with per-scan
+        # integration that yields zero (correctly) because no individual
+        # scan has the peak. We read the grid-accurate value from scan 1.
+        scans_load = MassJ.load("test.mzXML")
+        spec = MassJ.average(scans_load)
+        # Snap to the grid bin actually containing the base peak so the
+        # exact-match assertions on found_mz pass.
+        _bp_idx   = argmax(scans_load[1].int)
+        target_mz = scans_load[1].mz[_bp_idx]
 
         # :local_max — should snap exactly onto the sample-grid maximum
         peaks_lm = [MassJ.TargetPeak(target_mz - 0.05, "lm"; tol = 0.2)]
@@ -1613,6 +1621,30 @@ function test_yields_errors()
 
         # Plot with ribbon still works
         @test typeof(plot(yc)) == Plots.Plot{Plots.GRBackend}
+
+        # -- Per-scan-area error >> the old diagonal-only SEM ---------------
+        # The pre-fix `_integrate_window_with_err` propagated the Welford
+        # per-bin SEM through a diagonal-only `var(Σ wᵢ yᵢ) = Σ wᵢ² var(yᵢ)`
+        # formula, which assumes independence between m/z bins. For a real
+        # peak that's wrong — adjacent bins fluctuate together — and the
+        # resulting SEM underestimates the true scan-to-scan variability.
+        # The current per-scan-area implementation should give a strictly
+        # larger SEM than the old approach for the same window.
+        scans_real = MassJ.load("test.mzXML")
+        bp_idx     = argmax(scans_real[1].int)
+        bp_mz      = scans_real[1].mz[bp_idx]
+        peaks_cmp  = [MassJ.TargetPeak(bp_mz, "bp"; tol = 0.5)]
+        yc_cmp     = MassJ.yields(["test.mzXML"], peaks_cmp; x = [1.0])
+        # Old diagonal-only approach (still computable from MSscans + Welford)
+        avg_cmp    = MassJ.average(scans_real)
+        _, old_sem = MassJ._integrate_window_with_err(avg_cmp,
+                                                      bp_mz - 0.5, bp_mz + 0.5)
+        @test isfinite(yc_cmp.yields_err[1, 1])
+        @test yc_cmp.yields_err[1, 1] > old_sem        # bigger and honest
+        # Ratio is several orders of magnitude on this heterogeneous fixture
+        # — guard a generous lower bound so the assertion is robust across
+        # platforms / future refactors.
+        @test yc_cmp.yields_err[1, 1] / old_sem > 10
     end
 end
 
