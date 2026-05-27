@@ -215,6 +215,13 @@ function tests()
        a = MassJ.centroid(scans[1], method = MassJ.SNRA(1., 100))
        @test length(a.int) == 109                                                      #84
 
+       # Regression: SNRA with a very low threshold used to throw BoundsError
+       # because the local-max check `SNR[i+1]` ran one past the array end.
+       # See https://… (fix/snra-bounds branch).
+       avg_ms = MassJ.average(scans)
+       @test MassJ.centroid(avg_ms, method = MassJ.SNRA(1e-3, 100)) isa MassJ.MSscans  #84b
+       @test MassJ.centroid(scans[1], method = MassJ.SNRA(1e-3, 100)) isa MassJ.MSscan #84c
+
        s1 = MassJ.extract(scans, MassJ.Activation_Energy([18,35]))
        @test length(s1) == 4                                                           #85
 
