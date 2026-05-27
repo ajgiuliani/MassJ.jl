@@ -20,6 +20,8 @@ const CV_CHARGE_STATE      = "MS:1000041"
 const CV_COLLISION_ENERGY  = "MS:1000045"
 const CV_MZ_ARRAY          = "MS:1000514"
 const CV_INT_ARRAY         = "MS:1000515"
+const CV_TIME_ARRAY        = "MS:1000595"
+const CV_TIC_CHROMATOGRAM  = "MS:1000235"
 const CV_64BIT             = "MS:1000523"
 const CV_32BIT             = "MS:1000521"
 const CV_ZLIB              = "MS:1000574"
@@ -42,6 +44,15 @@ const CV_SCAN_WINDOW_LOWER    = "MS:1000501"   # in <scanWindow>
 const CV_SCAN_WINDOW_UPPER    = "MS:1000500"   # in <scanWindow>
 const CV_UNIT_MILLISECOND     = "UO:0000028"
 const CV_UNIT_MZ              = "MS:1000040"
+const CV_UNIT_DA              = "UO:0000221"
+
+# Per-spectrum cvParams (Phase 1 — feature/mzml-full-roundtrip)
+const CV_MSN_SPECTRUM         = "MS:1000580"   # <spectrum> marker (level>=2)
+const CV_FILTER_STRING        = "MS:1000512"   # in <scan>, Thermo-specific
+const CV_SELECTED_PEAK_INT    = "MS:1000042"   # in <selectedIon>
+const CV_ISO_WINDOW_TARGET    = "MS:1000827"   # in <isolationWindow>
+const CV_ISO_WINDOW_LOWER     = "MS:1000828"   # in <isolationWindow>
+const CV_ISO_WINDOW_UPPER     = "MS:1000829"   # in <isolationWindow>
 
 # Activation method accessions
 const CV_CID               = "MS:1000133"
@@ -295,11 +306,17 @@ function load_mzml_all(filename::String)
     xdoc = parse_file(filename)
     mzml = find_mzml_root(xdoc)
 
+    # File-level metadata (instrument, software, source file, processing).
+    file_md = _read_mzml_file_metadata(mzml)
+
     run_elem = find_element(mzml, "run")
     if run_elem === nothing
         free(xdoc)
         error("No <run> element found in mzML file.")
     end
+
+    # Pre-computed chromatograms (TIC etc.) — sibling of <spectrumList>.
+    chromatograms = _read_mzml_chromatograms(run_elem)
 
     specList = find_element(run_elem, "spectrumList")
     if specList === nothing
@@ -329,18 +346,25 @@ function load_mzml_all(filename::String)
     scalar_vec  = scalar_of[1:index-1]
 
     # Bit-symmetric scalar round-trip: a file with exactly one spectrum that
-    # was saved from a bare MSscan or MSscans returns the bare value.
+    # was saved from a bare MSscan or MSscans returns the bare value (no
+    # MSrun wrapper, no file-level metadata).
     if length(raw) == 1 && scalar_vec[1]
         return raw[1]
     end
 
-    # Otherwise narrow Vector{MScontainer} to its concrete element type.
+    # Multi-spectrum mzML files — wrap in MSrun so the file-level metadata
+    # rides along. The empty case keeps the legacy Vector{MSscan} shape so
+    # users who don't read MassJ-extension files aren't surprised.
     if isempty(raw)
-        return Vector{MSscan}()
-    elseif all(x -> x isa MSscans, raw)
-        return convert(Vector{MSscans}, raw)
+        return MSrun(MSscan[], file_md, chromatograms)
     elseif all(x -> x isa MSscan, raw)
-        return convert(Vector{MSscan}, raw)
+        scans = convert(Vector{MSscan}, raw)
+        return MSrun(scans, file_md, chromatograms)
+    elseif all(x -> x isa MSscans, raw)
+        # Vector{MSscans} happens for files saved by MassJ from a vector of
+        # averaged spectra; keep the existing legacy return type so the
+        # round-trip type-symmetry still holds for that case.
+        return convert(Vector{MSscans}, raw)
     else
         return raw  # mixed (rare)
     end
@@ -834,51 +858,339 @@ function _read_mzml_extra_metadata(spec::XMLElement)
 
     # -- Inside <scanList>/<scan> -------------------------------------------
     scanListElem = find_element(spec, "scanList")
-    scanListElem === nothing && return md
+    if scanListElem !== nothing
+        for scanElem in child_elements(scanListElem)
+            name(scanElem) == "scan" || continue
 
-    for scanElem in child_elements(scanListElem)
-        name(scanElem) == "scan" || continue
-
-        rp = get_cv_param(scanElem, CV_MASS_RESOLVING_POWER)
-        if rp !== nothing
-            val = attribute(rp, "value")
-            if val !== nothing && !isempty(val)
-                md["mass_resolving_power"] = parse(Float64, val)
+            rp = get_cv_param(scanElem, CV_MASS_RESOLVING_POWER)
+            if rp !== nothing
+                val = attribute(rp, "value")
+                if val !== nothing && !isempty(val)
+                    md["mass_resolving_power"] = parse(Float64, val)
+                end
             end
-        end
-        it = get_cv_param(scanElem, CV_ION_INJECTION_TIME)
-        if it !== nothing
-            val = attribute(it, "value")
-            if val !== nothing && !isempty(val)
-                md["ion_injection_time"] = parse(Float64, val)
+            it = get_cv_param(scanElem, CV_ION_INJECTION_TIME)
+            if it !== nothing
+                val = attribute(it, "value")
+                if val !== nothing && !isempty(val)
+                    md["ion_injection_time"] = parse(Float64, val)
+                end
             end
-        end
+            fs = get_cv_param(scanElem, CV_FILTER_STRING)
+            if fs !== nothing
+                val = attribute(fs, "value")
+                if val !== nothing && !isempty(val)
+                    md["filter_string"] = val
+                end
+            end
 
-        # Scan windows (typically one per scan; we take the first)
-        swList = find_element(scanElem, "scanWindowList")
-        if swList !== nothing
-            for sw in child_elements(swList)
-                name(sw) == "scanWindow" || continue
-                lower = get_cv_param(sw, CV_SCAN_WINDOW_LOWER)
-                if lower !== nothing
-                    val = attribute(lower, "value")
-                    if val !== nothing && !isempty(val)
-                        md["scan_window_lower"] = parse(Float64, val)
+            # Scan windows (typically one per scan; we take the first)
+            swList = find_element(scanElem, "scanWindowList")
+            if swList !== nothing
+                for sw in child_elements(swList)
+                    name(sw) == "scanWindow" || continue
+                    lower = get_cv_param(sw, CV_SCAN_WINDOW_LOWER)
+                    if lower !== nothing
+                        val = attribute(lower, "value")
+                        if val !== nothing && !isempty(val)
+                            md["scan_window_lower"] = parse(Float64, val)
+                        end
+                    end
+                    upper = get_cv_param(sw, CV_SCAN_WINDOW_UPPER)
+                    if upper !== nothing
+                        val = attribute(upper, "value")
+                        if val !== nothing && !isempty(val)
+                            md["scan_window_upper"] = parse(Float64, val)
+                        end
+                    end
+                    break  # first window only
+                end
+            end
+
+            break  # first scan only
+        end
+    end
+
+    # -- Inside <precursorList>/<precursor> ---------------------------------
+    # Isolation window (target + offsets) and selected ion peak intensity.
+    precList = find_element(spec, "precursorList")
+    if precList !== nothing
+        for prec in child_elements(precList)
+            name(prec) == "precursor" || continue
+
+            isoWin = find_element(prec, "isolationWindow")
+            if isoWin !== nothing
+                for (acc, key) in (
+                        (CV_ISO_WINDOW_TARGET, "isolation_window_target_mz"),
+                        (CV_ISO_WINDOW_LOWER,  "isolation_window_lower_offset"),
+                        (CV_ISO_WINDOW_UPPER,  "isolation_window_upper_offset"),
+                    )
+                    cv = get_cv_param(isoWin, acc)
+                    if cv !== nothing
+                        val = attribute(cv, "value")
+                        if val !== nothing && !isempty(val)
+                            md[key] = parse(Float64, val)
+                        end
                     end
                 end
-                upper = get_cv_param(sw, CV_SCAN_WINDOW_UPPER)
-                if upper !== nothing
-                    val = attribute(upper, "value")
-                    if val !== nothing && !isempty(val)
-                        md["scan_window_upper"] = parse(Float64, val)
-                    end
-                end
-                break  # first window only
             end
-        end
 
-        break  # first scan only
+            siList = find_element(prec, "selectedIonList")
+            if siList !== nothing
+                for si in child_elements(siList)
+                    name(si) == "selectedIon" || continue
+                    pkInt = get_cv_param(si, CV_SELECTED_PEAK_INT)
+                    if pkInt !== nothing
+                        val = attribute(pkInt, "value")
+                        if val !== nothing && !isempty(val)
+                            md["selected_ion_peak_intensity"] = parse(Float64, val)
+                        end
+                    end
+                    break  # first selected ion only
+                end
+            end
+
+            break  # first precursor only
+        end
     end
 
     return md
+end
+
+
+# ============================================================================
+# File-level metadata parsing (for MSrun round-trip)
+# ============================================================================
+
+"""
+    _cvparams_to_dicts(elem::XMLElement) -> Vector{Dict{String,String}}
+Collect all `cvParam` children of `elem` as a vector of `Dict` snapshots.
+Each Dict has at least `"accession"` and `"name"`; `value`, `unitAccession`,
+`unitName`, `unitCvRef` are included when present in the source XML.
+"""
+function _cvparams_to_dicts(elem::XMLElement)
+    out = Dict{String,String}[]
+    for child in child_elements(elem)
+        name(child) == "cvParam" || continue
+        d = Dict{String,String}()
+        for attr in ("accession", "name", "value",
+                     "unitAccession", "unitName", "unitCvRef")
+            v = attribute(child, attr)
+            v !== nothing && (d[attr] = v)
+        end
+        push!(out, d)
+    end
+    return out
+end
+
+
+# Collect the `ref` attributes of every <referenceableParamGroupRef> child.
+function _param_group_refs(elem::XMLElement)
+    refs = String[]
+    for child in child_elements(elem)
+        if name(child) == "referenceableParamGroupRef"
+            r = attribute(child, "ref")
+            r !== nothing && push!(refs, r)
+        end
+    end
+    return refs
+end
+
+
+"""
+    _read_mzml_file_metadata(mzml::XMLElement) -> Dict{String,Any}
+Parse the top-level mzML metadata sections (`fileDescription`,
+`referenceableParamGroupList`, `softwareList`, `instrumentConfigurationList`,
+`dataProcessingList`) into a nested Dict suitable for storage in
+`MSrun.metadata`. The structure is preserved well enough for [`save`](@ref)
+to re-emit a semantically equivalent mzML.
+"""
+function _read_mzml_file_metadata(mzml::XMLElement)
+    md = Dict{String,Any}()
+
+    # -- <fileDescription>/<fileContent> + <sourceFileList> -----------------
+    fd = find_element(mzml, "fileDescription")
+    if fd !== nothing
+        fc = find_element(fd, "fileContent")
+        if fc !== nothing
+            md["file_content"] = _cvparams_to_dicts(fc)
+        end
+        sfList = find_element(fd, "sourceFileList")
+        if sfList !== nothing
+            sfs = Dict{String,Any}[]
+            for sf in child_elements(sfList)
+                name(sf) == "sourceFile" || continue
+                d = Dict{String,Any}()
+                for attr in ("id", "name", "location")
+                    v = attribute(sf, attr)
+                    v !== nothing && (d[attr] = v)
+                end
+                d["cv_params"] = _cvparams_to_dicts(sf)
+                push!(sfs, d)
+            end
+            md["source_files"] = sfs
+        end
+    end
+
+    # -- <referenceableParamGroupList> --------------------------------------
+    pgList = find_element(mzml, "referenceableParamGroupList")
+    if pgList !== nothing
+        groups = Dict{String,Any}[]
+        for pg in child_elements(pgList)
+            name(pg) == "referenceableParamGroup" || continue
+            d = Dict{String,Any}()
+            id = attribute(pg, "id"); id !== nothing && (d["id"] = id)
+            d["cv_params"] = _cvparams_to_dicts(pg)
+            push!(groups, d)
+        end
+        md["param_groups"] = groups
+    end
+
+    # -- <softwareList> -----------------------------------------------------
+    swList = find_element(mzml, "softwareList")
+    if swList !== nothing
+        sws = Dict{String,Any}[]
+        for sw in child_elements(swList)
+            name(sw) == "software" || continue
+            d = Dict{String,Any}()
+            for attr in ("id", "version")
+                v = attribute(sw, attr)
+                v !== nothing && (d[attr] = v)
+            end
+            d["cv_params"] = _cvparams_to_dicts(sw)
+            push!(sws, d)
+        end
+        md["software"] = sws
+    end
+
+    # -- <instrumentConfigurationList> --------------------------------------
+    icList = find_element(mzml, "instrumentConfigurationList")
+    if icList !== nothing
+        instrs = Dict{String,Any}[]
+        for ic in child_elements(icList)
+            name(ic) == "instrumentConfiguration" || continue
+            d = Dict{String,Any}()
+            id = attribute(ic, "id"); id !== nothing && (d["id"] = id)
+            d["param_group_refs"] = _param_group_refs(ic)
+            d["cv_params"]        = _cvparams_to_dicts(ic)
+
+            comps = Dict{String,Any}[]
+            compList = find_element(ic, "componentList")
+            if compList !== nothing
+                for c in child_elements(compList)
+                    cname = name(c)
+                    cname ∈ ("source", "analyzer", "detector") || continue
+                    cd = Dict{String,Any}("type" => cname)
+                    ord = attribute(c, "order")
+                    ord !== nothing && (cd["order"] = ord)
+                    cd["cv_params"] = _cvparams_to_dicts(c)
+                    push!(comps, cd)
+                end
+            end
+            d["components"] = comps
+
+            swRef = find_element(ic, "softwareRef")
+            if swRef !== nothing
+                r = attribute(swRef, "ref")
+                r !== nothing && (d["software_ref"] = r)
+            end
+            push!(instrs, d)
+        end
+        md["instruments"] = instrs
+    end
+
+    # -- <dataProcessingList> -----------------------------------------------
+    dpList = find_element(mzml, "dataProcessingList")
+    if dpList !== nothing
+        dps = Dict{String,Any}[]
+        for dp in child_elements(dpList)
+            name(dp) == "dataProcessing" || continue
+            d = Dict{String,Any}()
+            id = attribute(dp, "id"); id !== nothing && (d["id"] = id)
+            methods = Dict{String,Any}[]
+            for pm in child_elements(dp)
+                name(pm) == "processingMethod" || continue
+                m = Dict{String,Any}()
+                for attr in ("order", "softwareRef")
+                    v = attribute(pm, attr)
+                    v !== nothing && (m[attr] = v)
+                end
+                m["cv_params"] = _cvparams_to_dicts(pm)
+                push!(methods, m)
+            end
+            d["methods"] = methods
+            push!(dps, d)
+        end
+        md["data_processing"] = dps
+    end
+
+    return md
+end
+
+
+"""
+    _read_mzml_chromatograms(run_elem::XMLElement) -> Vector{Chromatogram}
+Parse the `<chromatogramList>` (sibling of `<spectrumList>`) into a vector of
+[`Chromatogram`](@ref)s. Only chromatograms carrying the `MS:1000235` (total
+ion current chromatogram) marker are loaded; other chromatogram types
+(extracted ion, base peak, ...) are skipped with a warning. Returns an empty
+vector when the element is absent.
+
+The binary-array decoding pipeline is the same as for spectrum arrays:
+base64 → optional zlib → reinterpret as Float64/Float32 → host order.
+"""
+function _read_mzml_chromatograms(run_elem::XMLElement)
+    out = Chromatogram[]
+    chList = find_element(run_elem, "chromatogramList")
+    chList === nothing && return out
+
+    for chrom in child_elements(chList)
+        name(chrom) == "chromatogram" || continue
+
+        if !has_cv_param(chrom, CV_TIC_CHROMATOGRAM)
+            @warn "skipping non-TIC chromatogram (MassJ only round-trips TIC chromatograms)" id=attribute(chrom, "id")
+            continue
+        end
+
+        time_arr  = Float64[]
+        int_arr   = Float64[]
+        bdaList = find_element(chrom, "binaryDataArrayList")
+        bdaList === nothing && continue
+
+        for bda in child_elements(bdaList)
+            name(bda) == "binaryDataArray" || continue
+
+            is_time = has_cv_param(bda, CV_TIME_ARRAY)
+            is_int  = has_cv_param(bda, CV_INT_ARRAY)
+            (is_time || is_int) || continue
+
+            is_64bit = has_cv_param(bda, CV_64BIT)
+            is_zlib  = has_cv_param(bda, CV_ZLIB)
+
+            binElem = find_element(bda, "binary")
+            binElem === nothing && continue
+            binContent = content(binElem)
+            isempty(strip(binContent)) && continue
+
+            data = decode(Base64, binContent)
+            if is_zlib
+                data = Libz.inflate(data)
+            end
+            arr = is_64bit ? reinterpret(Float64, data) : reinterpret(Float32, data)
+            arr = ltoh.(arr)
+            arr = convert(Vector{Float64}, arr)
+
+            if is_time
+                time_arr = arr
+            else
+                int_arr = arr
+            end
+        end
+
+        if !isempty(time_arr) && !isempty(int_arr)
+            push!(out, Chromatogram(time_arr, int_arr,
+                                    isempty(int_arr) ? 0.0 : maximum(int_arr)))
+        end
+    end
+    return out
 end
