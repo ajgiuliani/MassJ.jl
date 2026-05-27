@@ -1097,6 +1097,52 @@ function test_export()
         @test run_chrom_back.chromatograms[1].ic    == ic_vec
         @test run_chrom_back.chromatograms[1].maxic ≈ maximum(ic_vec)
         rm(tmp_chrom)
+
+        # -- Schema compliance: validate against the official PSI mzML 1.1.0
+        #    XSD when xmllint is available. Skipped silently otherwise so the
+        #    test suite doesn't require an external tool to pass.
+        if Sys.which("xmllint") !== nothing
+            xsd_candidates = String[
+                joinpath("schema", "mzML1.1.0.xsd"),
+                "mzML1.1.0.xsd",
+                "/tmp/mzML1.1.0.xsd",
+            ]
+            xsd = nothing
+            for c in xsd_candidates
+                if isfile(c)
+                    xsd = c
+                    break
+                end
+            end
+            if xsd !== nothing
+                # Save a representative file: an MSrun with metadata,
+                # spectra, and a chromatogram.
+                rt_v = collect(0.0:0.5:5.0)
+                ic_v = Float64[100, 200, 350, 500, 600, 720, 690, 540, 400, 250, 110]
+                run_full = MassJ.MSrun(scans_src.scans,
+                                       Dict{String,Any}(
+                                           "software" => [
+                                               Dict{String,Any}(
+                                                   "id" => "Xcalibur", "version" => "3.5",
+                                                   "cv_params" => [
+                                                       Dict{String,String}(
+                                                           "accession" => "MS:1000532",
+                                                           "name" => "Xcalibur"),
+                                                   ]),
+                                           ],
+                                       ),
+                                       [MassJ.Chromatogram(rt_v, ic_v, maximum(ic_v))])
+                tmp_xsd = tempname() * ".mzML"
+                MassJ.save(run_full, tmp_xsd; progress = false)
+                rc = run(`xmllint --noout --schema $xsd $tmp_xsd`)
+                @test rc.exitcode == 0
+                rm(tmp_xsd)
+            else
+                @info "PSI mzML XSD not found; skipping schema-compliance test"
+            end
+        else
+            @info "xmllint not available; skipping schema-compliance test"
+        end
     end
 end
 
