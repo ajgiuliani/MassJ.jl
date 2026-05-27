@@ -1,6 +1,7 @@
 using MassJ, Test
 using Plots
 using DataStructures
+using SHA  # used for indexed-mzML fileChecksum verification
 
 function tests()
     @testset "Subset of tests"  begin
@@ -1106,24 +1107,23 @@ function test_export()
         rm(tmp_chrom)
 
         # -- Schema compliance: validate against the official PSI mzML 1.1.0
-        #    XSD when xmllint is available. Skipped silently otherwise so the
-        #    test suite doesn't require an external tool to pass.
+        #    XSDs when xmllint is available. The default save output is
+        #    indexed-mzML (MaxQuant compatibility); we also test that
+        #    `indexed = false` produces plain mzML that validates against
+        #    the non-indexed schema.
         if Sys.which("xmllint") !== nothing
-            xsd_candidates = String[
-                joinpath("schema", "mzML1.1.0.xsd"),
-                "mzML1.1.0.xsd",
-                "/tmp/mzML1.1.0.xsd",
-            ]
-            xsd = nothing
-            for c in xsd_candidates
-                if isfile(c)
-                    xsd = c
-                    break
-                end
+            xsd_plain   = nothing
+            xsd_indexed = nothing
+            for c in (joinpath("schema", "mzML1.1.0.xsd"), "/tmp/mzML1.1.0.xsd")
+                isfile(c) && (xsd_plain = c; break)
             end
-            if xsd !== nothing
-                # Save a representative file: an MSrun with metadata,
-                # spectra, and a chromatogram.
+            for c in (joinpath("schema", "mzML1.1.0_idx.xsd"),
+                      "/tmp/mzML-spec/schema/schema_1.1/mzML1.1.0_idx.xsd")
+                isfile(c) && (xsd_indexed = c; break)
+            end
+
+            if xsd_plain !== nothing || xsd_indexed !== nothing
+                # Representative MSrun with metadata + chromatogram.
                 rt_v = collect(0.0:0.5:5.0)
                 ic_v = Float64[100, 200, 350, 500, 600, 720, 690, 540, 400, 250, 110]
                 run_full = MassJ.MSrun(scans_src.scans,
@@ -1139,17 +1139,65 @@ function test_export()
                                            ],
                                        ),
                                        [MassJ.Chromatogram(rt_v, ic_v, maximum(ic_v))])
-                tmp_xsd = tempname() * ".mzML"
-                MassJ.save(run_full, tmp_xsd; progress = false)
-                rc = run(`xmllint --noout --schema $xsd $tmp_xsd`)
-                @test rc.exitcode == 0
-                rm(tmp_xsd)
+
+                # Default (indexed = true) → validates against indexed schema
+                if xsd_indexed !== nothing
+                    tmp_idx = tempname() * ".mzML"
+                    MassJ.save(run_full, tmp_idx; progress = false)
+                    rc = run(`xmllint --noout --schema $xsd_indexed $tmp_idx`)
+                    @test rc.exitcode == 0
+                    rm(tmp_idx)
+                end
+
+                # indexed = false → validates against plain schema
+                if xsd_plain !== nothing
+                    tmp_plain = tempname() * ".mzML"
+                    MassJ.save(run_full, tmp_plain; progress = false, indexed = false)
+                    rc = run(`xmllint --noout --schema $xsd_plain $tmp_plain`)
+                    @test rc.exitcode == 0
+                    rm(tmp_plain)
+                end
             else
-                @info "PSI mzML XSD not found; skipping schema-compliance test"
+                @info "PSI mzML XSDs not found; skipping schema-compliance test"
             end
         else
             @info "xmllint not available; skipping schema-compliance test"
         end
+
+        # -- Indexed mzML: structural + SHA-1 + offset verification ---------
+        # MaxQuant and most modern tools require the <indexedmzML> wrapper.
+        # Confirm: presence of indexList/indexListOffset/fileChecksum, that
+        # the emitted SHA-1 matches a re-computed one, and that each offset
+        # really points to a `<spectrum` start.
+        scans_idx_src = MassJ.load("test.mzML")
+        tmp_idx_check = tempname() * ".mzML"
+        MassJ.save(scans_idx_src, tmp_idx_check; progress = false)
+        bytes_idx = read(tmp_idx_check)
+        text_idx  = String(copy(bytes_idx))
+
+        @test occursin("<indexedmzML",     text_idx)
+        @test occursin("<indexList",       text_idx)
+        @test occursin("<indexListOffset>", text_idx)
+        @test occursin("<fileChecksum>",   text_idx)
+        @test endswith(rstrip(text_idx), "</indexedmzML>")
+
+        # SHA-1: re-compute over bytes up to and including the
+        # `<fileChecksum>` open tag and compare with the value in the file.
+        let fc = findfirst("<fileChecksum>", text_idx)
+            fc_end_byte = last(fc)
+            expected_hash = bytes2hex(SHA.sha1(bytes_idx[1:fc_end_byte]))
+            fc_close = findfirst("</fileChecksum>", text_idx)
+            emitted_hash = text_idx[fc_end_byte+1:first(fc_close)-1]
+            @test emitted_hash == expected_hash
+        end
+
+        # Every <offset> idRef has an actual <spectrum at the recorded byte.
+        for m in eachmatch(r"<offset idRef=\"([^\"]+)\">(\d+)</offset>", text_idx)
+            byte_off = parse(Int, m.captures[2])
+            @test startswith(text_idx[byte_off+1:end], "<spectrum")
+        end
+
+        rm(tmp_idx_check)
     end
 end
 

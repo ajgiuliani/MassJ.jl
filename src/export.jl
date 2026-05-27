@@ -59,6 +59,52 @@ end
 
 
 # ----------------------------------------------------------------------------
+# Tee IO that mirrors writes to an underlying file AND a SHA-1 context, so we
+# can compute the indexedmzML fileChecksum in a single streaming pass instead
+# of re-reading the file at the end.
+# ----------------------------------------------------------------------------
+
+mutable struct TeeSHA1IO <: IO
+    file::IO
+    ctx::SHA.SHA1_CTX
+    sealed::Bool   # set true after digest!(ctx); subsequent writes don't hash
+    TeeSHA1IO(file::IO) = new(file, SHA.SHA1_CTX(), false)
+end
+
+# `write(::IO, args...)` decomposes into single-arg writes, so overriding the
+# byte-vector and string cases is enough to cover every call in this module.
+# Specific overrides for the concrete byte containers we hit, to avoid the
+# `AbstractVector{UInt8}` ↔ `StridedArray` ambiguity in Base.
+function Base.write(t::TeeSHA1IO, bytes::Vector{UInt8})
+    n = write(t.file, bytes)
+    t.sealed || SHA.update!(t.ctx, bytes)
+    return n
+end
+function Base.write(t::TeeSHA1IO, bytes::Base.CodeUnits)
+    n = write(t.file, bytes)
+    t.sealed || SHA.update!(t.ctx, bytes)
+    return n
+end
+# String / SubString need explicit overrides because Base.write(::IO, ::String)
+# takes an unsafe_write fast path that bypasses an AbstractString dispatch.
+Base.write(t::TeeSHA1IO, s::String)            = write(t, Vector{UInt8}(codeunits(s)))
+Base.write(t::TeeSHA1IO, s::SubString{String}) = write(t, Vector{UInt8}(codeunits(s)))
+Base.write(t::TeeSHA1IO, c::Char)              = write(t, string(c))
+Base.write(t::TeeSHA1IO, b::UInt8)             = write(t, [b])
+Base.position(t::TeeSHA1IO)                    = position(t.file)
+
+# Finalise the hash (call exactly once, right after the `<fileChecksum>` open
+# tag has been written). After this call no further bytes are mixed into the
+# SHA-1 digest, but writes continue to flow to the underlying file.
+function _seal_sha1!(t::TeeSHA1IO)
+    @assert !t.sealed "TeeSHA1IO already sealed"
+    hash = bytes2hex(SHA.digest!(t.ctx))
+    t.sealed = true
+    return hash
+end
+
+
+# ----------------------------------------------------------------------------
 # Binary encoding (shared)
 # ----------------------------------------------------------------------------
 
@@ -256,8 +302,11 @@ end
 # ----------------------------------------------------------------------------
 
 function _stream_mzml_open(io::IO, scancount::Int;
-                           file_metadata::Dict{String,Any} = Dict{String,Any}())
-    write(io, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
+                           file_metadata::Dict{String,Any} = Dict{String,Any}(),
+                           with_xml_decl::Bool = true)
+    if with_xml_decl
+        write(io, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
+    end
     write(io, "<mzML xmlns=\"http://psi.hupo.org/ms/mzml\"",
           " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"",
           " version=\"1.1.0\">\n")
@@ -580,50 +629,98 @@ vectors).
 """
 function save_mzml(filename::AbstractString, scans::Vector{MSscan};
                    precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true)
+                   progress::Bool = true, indexed::Bool = true)
     return _save_mzml_vector(filename, scans;
                              precision = precision, compress = compress,
                              scalar = false, progress = progress,
-                             file_metadata = Dict{String,Any}())
+                             file_metadata = Dict{String,Any}(),
+                             indexed = indexed)
 end
 
 # MSrun preserves file-level metadata + chromatograms across the round-trip.
 function save_mzml(filename::AbstractString, run::MSrun;
                    precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true)
+                   progress::Bool = true, indexed::Bool = true)
     return _save_mzml_vector(filename, run.scans;
                              precision = precision, compress = compress,
                              scalar = false, progress = progress,
                              file_metadata = run.metadata,
-                             chromatograms = run.chromatograms)
+                             chromatograms = run.chromatograms,
+                             indexed = indexed)
 end
 
 function save_mzml(filename::AbstractString, scan::MSscan;
                    precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true)
+                   progress::Bool = true, indexed::Bool = true)
     return _save_mzml_vector(filename, [scan];
                              precision = precision, compress = compress,
                              scalar = true, progress = progress,
-                             file_metadata = Dict{String,Any}())
+                             file_metadata = Dict{String,Any}(),
+                             indexed = indexed)
 end
 
 function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
                            precision::Int, compress::Bool,
                            scalar::Bool, progress::Bool,
                            file_metadata::Dict{String,Any} = Dict{String,Any}(),
-                           chromatograms::Vector{Chromatogram} = Chromatogram[])
-    open(filename, "w") do io
-        _stream_mzml_open(io, length(scans); file_metadata = file_metadata)
+                           chromatograms::Vector{Chromatogram} = Chromatogram[],
+                           indexed::Bool = true)
+    open(filename, "w") do raw_io
+        io = indexed ? TeeSHA1IO(raw_io) : raw_io
+
+        if indexed
+            write(io, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
+                      "<indexedmzML xmlns=\"http://psi.hupo.org/ms/mzml\"",
+                      " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"",
+                      " xsi:schemaLocation=\"http://psi.hupo.org/ms/mzml",
+                      " http://psidev.info/files/ms/mzML/xsd/mzML1.1.0_idx.xsd\">\n")
+            _stream_mzml_open(io, length(scans);
+                              file_metadata = file_metadata, with_xml_decl = false)
+        else
+            _stream_mzml_open(io, length(scans); file_metadata = file_metadata)
+        end
+
+        spec_offsets  = Vector{Tuple{String,Int}}(undef, 0)
+        chrom_offsets = Vector{Tuple{String,Int}}(undef, 0)
+
         prog = progress && length(scans) > 1 ?
             Progress(length(scans); desc = "Writing mzML: ") : nothing
         for (i, scan) in enumerate(scans)
+            indexed && push!(spec_offsets, ("scan=$(scan.num)", position(raw_io)))
             _stream_mzml_spectrum(io, scan, i - 1;
                                   precision = precision, compress = compress,
                                   scalar = scalar)
             prog === nothing || next!(prog)
         end
-        _stream_mzml_close(io; chromatograms = chromatograms,
-                          precision = precision, compress = compress)
+        write(io, "</spectrumList>\n")
+
+        # chromatogramList — inlined with per-chromatogram offset capture so
+        # the indexed wrapper can list them too.
+        if !isempty(chromatograms)
+            write(io, "<chromatogramList count=\"", string(length(chromatograms)),
+                      "\" defaultDataProcessingRef=\"MassJExport\">\n")
+            for (i, c) in enumerate(chromatograms)
+                id = "chrom_" * string(i)
+                indexed && push!(chrom_offsets, (id, position(raw_io)))
+                write(io, "<chromatogram id=\"", id,
+                          "\" index=\"", string(i - 1),
+                          "\" defaultArrayLength=\"", string(length(c.rt)), "\">\n")
+                _stream_cvParam(io, CV_TIC_CHROMATOGRAM, "total ion current chromatogram")
+                write(io, "<binaryDataArrayList count=\"2\">\n")
+                _stream_mzml_chrom_binary(io, c.rt,  :time;
+                                          precision = precision, compress = compress)
+                _stream_mzml_chrom_binary(io, c.ic,  :intensity;
+                                          precision = precision, compress = compress)
+                write(io, "</binaryDataArrayList>\n</chromatogram>\n")
+            end
+            write(io, "</chromatogramList>\n")
+        end
+
+        write(io, "</run>\n</mzML>\n")
+
+        if indexed
+            _stream_indexed_footer(io, raw_io, spec_offsets, chrom_offsets)
+        end
     end
     return filename
 end
@@ -631,35 +728,61 @@ end
 
 function save_mzml(filename::AbstractString, scan::MSscans;
                    precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true)
+                   progress::Bool = true, indexed::Bool = true)
     return _save_mzml_msscans_vector(filename, [scan];
                                      precision = precision, compress = compress,
-                                     scalar = true, progress = progress)
+                                     scalar = true, progress = progress,
+                                     indexed = indexed)
 end
 
 function save_mzml(filename::AbstractString, scans::Vector{MSscans};
                    precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true)
+                   progress::Bool = true, indexed::Bool = true)
     return _save_mzml_msscans_vector(filename, scans;
                                      precision = precision, compress = compress,
-                                     scalar = false, progress = progress)
+                                     scalar = false, progress = progress,
+                                     indexed = indexed)
 end
 
 function _save_mzml_msscans_vector(filename::AbstractString, scans::Vector{MSscans};
                                    precision::Int, compress::Bool,
                                    scalar::Bool, progress::Bool,
-                                   file_metadata::Dict{String,Any} = Dict{String,Any}())
-    open(filename, "w") do io
-        _stream_mzml_open(io, length(scans); file_metadata = file_metadata)
+                                   file_metadata::Dict{String,Any} = Dict{String,Any}(),
+                                   indexed::Bool = true)
+    open(filename, "w") do raw_io
+        io = indexed ? TeeSHA1IO(raw_io) : raw_io
+
+        if indexed
+            write(io, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
+                      "<indexedmzML xmlns=\"http://psi.hupo.org/ms/mzml\"",
+                      " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"",
+                      " xsi:schemaLocation=\"http://psi.hupo.org/ms/mzml",
+                      " http://psidev.info/files/ms/mzML/xsd/mzML1.1.0_idx.xsd\">\n")
+            _stream_mzml_open(io, length(scans);
+                              file_metadata = file_metadata, with_xml_decl = false)
+        else
+            _stream_mzml_open(io, length(scans); file_metadata = file_metadata)
+        end
+
+        spec_offsets = Vector{Tuple{String,Int}}(undef, 0)
+
         prog = progress && length(scans) > 1 ?
             Progress(length(scans); desc = "Writing mzML: ") : nothing
         for (i, sc) in enumerate(scans)
+            # Spectrum id matches what _stream_mzml_msscans_spectrum writes
+            # (scan=<index+1>, see the uniqueness comment there).
+            indexed && push!(spec_offsets, ("scan=" * string(i), position(raw_io)))
             _stream_mzml_msscans_spectrum(io, sc, i - 1;
                                           precision = precision, compress = compress,
                                           scalar = scalar)
             prog === nothing || next!(prog)
         end
-        _stream_mzml_close(io)
+        write(io, "</spectrumList>\n</run>\n</mzML>\n")
+
+        if indexed
+            _stream_indexed_footer(io, raw_io, spec_offsets,
+                                   Vector{Tuple{String,Int}}())
+        end
     end
     return filename
 end
@@ -1145,4 +1268,57 @@ function _stream_mzml_chrom_binary(io::IO, data::Vector{Float64}, kind::Symbol;
                        unit_name = "number of detector counts")
     end
     write(io, "<binary>", b64, "</binary>\n</binaryDataArray>\n")
+end
+
+
+# ----------------------------------------------------------------------------
+# Indexed-mzML footer: <indexList>, <indexListOffset>, <fileChecksum>
+# ----------------------------------------------------------------------------
+
+"""
+    _stream_indexed_footer(tee, raw, spec_offsets, chrom_offsets)
+Append the `<indexList>`, `<indexListOffset>`, and `<fileChecksum>` blocks
+that complete an indexed-mzML file. Per the mzML 1.1 indexed schema:
+
+* the SHA-1 in `<fileChecksum>` is taken over every byte from the start of
+  the file up to **and including** the `<fileChecksum>` open tag — which is
+  why we tee the file through a [`TeeSHA1IO`](@ref) and seal the digest
+  immediately after writing that open tag.
+* `<indexListOffset>` is the byte offset (in the raw file) where the
+  `<indexList>` element starts.
+"""
+function _stream_indexed_footer(io::TeeSHA1IO, raw_io::IO,
+                                spec_offsets::Vector{Tuple{String,Int}},
+                                chrom_offsets::Vector{Tuple{String,Int}})
+    # Capture <indexList> start BEFORE writing it.
+    indexlist_offset = position(raw_io)
+
+    n_indices = 1 + (isempty(chrom_offsets) ? 0 : 1)
+    write(io, "<indexList count=\"", string(n_indices), "\">\n")
+
+    write(io, "<index name=\"spectrum\">\n")
+    for (id, off) in spec_offsets
+        write(io, "<offset idRef=\"", _xmlescape(id), "\">", string(off), "</offset>\n")
+    end
+    write(io, "</index>\n")
+
+    if !isempty(chrom_offsets)
+        write(io, "<index name=\"chromatogram\">\n")
+        for (id, off) in chrom_offsets
+            write(io, "<offset idRef=\"", _xmlescape(id), "\">", string(off), "</offset>\n")
+        end
+        write(io, "</index>\n")
+    end
+
+    write(io, "</indexList>\n",
+              "<indexListOffset>", string(indexlist_offset), "</indexListOffset>\n",
+              "<fileChecksum>")
+
+    # SHA-1 is sealed *here* — after the <fileChecksum> open tag is written
+    # (still part of the hashed content) but before its text content.
+    hash_hex = _seal_sha1!(io)
+
+    # Remaining bytes are written to the underlying file only; the digest
+    # is finalised so SHA.update! is no longer called.
+    write(io, hash_hex, "</fileChecksum>\n</indexedmzML>\n")
 end
