@@ -30,7 +30,7 @@ julia> save(scans[1], "single_scan.mzML")       # one scan
 
 ## Options
 
-Both writers accept three keywords:
+Both writers accept these keywords:
 
 * `precision` — `64` (default, `Float64` arrays) or `32` (`Float32`, halves the
   binary payload size at the cost of ≈7 digits of precision).
@@ -38,13 +38,37 @@ Both writers accept three keywords:
   faster writing of small files, at the cost of larger output.
 * `progress` — `true` (default) shows a `ProgressMeter` bar while writing. Set
   `false` in scripts / CI to silence it.
+* `indexed` (mzML only) — `true` (default) wraps the output in `<indexedmzML>`
+  with an `<indexList>` of byte offsets to each spectrum/chromatogram and an
+  SHA-1 `<fileChecksum>`. Most modern proteomics tools (MaxQuant in particular)
+  require this wrapper. Set `false` to emit plain `<mzML>`.
 
 ```julia
 save(scans, "out.mzML";  precision = 32)            # smaller, lossy
 save(scans, "out.mzML";  compress  = false)         # plain base64, no zlib
 save(scans, "out.mzML";  progress  = false)         # silent
+save(scans, "out.mzML";  indexed   = false)         # plain mzML (no <indexedmzML>)
 save(scans, "out.mzXML"; precision = 32, compress = false)
 ```
+
+## Indexed mzML output
+
+By default the mzML writer wraps its output in the `<indexedmzML>` element
+defined by the PSI mzML 1.1 indexed schema. The wrapper adds three things at
+the end of the file:
+
+1. An `<indexList>` mapping each `<spectrum>`/`<chromatogram>` id to its byte
+   offset in the file, so tools that need random access can jump directly to
+   a given scan without scanning the whole file.
+2. An `<indexListOffset>` giving the byte offset of the index itself.
+3. An SHA-1 `<fileChecksum>` computed over every byte from the start of the
+   file up to and including the `<fileChecksum>` open tag.
+
+MassJ's reader recognises both indexed and non-indexed mzML transparently
+— files saved either way round-trip cleanly. Use `indexed = false` only
+when the receiving tool refuses the wrapper (rare; the wrapped form is the
+default for ProteoWizard's msConvert and is required by MaxQuant, among
+others).
 
 ## Performance
 
