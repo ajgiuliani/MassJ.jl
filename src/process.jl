@@ -150,9 +150,12 @@ function snra(scan::MScontainer, thres::Real, region::Int)
     noise  = MassJ.opening(scan.int, region);
     SNR = scan.int ./ noise;
         
-    maxi = maximum(scan.int)    
-    for i = 2:length(scan.mz)
-        if scan.int[i] >=  maxi * thres / 100. 
+    maxi = maximum(scan.int)
+    # i ranges over interior points only so SNR[i-1] and SNR[i+1] are both
+    # in bounds — fixes a BoundsError at the final index when `thres` is
+    # small enough that the last point passes the intensity gate.
+    for i = 2:length(scan.mz) - 1
+        if scan.int[i] >=  maxi * thres / 100.
             if SNR[i] > SNR[i-1] && SNR[i] > SNR[i+1]
                 push!(peaks_int, (scan.int[i] - noise[i]))
                 push!(peaks_mz, scan.mz[i])
