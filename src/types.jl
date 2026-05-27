@@ -177,6 +177,44 @@ end
 
 
 """
+    struct MSrun <: AbstractVector{MSscan}
+A full mzML/mzXML "run" — a vector of [`MSscan`](@ref)s together with the
+file-level metadata (instrument, software, source file, data processing) and
+any pre-computed chromatograms stored in the source file.
+
+    struct MSrun <: AbstractVector{MSscan}
+        scans::Vector{MSscan}             # spectrum list
+        metadata::Dict{String,Any}        # file-level cvParams (instrument, …)
+        chromatograms::Vector{Chromatogram}  # pre-computed chromatograms
+    end
+
+`MSrun` is a subtype of `AbstractVector{MSscan}`, so it transparently supports
+the standard array interface: `length(run)`, `run[i]`, iteration, and
+broadcasting. Code that previously worked on a `Vector{MSscan}` returned by
+[`load`](@ref) keeps working unchanged. Slicing with a range (e.g. `run[1:5]`)
+returns a plain `Vector{MSscan}` — the file-level metadata is dropped.
+
+`run.metadata` is populated by [`load`](@ref) when reading mzML, and emitted
+back by [`save`](@ref) so that the round-trip preserves instrument
+configuration, software list, source file information, and so on.
+"""
+struct MSrun <: AbstractVector{MSscan}
+    scans::Vector{MSscan}
+    metadata::Dict{String,Any}
+    chromatograms::Vector{Chromatogram}
+end
+
+MSrun(scans::Vector{MSscan}) = MSrun(scans, Dict{String,Any}(), Chromatogram[])
+
+# AbstractVector interface — delegate to the underlying scans vector.
+Base.size(run::MSrun)            = size(run.scans)
+Base.getindex(run::MSrun, i::Int)= run.scans[i]
+Base.getindex(run::MSrun, r)     = run.scans[r]
+Base.setindex!(run::MSrun, v, i) = (run.scans[i] = v)
+Base.IndexStyle(::Type{<:MSrun}) = IndexLinear()
+
+
+"""
     struct Mobilogram <: MScontainer
 Data structure used to retrieve ion mobility data (intensity vs drift time or 1/K0).
 
