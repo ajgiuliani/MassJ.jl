@@ -206,20 +206,38 @@ recognised as non-numeric → σ_φ defaults to 10% of φ.
 
 ## Uncertainties
 
-[`yields`](@ref) propagates per-m/z standard errors from the averaged spectrum
-into per-peak 1-σ uncertainties. When `average(f)` returns an `MSscans` (i.e.
-several scans were averaged), the Welford accumulator `s` is converted to a
-standard error of the mean
+For each peak window, [`yields`](@ref) integrates the window **in every
+individual scan** and takes the standard error of the mean across the
+per-scan areas:
 
 ```
-SEM(mz_i) = sqrt(s[i] / (N · (N − 1)))     where N = length(spec.num)
+area_k    = ∫ scan_k.int dm/z   over the window     (k = 1 .. N)
+yield     = mean(area_k)
+yields_err = std(area_k) / sqrt(N)
 ```
 
-and propagated through the trapezoidal integral using per-point weights to give
-`yc.yields_err[i, p]`. The combined uncertainty on each row's total is
-`yc.tic_err[i] = sqrt(Σ_p yields_err[i, p]²)`. For a single-scan input (an
-`MSscan`, or `MSscans` with `N = 1`), no variance is available and the
-corresponding entries are `NaN`.
+The per-file peak window is fixed (located once on the averaged spectrum so
+the position is stable across scans), but the integration runs on every
+underlying scan from `load(file)`. The resulting `yields_err` captures the
+true scan-to-scan variability of the peak area — peak-height fluctuations,
+shape changes, baseline drift, etc. — without the optimistic
+bin-independence assumption that diagonal-only error propagation makes.
+
+The combined uncertainty on each row's total is `yc.tic_err[i] = sqrt(Σ_p
+yields_err[i, p]²)`. For a single-scan input (`MSscan` or any file
+containing only one scan), there is no scan-to-scan variation to estimate
+and the corresponding entries are `NaN`.
+
+!!! note "Why per-scan, not per-bin?"
+    The natural-looking alternative — derive a per-m/z-bin standard error
+    from the Welford accumulator stored in `MSscans.s` and propagate it
+    through the trapezoidal integral — assumes the m/z bins fluctuate
+    *independently* across scans. They don't: across a real peak, adjacent
+    bins rise and fall together. The diagonal-only formula then drops the
+    (large positive) off-diagonal covariance terms and **underestimates the
+    true uncertainty by an order of magnitude or more**. Per-scan area
+    integration captures the full per-peak covariance without making any
+    independence assumption.
 
 The errors propagate through subsequent normalization:
 
