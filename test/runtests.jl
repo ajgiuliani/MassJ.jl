@@ -3,6 +3,11 @@ using Plots
 using DataStructures
 using SHA   # used for indexed-mzML fileChecksum verification
 using Aqua  # package-quality checks
+using Random
+# Loading these weak dependencies activates the chimeric-analysis package
+# extensions (cmi_matrix via EntropyInvariant, cluster_ions via Clustering).
+import EntropyInvariant
+import Clustering
 
 function tests()
     @testset "Subset of tests"  begin
@@ -1205,6 +1210,146 @@ function test_export()
 end
 
 
+function test_text_writers()
+    @testset "Text writers - MGF / MSP / TXT round-trip" begin
+        # -- MGF round-trip -------------------------------------------------
+        mgf  = MassJ.load("test.mgf")
+        tmp  = tempname() * ".mgf"
+        MassJ.save(mgf, tmp)
+        @test isfile(tmp)
+        back = MassJ.load(tmp)
+        @test length(back) == length(mgf)
+        for (a, b) in zip(mgf, back)
+            @test a.mz          ≈ b.mz
+            @test a.int         ≈ b.int
+            @test a.precursor   ≈ b.precursor
+            @test a.chargeState == b.chargeState
+            @test a.level       == b.level
+        end
+        rm(tmp)
+
+        # -- MSP round-trip -------------------------------------------------
+        msp   = MassJ.load("test.msp")
+        tmpm  = tempname() * ".msp"
+        MassJ.save(msp, tmpm)
+        @test isfile(tmpm)
+        backm = MassJ.load(tmpm)
+        @test length(backm) == length(msp)
+        for (a, b) in zip(msp, backm)
+            @test a.mz              ≈ b.mz
+            @test a.int             ≈ b.int
+            @test a.precursor       ≈ b.precursor
+            @test a.polarity        == b.polarity
+            @test a.collisionEnergy ≈ b.collisionEnergy
+        end
+        rm(tmpm)
+
+        # -- TXT round-trip (single spectrum) -------------------------------
+        s1   = mgf[1]
+        tmpt = tempname() * ".txt"
+        MassJ.save(s1, tmpt)
+        @test isfile(tmpt)
+        backt = MassJ.load(tmpt)
+        @test backt isa MassJ.MSscans      # bare, single spectrum
+        @test backt.mz  ≈ s1.mz
+        @test backt.int ≈ s1.int
+        rm(tmpt)
+
+        # TXT holds one spectrum: a multi-spectrum input must error.
+        @test_throws ErrorException MassJ.save(mgf, tempname() * ".txt")
+
+        # -- save() dispatches by extension; unknown extension errors -------
+        @test MassJ.save(s1, tempname() * ".mgf") |> isfile
+        @test_throws ErrorException MassJ.save(s1, tempname() * ".weird")
+    end
+end
+
+
+function test_chimeric()
+    # Build a synthetic series of two co-isolated precursors A and B whose
+    # abundances are anticorrelated (they share the TIC). A fragments at
+    # 201/305/410, B at 150/600.
+    Random.seed!(42)
+    N = 400
+    a = abs.(randn(N)) .+ 1.0
+    b = abs.(randn(N)) .+ 1.0
+    pa = a ./ (a .+ b); pb = b ./ (a .+ b)
+    afrags = [201.0, 305.0, 410.0]; bfrags = [150.0, 600.0]
+    scans = MassJ.MSscans[]
+    for n in 1:N
+        mz = Float64[]; int = Float64[]
+        for f in afrags; push!(mz, f); push!(int, max(pa[n]*100 + 0.5*randn(), 0.0)); end
+        for f in bfrags; push!(mz, f); push!(int, max(pb[n]*100 + 0.5*randn(), 0.0)); end
+        o = sortperm(mz)
+        push!(scans, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
+                                   mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
+    end
+
+    @testset "Chimeric - abundance matrix" begin
+        am = MassJ.abundance_matrix(scans; binsize = 1.0)
+        @test size(am.matrix, 1) == N
+        @test size(am.matrix, 2) == 5                 # 5 active bins (empty bins dropped)
+        @test length(am.mz) == 5
+        @test length(am.tic) == N
+        @test am.tic ≈ vec(sum(am.matrix, dims = 2))
+        # bins are the five fragment m/z (centres land in the 0.5-offset bin)
+        @test all(any(abs.(am.mz .- f) .< 1.0) for f in vcat(afrags, bfrags))
+    end
+
+    @testset "Chimeric - partial correlation + clustering separates precursors" begin
+        am = MassJ.abundance_matrix(scans; binsize = 1.0)
+        P  = MassJ.partial_correlation(am.matrix)
+        @test size(P) == (5, 5)
+        @test all(isfinite, P)
+        # bins sorted: 150(B),201(A),305(A),410(A),600(B) -> A = idx 2,3,4 ; B = idx 1,5
+        @test P[2, 3] > 0 && P[2, 4] > 0 && P[3, 4] > 0      # A fragments co-vary
+        @test P[1, 5] > 0                                    # B fragments co-vary
+        @test P[1, 2] < 0 && P[2, 5] < 0                     # A vs B anticorrelated
+
+        lab = MassJ.cluster_ions(P; kind = :correlation, nclusters = 2)
+        @test length(lab) == 5
+        @test lab[2] == lab[3] == lab[4]                     # the three A fragments together
+        @test lab[1] == lab[5]                               # the two B fragments together
+        @test lab[1] != lab[2]                               # A and B in different clusters
+
+        specs = MassJ.cluster_spectra(am.mz, am.matrix, lab)
+        @test length(specs) == 2
+        @test all(s -> s isa MassJ.MSscans, specs)
+        @test sort(vcat([length(s.mz) for s in specs])) == [2, 3]   # B has 2, A has 3
+    end
+
+    @testset "Chimeric - conditional mutual information" begin
+        # CMI scenario: two groups driven by *independent* latent signals,
+        # conditioned on an independent variable, so CMI separates them.
+        Random.seed!(7)
+        Nc = 400
+        s1 = abs.(randn(Nc)) .+ 1.0; s2 = abs.(randn(Nc)) .+ 1.0
+        z  = randn(Nc)
+        g1 = [101.0, 202.0]; g2 = [303.0, 404.0]
+        sc = MassJ.MSscans[]
+        for n in 1:Nc
+            mz = Float64[]; int = Float64[]
+            for f in g1; push!(mz, f); push!(int, max(s1[n]*50 + 0.3*randn(), 0.0)); end
+            for f in g2; push!(mz, f); push!(int, max(s2[n]*50 + 0.3*randn(), 0.0)); end
+            o = sortperm(mz)
+            push!(sc, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
+                                    mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
+        end
+        am = MassJ.abundance_matrix(sc; binsize = 1.0)
+        C  = MassJ.cmi_matrix(am.matrix; condition = z)
+        @test size(C) == (4, 4)
+        @test all(isfinite, C)
+        @test C ≈ C'                                         # symmetric
+        @test all(==(0.0), [C[i, i] for i in 1:4])           # zero diagonal
+        # bins sorted 101,202,303,404 -> g1 = 1,2 ; g2 = 3,4
+        @test C[1, 2] > C[1, 3] && C[3, 4] > C[2, 3]         # within-group > cross-group
+
+        lab = MassJ.cluster_ions(C; kind = :cmi, nclusters = 2)
+        @test lab[1] == lab[2] && lab[3] == lab[4] && lab[1] != lab[3]
+    end
+end
+
+
 function test_composed_predicates()
     scans = MassJ.load("test.mzXML")
 
@@ -1239,6 +1384,67 @@ function test_composed_predicates()
         # Two RT intervals that together cover scans at RT≈0.14, 0.73 and 4.34 in test.mzXML.
         ms = MassJ.average(scans, MassJ.RT([[0.0, 1.0], [4.0, 5.0]]), stats = false)
         @test ms isa MassJ.MSscans
+    end
+end
+
+
+function test_new_filters()
+    # test.mzML: scan 1 = MS1 profile, charge 0; scan 2 = MS2 centroid, charge 2,
+    # isolation_window_target_mz 400; scan 3 = MS2 centroid, charge 3, target 500.
+    # All three reference instrument configuration IC1 (LTQ FT, ESI source, FTICR analyzer).
+    run = MassJ.load("test.mzML")
+
+    @testset "New filters - typed fields (charge / spectrum type / mobility)" begin
+        @test length(MassJ.extract(run, MassJ.ChargeState(2)))                       == 1
+        @test length(MassJ.extract(run, MassJ.ChargeState([2, 3])))                  == 2
+        @test MassJ.extract(run, MassJ.ChargeState(99))                              isa ErrorException
+
+        @test length(MassJ.extract(run, MassJ.SpectrumType(:centroid)))              == 2
+        @test length(MassJ.extract(run, MassJ.SpectrumType(:profile)))               == 1
+        @test length(MassJ.extract(run, MassJ.SpectrumType([:centroid, :profile])))  == 3
+
+        @test length(MassJ.extract(run, MassJ.MobilityType(:none)))                  == 3
+        @test MassJ.extract(run, MassJ.MobilityType(:TIMS))                          isa ErrorException
+    end
+
+    @testset "New filters - generic metadata cvParam" begin
+        @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz")))                 == 2  # presence
+        @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", [400.0, 600.0]))) == 2  # range
+        @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", 400.0)))          == 1  # numeric exact
+        @test MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", 999.0))                  isa ErrorException
+        @test MassJ.extract(run, MassJ.MetaData("does_not_exist"))                                     isa ErrorException
+    end
+
+    @testset "New filters - instrument configuration" begin
+        # resolved through the run-level instrument table: by id, cvParam name, component type
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("IC1")))                      == 3
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("LTQ FT")))                   == 3
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("electrospray ionization")))  == 3
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("source")))                   == 3
+        @test MassJ.extract(run, MassJ.InstrumentConfig("ZZZ"))                              isa ErrorException
+
+        # On a plain Vector{MSscans} (no run table) only the per-spectrum ref id is matchable.
+        vec = run.scans
+        @test length(MassJ.extract(vec, MassJ.InstrumentConfig("IC1")))                      == 3
+        @test MassJ.extract(vec, MassJ.InstrumentConfig("LTQ FT"))                           isa ErrorException
+    end
+
+    @testset "New filters - compose with existing filters" begin
+        @test length(MassJ.extract(run, MassJ.Level(2), MassJ.ChargeState(2)))                       == 1
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("IC1"), MassJ.ChargeState(3)))        == 1
+        @test length(MassJ.extract(run, MassJ.SpectrumType(:centroid),
+                                        MassJ.MetaData("isolation_window_target_mz", [450.0, 600.0]))) == 1
+        @test length(MassJ.chromatogram(run, MassJ.SpectrumType(:centroid)).x)                        == 2
+        @test MassJ.average(run, MassJ.ChargeState([2, 3]))                                          isa MassJ.MSscans
+    end
+
+    @testset "New filters - mzXML file-direct path (generic fallback)" begin
+        # The generic filter(::XMLElement, ::FilterType) fallback lets the new filters run on
+        # the file-direct mzXML path. mzXML carries no charge state, so MobilityType(:none)
+        # (the mzXML default) matches every scan, proving the fallback both dispatches and matches.
+        @test length(MassJ.extract("test.mzXML", MassJ.MobilityType(:none)))           == 6
+        @test length(MassJ.chromatogram("test.mzXML", MassJ.MobilityType(:none)).x)    == 6
+        @test MassJ.extract("test.mzXML", MassJ.ChargeState(2))                        isa ErrorException
     end
 end
 
@@ -1729,7 +1935,10 @@ test_mgf()
 test_msp()
 test_imzml()
 test_composed_predicates()
+test_new_filters()
 test_export()
+test_text_writers()
+test_chimeric()
 test_yields()
 test_yields_targetpeak()
 test_yields_errors()
