@@ -113,6 +113,64 @@ function load(filename::String)
 end
 
 
+# True when `path` has a supported spectrum extension.
+function _is_supported_spectrum(path::AbstractString)
+    ext = lowercase(splitext(path)[2])
+    ext = startswith(ext, ".") ? ext[2:end] : ext
+    return ext in _YIELDS_SUPPORTED_EXT
+end
+
+# Collect supported spectrum-file paths from a list of files and/or directories.
+# Directories are listed in natural-sort order (via `list_spectra`); with
+# `recursive`, sub-directories are walked too.
+function _gather_spectrum_files(paths; recursive::Bool = false)
+    files = String[]
+    for p in paths
+        if isdir(p)
+            if recursive
+                for (base, _, fs) in walkdir(p), fn in fs
+                    full = joinpath(base, fn)
+                    _is_supported_spectrum(full) && push!(files, full)
+                end
+            else
+                append!(files, list_spectra(p))
+            end
+        elseif isfile(p)
+            _is_supported_spectrum(p) ? push!(files, String(p)) :
+                error("load: unsupported file extension: $p")
+        else
+            error("load: path not found: $p")
+        end
+    end
+    recursive && sort!(files, by = _natkey)
+    return files
+end
+
+"""
+    load(paths::AbstractVector{<:AbstractString}; recursive=false) -> Vector{MSscans}
+Load every supported spectrum found across `paths`, returning one combined
+`Vector{MSscans}`. Each path may be a spectrum file or a directory; directories
+are scanned in natural-sort order for supported files (mzML, mzXML, MGF, MSP,
+imzML, TXT), recursing into sub-directories when `recursive = true`. File-level
+metadata (the `MSrun` wrapper) is dropped — the result is a flat spectrum list.
+
+# Examples
+```julia-repl
+julia> scans = load(["run_A/", "run_B/"]);            # everything in both folders
+
+julia> scans = load(["batch/"]; recursive = true);    # walk sub-folders too
+```
+"""
+function load(paths::AbstractVector{<:AbstractString}; recursive::Bool = false)
+    files = _gather_spectrum_files(paths; recursive = recursive)
+    isempty(files) && error("load: no supported spectra found in $(join(paths, ", ")).")
+    out = MSscans[]
+    for f in files
+        append!(out, load(f))
+    end
+    return out
+end
+
 
 """
     retention_time(filename::String)
@@ -397,5 +455,23 @@ function average(scans::AbstractVector{MSscans}, arguments::FilterType...; stats
     else
         ErrorException("No matching spectra.")
     end
+end
+
+
+"""
+    average(paths::AbstractVector{<:AbstractString}, arguments::FilterType...; stats=true, recursive=false)
+Grand-average every supported spectrum found across `paths` (folders and/or
+files), after optional [`FilterType`](@ref) filtering. Paths are gathered as in
+[`load(::AbstractVector)`](@ref). Returns a single [`MSscans`](@ref).
+
+# Examples
+```julia-repl
+julia> spec = average(["run_A/", "run_B/"], MassJ.Level(1));
+```
+"""
+function average(paths::AbstractVector{<:AbstractString}, arguments::FilterType...;
+                 stats::Bool = true, recursive::Bool = false)
+    scans = load(paths; recursive = recursive)
+    return average(scans, arguments...; stats = stats)
 end
 
