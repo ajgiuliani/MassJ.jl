@@ -88,10 +88,10 @@ and the reference API.
 |--------|:----:|:--------------:|
 | mzML   | ✅   | ✅ (indexed)   |
 | mzXML  | ✅   | ✅              |
-| MGF    | ✅   | —              |
-| MSP    | ✅   | —              |
+| MGF    | ✅   | ✅              |
+| MSP    | ✅   | ✅              |
 | imzML  | ✅   | —              |
-| TXT    | ✅   | —              |
+| TXT    | ✅   | ✅              |
 
 ## Citing
 
