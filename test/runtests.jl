@@ -703,6 +703,46 @@ function test_peptides()
 end
 
 
+function test_fragment_peaks()
+    @testset "Fragment ions -> peak list -> yields" begin
+        ions = MassJ.fragment_ions("PEPTIDE"; ions = (:b, :y), charges = 1:1)
+        iy = ions[findfirst(i -> i.label == "y3", ions)]
+
+        # default: fixed Peak windows centred on each fragment m/z
+        pf = MassJ.fragment_peaks(ions; tol = 0.3)
+        @test length(pf) == length(ions)
+        @test all(p isa MassJ.Peak for p in pf)
+        py = pf[findfirst(p -> p.label == "y3", pf)]
+        @test (py.mz1 + py.mz2) / 2 ≈ iy.mz atol = 1e-6
+        @test (py.mz2 - py.mz1) ≈ 0.6 atol = 1e-9
+
+        # ppm windows
+        pp = MassJ.fragment_peaks(ions; ppm = 10.0)
+        pj = pp[findfirst(p -> p.label == "y3", pp)]
+        @test (pj.mz2 - pj.mz1) ≈ 2 * iy.mz * 10e-6 atol = 1e-9
+
+        # fixed = false → located TargetPeaks
+        pt = MassJ.fragment_peaks(ions; ppm = 10.0, fixed = false, method = :local_max)
+        @test all(p isa MassJ.TargetPeak for p in pt)
+        @test pt[findfirst(p -> p.label == "y3", pt)].mz ≈ iy.mz atol = 1e-6
+
+        # one-step from a sequence; labels carried through
+        ps = MassJ.fragment_peaks("PEPTIDE"; ions = (:b, :y), charges = 1:1, tol = 0.3)
+        @test [p.label for p in ps] == [i.label for i in ions]
+
+        # end-to-end: fragment peaks feed straight into the yields machinery
+        root = mktempdir()
+        cp("test.mzML", joinpath(root, "e1.mzML"))
+        cp("test.mzML", joinpath(root, "e2.mzML"))
+        yc = MassJ.yields(root, pf; x0 = 0.0, step = 1.0, xlabel = "energy")
+        @test yc isa MassJ.YieldCurve
+        @test size(yc.yields, 2) == length(pf)
+        @test yc.labels == [p.label for p in pf]
+        @test length(yc.x) == 2
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2299,6 +2339,7 @@ test_assignment()
 test_multifolder()
 test_yield_transforms()
 test_peptides()
+test_fragment_peaks()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
