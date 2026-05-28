@@ -45,6 +45,7 @@ MassJ.MZ
 MassJ.SG
 MassJ.TBPD
 MassJ.SNRA
+MassJ.CWT
 MassJ.TopHat
 MassJ.LOESS
 MassJ.IPSA
