@@ -650,6 +650,59 @@ function test_yield_transforms()
 end
 
 
+function test_peptides()
+    @testset "Peptide fragment ions" begin
+        # neutral monoisotopic peptide mass
+        @test MassJ.peptide_mass("PEPTIDE") ≈ 799.35996 atol = 1e-4
+
+        fr = MassJ.fragment_ions("PEPTIDE"; ions = (:a, :b, :c, :x, :y, :z), charges = 1:1)
+        mz(lbl) = fr[findfirst(f -> f.label == lbl, fr)].mz
+        # singly-charged reference m/z (proton = H − e⁻)
+        @test mz("b1") ≈ 98.06004  atol = 1e-4
+        @test mz("b2") ≈ 227.10263 atol = 1e-4
+        @test mz("y1") ≈ 148.06043 atol = 1e-4
+        @test mz("y3") ≈ 376.17144 atol = 1e-4
+        @test mz("a2") ≈ 199.10772 atol = 1e-4   # b2 − CO
+        @test mz("c2") ≈ 244.12918 atol = 1e-4   # b2 + NH3
+        @test mz("z3") ≈ 359.14489 atol = 1e-4   # Mascot even-electron z
+        @test mz("x3") ≈ 402.15071 atol = 1e-4
+
+        # complementary b/y sum to peptide mass + 2 protons (+ H2O accounting)
+        bn = MassJ.peptide_mass("PEPTIDE")
+        @test mz("b2") + mz("y5") ≈ bn + 2 * (MassJ._M_H - MassJ.m_electron) atol = 1e-4
+
+        # charge 2 divides by |z|
+        f2 = MassJ.fragment_ions("PEPTIDE"; ions = (:y,), charges = 2:2)
+        @test first(f.mz for f in f2 if f.label == "y3(2+)") ≈ 188.58936 atol = 1e-4
+
+        # n residues → n-1 backbone ions per series
+        b = MassJ.fragment_ions("PEPTIDE"; ions = (:b,))
+        @test length(b) == length("PEPTIDE") - 1
+
+        # side-chain ions: Pro yields no d/w; Ile & Thr give two isomers
+        sc = MassJ.fragment_ions("PEPTIDE"; ions = (:d, :v, :w))
+        @test count(f -> f.series == :d, sc) == 6      # E,T(×2),I(×2),D ; both P excluded
+        @test count(f -> f.series == :w, sc) == 7
+        @test count(f -> f.series == :v, sc) == 6
+        @test any(f -> f.label == "w3'", sc)           # Ile second isomer
+        @test !any(f -> f.series == :d && f.position == 1, sc)   # P at position 1
+
+        # ±H radical variants
+        ch = MassJ.fragment_ions("PEPTIDE"; ions = (:c,), hshifts = (-1, 0, 1))
+        c2 = sort([f.label for f in ch if startswith(f.label, "c2")])
+        @test c2 == ["c2", "c2+1", "c2-1"]
+        cm = MassJ.fragment_ions("PEPTIDE"; ions = (:c,))
+        c2base = first(f.mz for f in cm if f.label == "c2")
+        @test first(f.mz for f in ch if f.label == "c2+1") ≈ c2base + MassJ._M_H atol = 1e-6
+
+        # errors
+        @test_throws ErrorException MassJ.fragment_ions("PEPTIXE")    # unknown residue
+        @test_throws ErrorException MassJ.fragment_ions("P")         # too short
+        @test_throws ErrorException MassJ.fragment_ions("PEPTIDE"; ions = (:q,))  # bad series
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2245,6 +2298,7 @@ test_centroid_metrics()
 test_assignment()
 test_multifolder()
 test_yield_transforms()
+test_peptides()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
