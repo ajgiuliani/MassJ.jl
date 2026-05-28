@@ -85,7 +85,7 @@ end
 
 
 """
-    extract(scans::Vector{MSscans}, arguments::FilterType...)
+    extract(scans::AbstractVector{MSscans}, arguments::FilterType...)
 Search for scans matching the argument MS level and returns an array of matching MSscans otherwise returns an ErrorException: "No matching spectra found."
 # Examples
 ```julia-repl
@@ -101,7 +101,7 @@ MassJ.MSscan(2, 0.7307, 9727.2, [345.083, 345.167, 345.25, 345.333, 345.417, 345
 ```
 
 """
-function extract(scans::Vector{MSscans}, arguments::FilterType...)
+function extract(scans::AbstractVector{MSscans}, arguments::FilterType...)
     pred = compose_predicates(scans, arguments)
 
     sub_set = Vector{MSscans}(undef, 0)
@@ -118,10 +118,10 @@ function extract(scans::Vector{MSscans}, arguments::FilterType...)
 end
 
 """
-    build_subset(scans::Vector{MSscans}, indices::Vector{Int})
+    build_subset(scans::AbstractVector{MSscans}, indices::Vector{Int})
 Returns a Vector of MSscan according to the input scan num.
 """
-function build_subset(scans::Vector{MSscans}, indices::Vector{Int})
+function build_subset(scans::AbstractVector{MSscans}, indices::Vector{Int})
     sub_set = Vector{MSscans}(undef,0)
     for i = 1:length(indices)
         push!(sub_set, scans[indices[i]])
@@ -131,19 +131,6 @@ end
 
 
 
-
-# ----------------------------------------------------------------------------
-# MSrun adapter methods — unwrap to the underlying Vector{MSscans} and delegate
-# to the existing implementations. This avoids widening every internal
-# signature from `Vector{MSscans}` to `AbstractVector{MSscans}`.
-# ----------------------------------------------------------------------------
-
-extract(run::MSrun, arguments::FilterType...) = extract(run.scans, arguments...)
-
-chromatogram(run::MSrun, filters::FilterType...; method::MethodType = TIC()) =
-    chromatogram(run.scans, filters...; method = method)
-
-average(run::MSrun, arguments::FilterType...; stats::Bool = true) =
-    average(run.scans, arguments...; stats = stats)
-
-retention_time(run::MSrun) = retention_time(run.scans)
+# `extract`/`chromatogram`/`average`/`retention_time` accept any
+# `AbstractVector{MSscans}`, so an `MSrun` (which is one) dispatches to those
+# methods directly — no separate adapter methods are needed.
