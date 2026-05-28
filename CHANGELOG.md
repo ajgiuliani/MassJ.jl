@@ -56,6 +56,11 @@ types changed shape. Functionality is otherwise unchanged.
   (*Bioinformatics* 2006). Replaces the former unimplemented `CWT` stub; joins the existing
   `SNRA` and `TBPD` centroiding methods.
 
+* ![Feature][badge-feature] imzML writer (`save_imzml`) for imaging mass spectrometry — emits the
+  paired `.imzML` (XML) + `.ibd` (binary, 16-byte UUID + raw little-endian arrays + SHA-1
+  checksum) in processed mode, preserving per-pixel coordinates. Read **and** write are now
+  supported for every format MassJ reads.
+
 ### Migration from v1.x
 
 | v1.x                                   | v2.0                                       |

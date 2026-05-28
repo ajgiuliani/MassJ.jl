@@ -90,7 +90,7 @@ and the reference API.
 | mzXML  | ✅   | ✅              |
 | MGF    | ✅   | ✅              |
 | MSP    | ✅   | ✅              |
-| imzML  | ✅   | —              |
+| imzML  | ✅   | ✅              |
 | TXT    | ✅   | ✅              |
 
 ## Citing
