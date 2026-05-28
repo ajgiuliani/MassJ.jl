@@ -578,6 +578,78 @@ function test_assignment()
 end
 
 
+function test_multifolder()
+    @testset "Multi-folder load + average" begin
+        root = mktempdir()
+        a = joinpath(root, "A"); b = joinpath(root, "B"); sub = joinpath(b, "sub")
+        mkpath(a); mkpath(sub)
+        cp("test.mzML", joinpath(a, "e1.mzML"))
+        cp("test.mgf",  joinpath(a, "e2.mgf"))
+        cp("test.msp",  joinpath(b, "e3.msp"))
+        cp("test.mzML", joinpath(sub, "e10.mzML"))
+
+        na = length(MassJ.load("test.mzML"))
+        nb = length(MassJ.load("test.mgf"))
+        nc = length(MassJ.load("test.msp"))
+
+        combined = MassJ.load([a, b])
+        @test eltype(combined) == MassJ.MSscans
+        @test length(combined) == na + nb + nc            # flat: everything pooled
+        @test length(MassJ.load([b])) == nc               # non-recursive ignores sub/
+        @test length(MassJ.load([b]; recursive = true)) == nc + na  # walks sub/
+
+        avg = MassJ.average([a, b])
+        @test avg isa MassJ.MSscans
+        @test !isempty(avg.mz)
+
+        @test_throws ErrorException MassJ.load(["/no/such/dir/xyz123"])
+        @test_throws ErrorException MassJ.load([a, "runtests.jl"])   # unsupported ext
+    end
+end
+
+
+function test_yield_transforms()
+    @testset "YieldCurve transforms" begin
+        YC = MassJ.YieldCurve
+        mk(x, Y) = YC(collect(Float64, x), "E", Y, fill(NaN, size(Y)),
+                      vec(sum(Y, dims = 2)), fill(NaN, size(Y, 1)), fill(NaN, size(Y)),
+                      ["a", "b"], [(99.0, 101.0), (199.0, 201.0)],
+                      ["f$i" for i in 1:length(x)], Dict{String,Any}())
+        yc1 = mk([2.0, 1.0], [20.0 2.0; 10.0 1.0])        # unsorted x on purpose
+        yc2 = mk([3.0, 4.0], [30.0 3.0; 40.0 4.0])
+
+        # combine: concatenate along x, re-sorted
+        c = MassJ.combine_yields(yc1, yc2)
+        @test c.x == [1.0, 2.0, 3.0, 4.0]
+        @test c.yields[:, 1] == [10.0, 20.0, 30.0, 40.0]
+        @test c.labels == ["a", "b"]
+
+        # shift_x
+        @test sort(MassJ.shift_x(yc1, 0.5).x) == [1.5, 2.5]
+
+        # scale_yields: scalar scales matrix and recomputes TIC
+        sc = MassJ.scale_yields(yc1, 2.0)
+        @test sc.yields == yc1.yields .* 2
+        @test sc.tic == vec(sum(yc1.yields .* 2, dims = 2))
+        # per-peak factor
+        scp = MassJ.scale_yields(yc1, [2.0, 10.0])
+        @test scp.yields[:, 1] == yc1.yields[:, 1] .* 2
+        @test scp.yields[:, 2] == yc1.yields[:, 2] .* 10
+
+        # recalibrate_x via a Calibration and via an on-the-fly fit
+        cal = MassJ.calibrate([1.0, 2.0], [1.1, 2.2]; model = :linear)
+        @test sort(MassJ.recalibrate_x(yc1, cal).x) ≈ [1.1, 2.2] atol = 1e-9
+        @test sort(MassJ.recalibrate_x(yc1, [1.0, 2.0], [1.1, 2.2]).x) ≈ [1.1, 2.2] atol = 1e-9
+
+        # error paths
+        yb = YC([5.0], "E", reshape([1.0], 1, 1), fill(NaN, 1, 1), [1.0], [NaN],
+                fill(NaN, 1, 1), ["z"], [(0.0, 1.0)], ["g"], Dict{String,Any}())
+        @test_throws ErrorException MassJ.combine_yields(yc1, yb)
+        @test_throws ErrorException MassJ.scale_yields(yc1, [1.0, 2.0, 3.0])
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2171,6 +2243,8 @@ test_adducts()
 test_calibration()
 test_centroid_metrics()
 test_assignment()
+test_multifolder()
+test_yield_transforms()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
