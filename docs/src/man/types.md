@@ -176,3 +176,30 @@ end
     width::Int = 1                # mass filter width
 end
 ```
+
+## Units (Unitful.jl)
+
+The numeric fields are stored as plain `Float64` for performance, but the
+**physical-axis** quantities can be retrieved tagged with
+[Unitful.jl](https://github.com/PainterQubits/Unitful.jl) units via
+[`withunits`](@ref) — handy for unit-safe arithmetic and auto-labelled plots.
+The bridge is an opt-in package extension: just have `Unitful` in scope.
+
+```julia
+using MassJ, Unitful
+
+scan = load("run.mzML")[1]
+u = withunits(scan)
+u.retention_time       #  e.g. [30.0 s]
+u.collision_energy     #  e.g. [18.0 eV]
+u.compensation_voltage #  e.g. [-5.0 V]
+
+ic = chromatogram(load("run.mzML"))
+withunits(ic).x        #  retention-time axis in seconds
+```
+
+m/z (a dimensionless ratio) and intensity (arbitrary units) are intentionally
+left untagged, and so is drift time — the field may hold a drift time (ms) or a
+reduced mobility 1/K₀ depending on the instrument. Computed masses can be tagged
+manually with [UnitfulAtomic](https://github.com/sostock/UnitfulAtomic.jl)
+(`masses(f)["Monoisotopic"] * u"u"`).

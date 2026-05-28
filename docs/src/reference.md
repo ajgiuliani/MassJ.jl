@@ -216,6 +216,7 @@ MassJ.nscans
 MassJ.stdev
 MassJ.sem
 MassJ.measurements
+MassJ.withunits
 ```
 
 ## Other utilities

@@ -25,6 +25,7 @@ The functions below are exported:
 - [`stdev`](@ref)
 - [`sem`](@ref)
 - [`measurements`](@ref)
+- [`withunits`](@ref)
 
 The following types are exported:
 - [`MassJ.Peak`](@ref)

@@ -11,6 +11,8 @@ import EntropyInvariant
 import Clustering
 import Tables
 import Measurements
+import Unitful
+using Unitful: @u_str
 
 function tests()
     @testset "Subset of tests"  begin
@@ -866,6 +868,34 @@ function test_measurements()
         @test Measurements.uncertainty.(M) == yc.yields_err
         # summing a column propagates the errors in quadrature (Measurements does this)
         @test Measurements.uncertainty(sum(M[:, 1])) ≈ sqrt(0.5^2 + 0.6^2)
+    end
+end
+
+
+function test_unitful()
+    @testset "Unitful.jl interface (physical axes)" begin
+        scan = MassJ.MSscans(1, 30.0, 100.0, [100.0, 200.0], [5.0, 9.0], 2,
+                             200.0, 9.0, 400.0, "+", "CID", 18.0,
+                             2, :centroid, -1.0, -5.0, :FAIMS, Dict{String,Any}())
+        wu = MassJ.withunits(scan)
+        @test Unitful.unit(eltype(wu.retention_time))      == u"s"
+        @test Unitful.unit(eltype(wu.collision_energy))    == u"eV"
+        @test Unitful.unit(eltype(wu.compensation_voltage)) == u"V"
+        @test Unitful.ustrip.(u"s",  wu.retention_time)       == scan.rt
+        @test Unitful.ustrip.(u"eV", wu.collision_energy)     == scan.collisionEnergy
+        @test Unitful.ustrip.(u"V",  wu.compensation_voltage) == scan.compensationVoltage
+        # m/z and intensity are not exposed (left untagged)
+        @test !haskey(wu, :mz) && !haskey(wu, :intensity)
+
+        # IonCurrent: abscissa tagged by axis
+        rt = MassJ.IonCurrent([10.0, 20.0], [1.0, 2.0]; axis = :rt)
+        @test Unitful.unit(eltype(MassJ.withunits(rt).x)) == u"s"
+        cv = MassJ.IonCurrent([-5.0, -3.0], [1.0, 2.0]; axis = :cv, mobilityType = :FAIMS)
+        @test Unitful.unit(eltype(MassJ.withunits(cv).x)) == u"V"
+        # :drift is left unitless (ms vs 1/K₀ ambiguity)
+        dt = MassJ.IonCurrent([10.0, 20.0], [1.0, 2.0]; axis = :drift, mobilityType = :TIMS)
+        @test eltype(MassJ.withunits(dt).x) <: Real
+        @test MassJ.withunits(rt).ic == rt.ic            # intensity untagged
     end
 end
 
@@ -2450,6 +2480,7 @@ test_mobility()
 test_uncertainty()
 test_tables()
 test_measurements()
+test_unitful()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()

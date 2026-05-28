@@ -6,7 +6,7 @@ Utility functions to work on MScontainer data types.
 # User Interface.
 # --------------
 
-export avg, num2pnt, nscans, stdev, sem, measurements
+export avg, num2pnt, nscans, stdev, sem, measurements, withunits
 
 
 
@@ -338,6 +338,27 @@ See also [`stdev`](@ref), [`sem`](@ref).
 function measurements end
 measurements(args...; kwargs...) =
     error("measurements requires the Measurements package. Run `using Measurements` to enable it.")
+
+"""
+    withunits(scan::MSscans)
+    withunits(ic::IonCurrent)
+
+Return the **physical-axis** quantities of a spectrum or ion-current trace tagged
+with [Unitful.jl](https://github.com/PainterQubits/Unitful.jl) units, for
+unit-safe arithmetic and auto-labelled plots. Requires the `Unitful` package to
+be loaded (`using Unitful`).
+
+* `withunits(scan)` → `(; retention_time [s], collision_energy [eV], compensation_voltage [V])`.
+* `withunits(ic)` → `(; x, ic)` with the abscissa in `s` (`:rt`) or `V` (`:cv`).
+
+m/z (a dimensionless ratio) and intensity (arbitrary units) are intentionally
+left untagged. Drift time is also left untagged because the field may hold either
+a drift time (ms) or a reduced mobility 1/K₀ depending on the instrument. Computed
+masses can be tagged manually with `UnitfulAtomic` (`m * u"u"`).
+"""
+function withunits end
+withunits(args...; kwargs...) =
+    error("withunits requires the Unitful package. Run `using Unitful` to enable it.")
 
 
 
