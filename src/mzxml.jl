@@ -14,7 +14,7 @@ function info_mzxml(filename::String, info::Vector{String}, verbose::Bool=false)
     xdoc = parse_file(filename)
     xroot = root(xdoc)       
     if name(xroot) != "mzXML"
-        return ErrorException("Not an mzXML file.")
+        error("Not an mzXML file.")
     end
     
     msRun = find_element(xroot, "msRun")
@@ -103,7 +103,7 @@ function load_mzxml_all(filename::String)
     xdoc = parse_file(filename)
     xroot = root(xdoc)
     if name(xroot) != "mzXML"
-        return ErrorException("Not an mzXML file.")
+        error("Not an mzXML file.")
     end
     msRun = find_element(xroot, "msRun")
     scanCount = attribute(msRun, "scanCount")
@@ -143,7 +143,7 @@ function load_mzxml(filename::String, index::Int)
     xdoc = parse_file(filename)
     xroot = root(xdoc)
     if name(xroot) != "mzXML"
-        return ErrorException("Not an mzXML file.")
+        error("Not an mzXML file.")
     end
     msRun = find_element(xroot, "msRun")
     scanCount = attribute(msRun, "scanCount")
@@ -742,7 +742,7 @@ function extracted_chromatogram(filename::String, indices::Vector{Int},method::M
     elseif method isa ∆MZ
         mz1 = convert(Float64, method.arg[1] - method.arg[2] )  # mz - ∆mz
         if(mz1 < 0.0)
-            return ErrorException("Bad mz ± ∆mz values.")
+            error("Bad mz ± ∆mz values.")
         end
         mz2 = convert(Float64, method.arg[1] + method.arg[2] ) # mz + ∆mz
         for i = 1:length(indices)

@@ -98,7 +98,7 @@ function simulate(I::Array{Union{Float64, Int, String}}, ∆mz::Real; model::Sym
         elseif model == :voigt
             peak = [voigt(x,param) for x in mz]
         else
-            ErrorException("Unsupported peak profile. Use :gauss, :lorentz or :voigt.")
+            error("Unsupported peak profile. Use :gauss, :lorentz or :voigt.")
         end            
         p = p .+ peak
     end

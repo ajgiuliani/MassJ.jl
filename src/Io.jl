@@ -56,7 +56,7 @@ function info(filename::String; verbose::Bool = false)
     elseif ext == "imzml"
         return info_imzml(filename, info, verbose)
     else
-        return ErrorException("File format not supported.")
+        error("File format not supported.")
     end
 end
 
@@ -108,7 +108,7 @@ function load(filename::String)
     elseif ext == "txt"
         return load_txt_all(filename)
     else
-        return ErrorException("File format not supported.")
+        error("File format not supported.")
     end
 end
 
@@ -197,7 +197,7 @@ function retention_time(filename::String)
         xdoc = parse_file(filename)
         xroot = root(xdoc)
         if name(xroot) != "mzXML"
-            ErrorException("Not an mzXML file.")
+            error("Not an mzXML file.")
         end
 
         msRun = find_element(xroot, "msRun")
@@ -211,7 +211,7 @@ function retention_time(filename::String)
         scans = load(filename)
         rt = [s.rt[1] for s in scans]
     else
-        ErrorException("File format not supported.")
+        error("File format not supported.")
     end
     return rt
 end
@@ -270,7 +270,7 @@ function chromatogram(filename::String, filters::FilterType...; method::MethodTy
         xdoc = parse_file(filename)
         xroot = root(xdoc)
         if name(xroot) != "mzXML"
-            ErrorException("Not an mzXML file.")
+            error("Not an mzXML file.")
         end
 
         msRun = find_element(xroot, "msRun")
@@ -289,7 +289,7 @@ function chromatogram(filename::String, filters::FilterType...; method::MethodTy
         if length(indices) != 0
             return extracted_chromatogram(filename, indices, method)
         else
-            ErrorException("No matching spectra.")
+            error("No matching spectra.")
         end
 
     elseif ext in ("mzml", "mgf", "msp", "imzml")
@@ -298,7 +298,7 @@ function chromatogram(filename::String, filters::FilterType...; method::MethodTy
         return chromatogram(scans, filters...; method=method)
 
     else
-        ErrorException("File format not supported.")
+        error("File format not supported.")
     end
 end
 
@@ -331,7 +331,7 @@ function chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; me
         elseif method isa ∆MZ
             mz1 = convert(Float64, method.arg[1] - method.arg[2])
             if mz1 < 0.0
-                return ErrorException("Bad mz ± ∆mz values.")
+                error("Bad mz ± ∆mz values.")
             end
             mz2 = convert(Float64, method.arg[1] + method.arg[2])
             push!(xic, add_ion_current(scan.mz, scan.int, mz1, mz2))
@@ -347,7 +347,7 @@ function chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; me
     if !isempty(xic)
         return IonCurrent(xrt, xic; axis = :rt)
     else
-        ErrorException("No matching spectra.")
+        error("No matching spectra.")
     end
 end
 
@@ -382,7 +382,7 @@ function average(filename::String, arguments::FilterType...; stats::Bool=true)
         xdoc = parse_file(filename)
         xroot = root(xdoc)
         if name(xroot) != "mzXML"
-            ErrorException("Not an mzXML file.")
+            error("Not an mzXML file.")
         end
         msRun = find_element(xroot, "msRun")
         scanCount = parse(Int, attribute(msRun, "scanCount"))
@@ -401,7 +401,7 @@ function average(filename::String, arguments::FilterType...; stats::Bool=true)
         elseif length(indices) == 1
             return load_mzxml(filename, indices[1])
         else
-            ErrorException("No matching spectra.")
+            error("No matching spectra.")
         end
 
     elseif ext in ("mzml", "mgf", "msp", "imzml")
@@ -409,7 +409,7 @@ function average(filename::String, arguments::FilterType...; stats::Bool=true)
         return average(scans, arguments...; stats=stats)
 
     else
-        ErrorException("File format not supported.")
+        error("File format not supported.")
     end
 end
 
@@ -453,7 +453,7 @@ function average(scans::AbstractVector{MSscans}, arguments::FilterType...; stats
     elseif count == 1
         return result
     else
-        ErrorException("No matching spectra.")
+        error("No matching spectra.")
     end
 end
 

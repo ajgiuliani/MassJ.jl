@@ -40,7 +40,7 @@ function extract(filename::String, arguments::FilterType...)
         xdoc = parse_file(filename)
         xroot = root(xdoc)
         if name(xroot) != "mzXML"
-            ErrorException("Not an mzXML file.")
+            error("Not an mzXML file.")
         end
         msRun = find_element(xroot, "msRun")
         scanCount = parse(Int, attribute(msRun, "scanCount"))
@@ -57,7 +57,7 @@ function extract(filename::String, arguments::FilterType...)
         if length(indices) >= 1
             return build_subset(filename, indices)
         else
-            ErrorException("No matching spectra.")
+            error("No matching spectra.")
         end
 
     elseif ext in ("mzml", "mgf", "msp", "imzml")
@@ -65,7 +65,7 @@ function extract(filename::String, arguments::FilterType...)
         return extract(scans, arguments...)
 
     else
-        ErrorException("File format not supported.")
+        error("File format not supported.")
     end
 end
 
@@ -86,7 +86,7 @@ end
 
 """
     extract(scans::AbstractVector{MSscans}, arguments::FilterType...)
-Search for scans matching the argument MS level and returns an array of matching MSscans otherwise returns an ErrorException: "No matching spectra found."
+Search for scans matching the argument MS level and returns an array of matching MSscans; throws an error ("No matching spectra found.") when nothing matches.
 # Examples
 ```julia-repl
 julia> scans = load("test.mzxml")                          # load mass spectra
@@ -113,7 +113,7 @@ function extract(scans::AbstractVector{MSscans}, arguments::FilterType...)
     if !isempty(sub_set)
         return sub_set
     else
-        ErrorException("No matching spectra found.")
+        error("No matching spectra found.")
     end
 end
 

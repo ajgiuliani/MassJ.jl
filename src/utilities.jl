@@ -407,11 +407,11 @@ Savitzky-Golay filter removes high frequency noise from data. Parameters:
 """
 function savitzky_golay(int::AbstractArray, order::Int, window::Int, deriv::Int)
     if window % 2 != 1
-        return ErrorException("Window has to be an odd number.")
+        error("Window has to be an odd number.")
     elseif window < 1
-        return ErrorException("window has to be a positive number.")
+        error("window has to be a positive number.")
     elseif window < order + 2
-        return ErrorException("window is too small for the order.")
+        error("window is too small for the order.")
     end
     order_range = range(1, length=(order+1))
     half_window = Int( (window-1) / 2 )

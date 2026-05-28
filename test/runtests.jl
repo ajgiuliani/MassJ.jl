@@ -151,17 +151,10 @@ function tests()
         scans = MassJ.load("test64.mzXML")
         @test eltype(scans)              == MassJ.MSscans                                 #58
 
-        info = MassJ.info("test.mzXMLM")
-        @test info.msg == "File format not supported."                                 #59
-
-        scans = MassJ.load("test.mzXMLL")
-        @test info.msg == "File format not supported."                                 #60
-
-        scans = MassJ.load("bad1.mzXML")
-        @test scans.msg == "Not an mzXML file."                                        #61
-
-        scans = MassJ.info("bad1.mzXML")
-        @test scans.msg == "Not an mzXML file."                                        #62
+        @test_throws ErrorException MassJ.info("test.mzXMLM")                          #59
+        @test_throws ErrorException MassJ.load("test.mzXMLL")                          #60
+        @test_throws ErrorException MassJ.load("bad1.mzXML")                           #61
+        @test_throws ErrorException MassJ.info("bad1.mzXML")                           #62
 
         scans = MassJ.load("bad2.mzXML")
         @test scans[1].num == [0]                                                        #63
@@ -169,11 +162,8 @@ function tests()
         scans = MassJ.load("bad3.mzXML")
         @test scans[1].num == scans[2].num == [0]                                        #64
 
-        cr = MassJ.chromatogram("test.mzXML", method = MassJ.∆MZ([1, 2]))
-        @test cr.msg == "Bad mz ± ∆mz values."                                         #65
-
-        cr = MassJ.chromatogram(scans, method = MassJ.∆MZ([1, 2]))
-        @test cr.msg == "Bad mz ± ∆mz values."                                         #66
+        @test_throws ErrorException MassJ.chromatogram("test.mzXML", method = MassJ.∆MZ([1, 2]))  #65
+        @test_throws ErrorException MassJ.chromatogram(scans, method = MassJ.∆MZ([1, 2]))         #66
 
         scans = MassJ.load("test.mzXML")
         @test MassJ.smooth(scans[1], method = MassJ.SG(7,15,0)) isa MassJ.MSscans             #67
@@ -1765,10 +1755,10 @@ function test_composed_predicates()
         @test length(chrom.x) == length(scans)
     end
 
-    @testset "Composed predicates - no match returns ErrorException" begin
-        @test MassJ.extract(scans, MassJ.Level(99))       isa ErrorException
-        @test MassJ.chromatogram(scans, MassJ.Level(99))  isa ErrorException
-        @test MassJ.average(scans, MassJ.Level(99))       isa ErrorException
+    @testset "Composed predicates - no match throws" begin
+        @test_throws ErrorException MassJ.extract(scans, MassJ.Level(99))
+        @test_throws ErrorException MassJ.chromatogram(scans, MassJ.Level(99))
+        @test_throws ErrorException MassJ.average(scans, MassJ.Level(99))
     end
 
     @testset "Composed predicates - single match in average returns MSscan" begin
@@ -1801,22 +1791,22 @@ function test_new_filters()
     @testset "New filters - typed fields (charge / spectrum type / mobility)" begin
         @test length(MassJ.extract(run, MassJ.ChargeState(2)))                       == 1
         @test length(MassJ.extract(run, MassJ.ChargeState([2, 3])))                  == 2
-        @test MassJ.extract(run, MassJ.ChargeState(99))                              isa ErrorException
+        @test_throws ErrorException MassJ.extract(run, MassJ.ChargeState(99))
 
         @test length(MassJ.extract(run, MassJ.SpectrumType(:centroid)))              == 2
         @test length(MassJ.extract(run, MassJ.SpectrumType(:profile)))               == 1
         @test length(MassJ.extract(run, MassJ.SpectrumType([:centroid, :profile])))  == 3
 
         @test length(MassJ.extract(run, MassJ.MobilityType(:none)))                  == 3
-        @test MassJ.extract(run, MassJ.MobilityType(:TIMS))                          isa ErrorException
+        @test_throws ErrorException MassJ.extract(run, MassJ.MobilityType(:TIMS))
     end
 
     @testset "New filters - generic metadata cvParam" begin
         @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz")))                 == 2  # presence
         @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", [400.0, 600.0]))) == 2  # range
         @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", 400.0)))          == 1  # numeric exact
-        @test MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", 999.0))                  isa ErrorException
-        @test MassJ.extract(run, MassJ.MetaData("does_not_exist"))                                     isa ErrorException
+        @test_throws ErrorException MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", 999.0))
+        @test_throws ErrorException MassJ.extract(run, MassJ.MetaData("does_not_exist"))
     end
 
     @testset "New filters - instrument configuration" begin
@@ -1825,12 +1815,12 @@ function test_new_filters()
         @test length(MassJ.extract(run, MassJ.InstrumentConfig("LTQ FT")))                   == 3
         @test length(MassJ.extract(run, MassJ.InstrumentConfig("electrospray ionization")))  == 3
         @test length(MassJ.extract(run, MassJ.InstrumentConfig("source")))                   == 3
-        @test MassJ.extract(run, MassJ.InstrumentConfig("ZZZ"))                              isa ErrorException
+        @test_throws ErrorException MassJ.extract(run, MassJ.InstrumentConfig("ZZZ"))
 
         # On a plain Vector{MSscans} (no run table) only the per-spectrum ref id is matchable.
         vec = run.scans
         @test length(MassJ.extract(vec, MassJ.InstrumentConfig("IC1")))                      == 3
-        @test MassJ.extract(vec, MassJ.InstrumentConfig("LTQ FT"))                           isa ErrorException
+        @test_throws ErrorException MassJ.extract(vec, MassJ.InstrumentConfig("LTQ FT"))
     end
 
     @testset "New filters - compose with existing filters" begin
@@ -1848,7 +1838,7 @@ function test_new_filters()
         # (the mzXML default) matches every scan, proving the fallback both dispatches and matches.
         @test length(MassJ.extract("test.mzXML", MassJ.MobilityType(:none)))           == 6
         @test length(MassJ.chromatogram("test.mzXML", MassJ.MobilityType(:none)).x)    == 6
-        @test MassJ.extract("test.mzXML", MassJ.ChargeState(2))                        isa ErrorException
+        @test_throws ErrorException MassJ.extract("test.mzXML", MassJ.ChargeState(2))
     end
 end
 
