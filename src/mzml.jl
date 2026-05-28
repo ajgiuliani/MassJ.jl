@@ -327,6 +327,9 @@ function load_mzml_all(filename::String)
     countStr  = attribute(specList, "count")
     scanCount = countStr !== nothing ? parse(Int, countStr) : 0
 
+    # Run-level default instrument configuration, used when a scan omits its own ref.
+    default_ic = attribute(run_elem, "defaultInstrumentConfigurationRef")
+
     # Remember whether each spectrum carried the MassJ "saved_as_scalar" marker
     # so we can unwrap to a bare value if exactly one was marked.
     buf       = Vector{MSscans}(undef, scanCount)
@@ -335,7 +338,7 @@ function load_mzml_all(filename::String)
     for spec in child_elements(specList)
         if name(spec) == "spectrum"
             scalar_of[index] = _mzml_is_saved_as_scalar(spec)
-            buf[index]       = load_mzml_spectrum(spec, index)
+            buf[index]       = load_mzml_spectrum(spec, index; default_ic_ref = default_ic)
             index += 1
         end
     end
@@ -385,12 +388,13 @@ function load_mzml(filename::String, target_num::Int)
 
     run_elem = find_element(mzml, "run")
     specList = find_element(run_elem, "spectrumList")
+    default_ic = attribute(run_elem, "defaultInstrumentConfigurationRef")
 
     index = 1
     for spec in child_elements(specList)
         if name(spec) == "spectrum"
             if index == target_num
-                scan = load_mzml_spectrum(spec, index)
+                scan = load_mzml_spectrum(spec, index; default_ic_ref = default_ic)
                 free(xdoc)
                 return scan
             end
@@ -404,10 +408,12 @@ end
 
 
 """
-    load_mzml_spectrum(spec::XMLElement, scan_index::Int)
-Parse a single <spectrum> element and return an MSscan.
+    load_mzml_spectrum(spec::XMLElement, scan_index::Int; default_ic_ref = nothing)
+Parse a single <spectrum> element and return an MSscans. `default_ic_ref` supplies the run's
+`defaultInstrumentConfigurationRef` used when a scan omits its own `instrumentConfigurationRef`.
 """
-function load_mzml_spectrum(spec::XMLElement, scan_index::Int)
+function load_mzml_spectrum(spec::XMLElement, scan_index::Int;
+                            default_ic_ref::Union{AbstractString,Nothing} = nothing)
     # MS level
     msLevel = parse(Int, get_cv_value(spec, CV_MS_LEVEL, "0"))
 
@@ -437,11 +443,15 @@ function load_mzml_spectrum(spec::XMLElement, scan_index::Int)
     driftTime = -1.0
     compensationVoltage = 0.0
     mobilityType = :none
+    ic_ref = nothing   # per-scan instrumentConfigurationRef
 
     scanListElem = find_element(spec, "scanList")
     if scanListElem !== nothing
         for scanElem in child_elements(scanListElem)
             if name(scanElem) == "scan"
+                # Instrument configuration reference (falls back to run default below)
+                ic_ref = attribute(scanElem, "instrumentConfigurationRef")
+
                 # Retention time
                 rtParam = get_cv_param(scanElem, CV_SCAN_START_TIME)
                 if rtParam !== nothing
@@ -593,11 +603,15 @@ function load_mzml_spectrum(spec::XMLElement, scan_index::Int)
         end
     end
 
+    extra_md = _read_mzml_extra_metadata(spec)
+    ref = ic_ref !== nothing ? ic_ref : default_ic_ref
+    ref !== nothing && (extra_md["instrument_configuration_ref"] = String(ref))
+
     scan = MSscans(scan_index, rt, tic, mz, int_arr, msLevel,
                    basePeakMz, basePeakIntensity, precursorMz, polarity,
                    activationMethod, collisionEnergy,
                    chargeState, spectrumType, driftTime, compensationVoltage,
-                   mobilityType, _read_mzml_extra_metadata(spec))
+                   mobilityType, extra_md)
 
     # Reconstruct a composite spectrum if the MassJ export marker is present.
     if _mzml_is_msscans(spec)
