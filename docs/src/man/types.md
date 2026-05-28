@@ -97,8 +97,13 @@ run.
 [`save`](@ref) so that the round-trip preserves instrument configuration,
 source file information, processing history, and so on.
 
-For non-mzML formats (mzXML, MGF, MSP, imzML, TXT), `load` returns
-`Vector{MSscans}` directly.
+[`load`](@ref) returns an `MSrun` for **every** multi-spectrum format (mzML,
+mzXML, MGF, MSP, imzML); for the non-mzML formats the metadata dictionary and
+chromatogram list are simply empty. Two cases return a bare [`MSscans`](@ref)
+instead, because they represent a single spectrum rather than a run: a TXT file
+(one spectrum by construction), and a single spectrum that was saved with
+[`save`](@ref) as a scalar (the scalar round-trip — save a bare spectrum, load a
+bare spectrum).
 
 ## Peak and yield-curve types
 
