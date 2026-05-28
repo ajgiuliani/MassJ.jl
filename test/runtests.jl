@@ -10,6 +10,7 @@ using Random
 import EntropyInvariant
 import Clustering
 import Tables
+import Measurements
 
 function tests()
     @testset "Subset of tests"  begin
@@ -835,6 +836,36 @@ function test_tables()
         @test eltype(it[Symbol("12C")]) == Int
         @test length(it.Masses) == size(dist, 1) - 1
         @test Tables.columntable(it).Masses == it.Masses
+    end
+end
+
+
+function test_measurements()
+    @testset "Measurements.jl interface" begin
+        scans = MassJ.load("test.mzML")
+        avg = MassJ.average(scans)                       # carries σ
+
+        m = MassJ.measurements(avg)                      # default :sem
+        @test length(m) == length(avg.mz)
+        @test Measurements.value.(m) == avg.int
+        @test Measurements.uncertainty.(m) ≈ MassJ.sem(avg)
+        @test Measurements.uncertainty.(MassJ.measurements(avg; kind = :std)) ≈ MassJ.stdev(avg)
+
+        # a single scan has no replicate statistics
+        @test_throws ErrorException MassJ.measurements(scans[1])
+        # invalid kind
+        @test_throws ErrorException MassJ.measurements(avg; kind = :bogus)
+
+        # YieldCurve → matrix of value ± error, with automatic propagation
+        yc = MassJ.YieldCurve([1.0, 2.0], "E", [10.0 1.0; 20.0 2.0], [0.5 0.1; 0.6 0.2],
+                              [11.0, 22.0], [0.51, 0.63], fill(NaN, 2, 2), ["a", "b"],
+                              [(99.0, 101.0), (199.0, 201.0)], ["f1", "f2"], Dict{String,Any}())
+        M = MassJ.measurements(yc)
+        @test size(M) == (2, 2)
+        @test Measurements.value.(M) == yc.yields
+        @test Measurements.uncertainty.(M) == yc.yields_err
+        # summing a column propagates the errors in quadrature (Measurements does this)
+        @test Measurements.uncertainty(sum(M[:, 1])) ≈ sqrt(0.5^2 + 0.6^2)
     end
 end
 
@@ -2418,6 +2449,7 @@ test_fragment_peaks()
 test_mobility()
 test_uncertainty()
 test_tables()
+test_measurements()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()

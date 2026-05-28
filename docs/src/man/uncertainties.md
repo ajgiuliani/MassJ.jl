@@ -106,3 +106,31 @@ The full error model — why it integrates per scan rather than per m/z bin, and
 how the errors propagate through [`normalize_tic`](@ref) and
 [`normalize_flux`](@ref) — is described on the
 [Energy-resolved yields](@ref) page.
+
+## Automatic propagation with Measurements.jl
+
+For arbitrary downstream arithmetic, [`measurements`](@ref) hands the data to
+[Measurements.jl](https://github.com/JuliaPhysics/Measurements.jl) as
+`value ± uncertainty` numbers, which then propagate the error through any
+calculation automatically. The bridge loads on demand — just have `Measurements`
+in scope:
+
+```julia
+using MassJ, Measurements
+
+avg = average(load("run.mzML"), Level(1))
+m   = measurements(avg)             # vector of  intensity ± sem
+m   = measurements(avg; kind = :std) # use the sample standard deviation instead
+
+# any arithmetic carries the uncertainty:
+total = sum(m)                      # Σ intensity, with propagated 1-σ
+
+# yields → value ± error, ready for ratios, sums, fits, …
+yc = yields("data/UVPD/", peaks; x0 = 3.0, step = 0.1)
+Y  = measurements(yc)               # nfiles × npeaks of  yield ± yields_err
+branching = Y[:, 1] ./ sum(Y; dims = 2)   # error propagated through the ratio
+```
+
+`measurements(spec)` needs replicate statistics (it errors on a single scan);
+`measurements(yc)` carries `NaN` uncertainty for any yield with no scan-to-scan
+estimate.

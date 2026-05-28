@@ -6,7 +6,7 @@ Utility functions to work on MScontainer data types.
 # User Interface.
 # --------------
 
-export avg, num2pnt, nscans, stdev, sem
+export avg, num2pnt, nscans, stdev, sem, measurements
 
 
 
@@ -318,6 +318,26 @@ Per-m/z **standard error of the mean** intensity, `stdev(spec) ./ sqrt(nscans(sp
 statistics are available. See also [`stdev`](@ref).
 """
 sem(spec::MSscans) = isempty(spec.s) ? Float64[] : spec.s ./ sqrt(nscans(spec))
+
+"""
+    measurements(spec::MSscans; kind = :sem)
+    measurements(yc::YieldCurve)
+
+Return the data as [Measurements.jl](https://github.com/JuliaPhysics/Measurements.jl)
+`value ± uncertainty` numbers, so that further arithmetic propagates the
+uncertainty automatically. Requires the `Measurements` package to be loaded
+(`using Measurements`).
+
+* `measurements(spec)` → vector of `intensity ± σ` using the standard error of
+  the mean (`kind = :sem`, default) or the sample standard deviation
+  (`kind = :std`); needs replicate statistics (`average(...; stats = true)`).
+* `measurements(yc)` → matrix of `yield ± yields_err`.
+
+See also [`stdev`](@ref), [`sem`](@ref).
+"""
+function measurements end
+measurements(args...; kwargs...) =
+    error("measurements requires the Measurements package. Run `using Measurements` to enable it.")
 
 
 

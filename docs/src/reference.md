@@ -215,6 +215,7 @@ Retrieve the per-m/z uncertainty carried by an averaged spectrum — see
 MassJ.nscans
 MassJ.stdev
 MassJ.sem
+MassJ.measurements
 ```
 
 ## Other utilities

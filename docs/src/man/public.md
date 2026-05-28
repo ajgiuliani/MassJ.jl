@@ -24,6 +24,7 @@ The functions below are exported:
 - [`nscans`](@ref)
 - [`stdev`](@ref)
 - [`sem`](@ref)
+- [`measurements`](@ref)
 
 The following types are exported:
 - [`MassJ.Peak`](@ref)
