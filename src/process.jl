@@ -34,7 +34,7 @@ julia> smoothed_data = MassJ.smooth(scans)
  MassJ.MSscan(1, 0.1384, 5.08195e6 .....
 ```
 """
-function smooth(scans::Vector{MSscans}; method::MethodType=SG(5, 9, 0))
+function smooth(scans::AbstractVector{MSscans}; method::MethodType=SG(5, 9, 0))
     if method isa MassJ.SG
         sm_scans = Vector{MSscans}(undef, 0)
         for el in scans
@@ -104,7 +104,7 @@ julia> reduced_data = centroid(scans)
 MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
 ```
 """
-function centroid(scans::Vector{MSscans}; method::MethodType=SNRA(1., 100) )
+function centroid(scans::AbstractVector{MSscans}; method::MethodType=SNRA(1., 100) )
     cent_scans = Vector{MSscans}(undef,0)
     if method isa TBPD
         for el in scans
@@ -273,7 +273,7 @@ julia> reduced_data = baseline_correction(scans, method = MassJ.IPSA(51,100))
 MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
 ```
 """
-function baseline_correction(scans::Vector{MSscans}; method::MethodType=TopHat(100) )
+function baseline_correction(scans::AbstractVector{MSscans}; method::MethodType=TopHat(100) )
     bl_scans = Vector{MSscans}(undef,0)
     for el in scans
         if method isa TopHat
