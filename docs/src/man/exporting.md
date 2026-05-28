@@ -4,14 +4,17 @@ The [`save`](@ref) function writes MassJ data back to standard
 mass-spectrometry file formats. The output format is selected automatically
 from the file extension, mirroring how [`load`](@ref) reads:
 
-| Extension | Format    | Writer                |
-|-----------|-----------|-----------------------|
-| `.mzML`   | mzML      | [`MassJ.save_mzml`](@ref)  |
-| `.mzXML`  | mzXML     | [`MassJ.save_mzxml`](@ref) |
+| Extension | Format    | Writer                     | Notes                              |
+|-----------|-----------|----------------------------|------------------------------------|
+| `.mzML`   | mzML      | [`MassJ.save_mzml`](@ref)  | PSI standard; indexed by default   |
+| `.mzXML`  | mzXML     | [`MassJ.save_mzxml`](@ref) | legacy, big-endian arrays          |
+| `.mgf`    | MGF       | [`MassJ.save_mgf`](@ref)   | Mascot Generic Format peak lists   |
+| `.msp`    | MSP       | [`MassJ.save_msp`](@ref)   | NIST spectral-library text         |
+| `.txt`    | TXT       | [`MassJ.save_txt`](@ref)   | two columns; one spectrum per file |
 
-`save` accepts any of the spectrum containers — a single
-[`MassJ.MSscans`](@ref), an averaged [`MassJ.MSscans`](@ref), or a
-`Vector{MSscans}` produced by [`load`](@ref).
+`save` accepts any of the spectrum containers — a single or averaged
+[`MassJ.MSscans`](@ref), a `Vector{MSscans}`, or the [`MassJ.MSrun`](@ref)
+produced by [`load`](@ref).
 
 ## Basic usage
 
@@ -30,7 +33,8 @@ julia> save(scans[1], "single_scan.mzML")       # one scan
 
 ## Options
 
-Both writers accept these keywords:
+The binary-format writers (mzML, mzXML) accept these keywords; the text writers
+(mgf, msp, txt) ignore them:
 
 * `precision` — `64` (default, `Float64` arrays) or `32` (`Float32`, halves the
   binary payload size at the cost of ≈7 digits of precision).
@@ -96,22 +100,19 @@ form. Downstream tools that depend on rich provenance fields should expect
 those slots to be blank or contain a marker indicating the file was written by
 MassJ.
 
-### Type-symmetric round-trip
+### Round-trip return type
 
-`load` returns a value of the same type that was passed to `save`:
+For the binary formats, `load` returns:
 
-| `typeof(save argument)` | `typeof(load result)`   |
-|-------------------------|-------------------------|
-| `MSscans`                | `MSscans`                |
-| `MSscans`               | `MSscans`               |
-| `Vector{MSscans}`        | `Vector{MSscans}`        |
-| `Vector{MSscans}`       | `Vector{MSscans}`       |
-| (file not saved by MassJ) | `Vector{MSscans}`      |
+| `typeof(save argument)`       | `typeof(load result)` |
+|-------------------------------|-----------------------|
+| `MSscans` (a single spectrum) | `MSscans` (bare)      |
+| `Vector{MSscans}` / `MSrun`   | `MSrun`               |
+| (file not saved by MassJ)     | `MSrun`               |
 
-The single-value paths (`MSscans`, `MSscans`) tag the spectrum with a MassJ
-`userParam` so `load` knows to unwrap it from the surrounding container. For
-files that did not pass through `save`, `load` keeps its long-standing
-`Vector{MSscans}` return type.
+A single spectrum saved as a scalar is tagged with a MassJ `userParam` so `load`
+unwraps it back to a bare [`MassJ.MSscans`](@ref); every multi-spectrum file
+loads as an [`MassJ.MSrun`](@ref) (which is an `AbstractVector{MSscans}`).
 
 Saving a `Vector{MSscans}` writes one spectrum per element, each carrying its
 own variance array and history but without the scalar marker. `load` then
@@ -165,6 +166,33 @@ The byte order differs between the two formats:
   blob containing interleaved `(m/z, intensity, m/z, intensity, …)` pairs.
 
 Both details are handled transparently by `save` and `load`.
+
+## Text formats (MGF / MSP / TXT)
+
+The text writers emit the standard fields of each format and round-trip with the
+corresponding reader on what that format can represent:
+
+- **MGF** ([`MassJ.save_mgf`](@ref)) — one `BEGIN IONS … END IONS` block per
+  spectrum with `TITLE`, `MSLEVEL`, `PEPMASS` (precursor), `CHARGE` (charge +
+  polarity sign), `RTINSECONDS`, and `m/z intensity` peak rows.
+- **MSP** ([`MassJ.save_msp`](@ref)) — one `Name: … Num Peaks: N` entry per
+  spectrum with `PrecursorMZ`, `MSLEVEL`, `Ion_mode` (polarity),
+  `Collision_energy`, `RT`, the peak rows, and a blank-line separator.
+- **TXT** ([`MassJ.save_txt`](@ref)) — two whitespace-separated columns,
+  `m/z  intensity`. A TXT file holds a **single** spectrum, so passing more than
+  one spectrum is an error; pass a single [`MassJ.MSscans`](@ref) (e.g. `run[i]`
+  or `average(run)`).
+
+These formats carry only peak lists plus a handful of header fields, so
+information outside that scope (variance array, full provenance vectors,
+ion-mobility values, file-level metadata) is **not** written — use mzML to
+preserve everything.
+
+```julia
+save(scans, "peaklist.mgf")          # MS/MS peak lists for a search engine
+save(scans, "library.msp")           # build a spectral library
+save(average(scans), "mean.txt")     # a single averaged spectrum, two columns
+```
 
 ## Use cases
 
