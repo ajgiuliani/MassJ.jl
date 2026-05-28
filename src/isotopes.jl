@@ -12,7 +12,7 @@ include("isotopes-data.jl")
 # ---------------
 
 
-export isotopic_distribution, masses, simulate, formula
+export isotopic_distribution, masses, simulate, formula, isotope_table
 
 
 """
@@ -194,6 +194,41 @@ function isotopic_distribution(form::Dict{String,Int}, p_target::Real; charge::I
     end
     result[M+1,:] = labels
     result[end:-1:1,:]
+end
+
+
+"""
+    isotope_table(dist::AbstractMatrix) -> NamedTuple
+Convert the matrix returned by [`isotopic_distribution`](@ref) into a column
+table (a `NamedTuple` of vectors): columns `Masses`, `Probability`, and one per
+isotope (`Symbol("12C")`, `Symbol("13C")`, …), one row per isotopologue. Being a
+`NamedTuple` of vectors it is already a valid [Tables.jl](https://github.com/JuliaData/Tables.jl)
+source, so it drops straight into `DataFrame`, `CSV.write`, and the rest of the
+data ecosystem — no extra dependency on MassJ's side.
+
+# Examples
+```julia-repl
+julia> using DataFrames
+
+julia> dist = isotopic_distribution(formula("C6H12O6"), 0.99);
+
+julia> df = DataFrame(isotope_table(dist));
+```
+"""
+function isotope_table(dist::AbstractMatrix)
+    labels = String.(@view dist[1, :])
+    syms   = Symbol[]
+    cols   = Any[]
+    for j in eachindex(labels)
+        push!(syms, Symbol(labels[j]))
+        raw = @view dist[2:end, j]
+        if labels[j] == "Masses" || labels[j] == "Probability"
+            push!(cols, Float64.(raw))
+        else
+            push!(cols, round.(Int, Float64.(raw)))
+        end
+    end
+    return NamedTuple{Tuple(syms)}(Tuple(cols))
 end
 
 

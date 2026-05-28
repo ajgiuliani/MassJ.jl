@@ -131,6 +131,23 @@ Dict("C" => 6,"H" => 14)
 
 The resulting array is intend to be readable easily, and thus the first line contains the descriptors or the columns. It may also be easily exported to a delimited file.
 
+### As a table (DataFrames / CSV)
+
+For a typed, named representation, [`isotope_table`](@ref) turns that matrix into
+a column table — a `NamedTuple` of vectors with columns `Masses`, `Probability`,
+and one per isotope (`12C`, `13C`, …), one row per isotopologue. Because a
+`NamedTuple` of vectors is a valid [Tables.jl](https://github.com/JuliaData/Tables.jl)
+source, it drops straight into the data ecosystem with no extra dependency:
+
+```julia
+using DataFrames
+dist = isotopic_distribution(formula("C6H14"), 0.9999, charge = +1)
+df   = DataFrame(isotope_table(dist))     # typed columns: Float64 masses/probabilities, Int isotope counts
+
+using CSV
+CSV.write("pattern.csv", isotope_table(dist))
+```
+
 ## Simulated mass spectra
 The result of an isotopic distribution calculation may be convoluted with a peak shape to produce a simulated mass spectrum. Such an operatio, is achieved by the [`simulate`](@ref) function.
 The function takes the following arguments:

@@ -4,10 +4,12 @@ using DataStructures
 using SHA   # used for indexed-mzML fileChecksum verification
 using Aqua  # package-quality checks
 using Random
-# Loading these weak dependencies activates the chimeric-analysis package
-# extensions (cmi_matrix via EntropyInvariant, cluster_ions via Clustering).
+# Loading these weak dependencies activates the package extensions
+# (cmi_matrix via EntropyInvariant, cluster_ions via Clustering, and the
+# YieldCurve Tables.jl source via Tables).
 import EntropyInvariant
 import Clustering
+import Tables
 
 function tests()
     @testset "Subset of tests"  begin
@@ -799,6 +801,40 @@ function test_uncertainty()
         @test plot(avg; band = :std, method = :absolute) isa Plots.Plot
         @test plot(avg) isa Plots.Plot
         @test plot(s1; band = :sem) isa Plots.Plot
+    end
+end
+
+
+function test_tables()
+    @testset "Tables.jl interface (YieldCurve + isotopes)" begin
+        # YieldCurve as a Tables source (extension active via `import Tables`)
+        yc = MassJ.YieldCurve([1.0, 2.0], "energy (eV)",
+                              [10.0 1.0; 20.0 2.0], [0.5 0.1; 0.6 0.2],
+                              [11.0, 22.0], [0.51, 0.63], fill(NaN, 2, 2),
+                              ["a", "b"], [(99.0, 101.0), (199.0, 201.0)],
+                              ["f1", "f2"], Dict{String,Any}())
+        @test Tables.istable(typeof(yc))
+        cols  = Tables.columns(yc)
+        names = Tables.columnnames(cols)
+        @test :x in names && :a in names && :b in names
+        @test Symbol("a_err") in names && Symbol("b_err") in names
+        @test :TIC in names && Symbol("TIC_err") in names && :file in names
+        @test collect(Tables.getcolumn(cols, :x)) == [1.0, 2.0]
+        @test collect(Tables.getcolumn(cols, :a)) == [10.0, 20.0]
+        @test collect(Tables.getcolumn(cols, Symbol("a_err"))) == [0.5, 0.6]
+        @test collect(Tables.getcolumn(cols, :file)) == ["f1", "f2"]
+        @test length(Tables.rows(yc)) == 2
+        @test Tables.columntable(yc).b == [1.0, 2.0]   # column :b == yields[:,2]
+
+        # isotope_table: dependency-free NamedTuple, a valid Tables source
+        dist = MassJ.isotopic_distribution(MassJ.formula("C2H6O"), 0.99)
+        it = MassJ.isotope_table(dist)
+        @test Tables.istable(typeof(it))
+        @test haskey(it, :Masses) && haskey(it, :Probability)
+        @test eltype(it.Masses) == Float64
+        @test eltype(it[Symbol("12C")]) == Int
+        @test length(it.Masses) == size(dist, 1) - 1
+        @test Tables.columntable(it).Masses == it.Masses
     end
 end
 
@@ -2381,6 +2417,7 @@ test_peptides()
 test_fragment_peaks()
 test_mobility()
 test_uncertainty()
+test_tables()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()

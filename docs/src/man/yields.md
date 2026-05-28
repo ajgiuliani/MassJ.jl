@@ -287,10 +287,31 @@ plot(yc_norm; fillalpha = 0.30)               # darker ribbon
 ```
 
 
+## Interoperability: DataFrames and Tables.jl
+
+A [`MassJ.YieldCurve`](@ref) is a [Tables.jl](https://github.com/JuliaData/Tables.jl)
+source. The interface is provided by a package extension that loads automatically
+as soon as `Tables` — or anything built on it, such as `DataFrames` or `CSV` — is
+in scope. The table has one row per x value, with columns `x`, one per peak
+label, a matching `<label>_err`, then `TIC`, `TIC_err`, and `file`:
+
+```julia
+using DataFrames
+df = DataFrame(yc)                  # straight into a DataFrame
+
+using CSV
+CSV.write("yields.csv", yc)         # any Tables sink
+```
+
+This lets a yield curve flow directly into the rest of the Julia data ecosystem
+(DataFrames, query/split-apply-combine, Arrow, StatsPlots …).
+
+
 ## Writing to CSV
 
-[`MassJ.write_csv`](@ref) writes a CSV with header
-`<xlabel>, <peak labels…>, TIC`:
+[`MassJ.write_csv`](@ref) writes a compact CSV with header
+`<xlabel>, <peak labels…>, TIC` (no error columns) — independent of the Tables
+interface above; use whichever layout suits your downstream workflow:
 
 ```julia
 MassJ.write_csv(yc_norm, "yields.csv")

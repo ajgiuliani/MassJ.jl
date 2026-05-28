@@ -149,6 +149,7 @@ MassJ.deconv
 MassJ.formula
 MassJ.masses
 MassJ.isotopic_distribution
+MassJ.isotope_table
 MassJ.simulate
 ```
 

@@ -10,6 +10,7 @@ The functions below are exported:
 - [`centroid`](@ref)
 - [`smooth`](@ref)
 - [`isotopic_distribution`](@ref)
+- [`isotope_table`](@ref)
 - [`masses`](@ref)
 - [`simulate`](@ref)
 - [`deconv`](@ref)
