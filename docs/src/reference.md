@@ -66,6 +66,11 @@ MassJ.Activation_Energy
 MassJ.Precursor
 MassJ.DriftTime
 MassJ.CompensationVoltage
+MassJ.ChargeState
+MassJ.SpectrumType
+MassJ.MobilityType
+MassJ.MetaData
+MassJ.InstrumentConfig
 ```
 
 ## I/O
@@ -83,28 +88,32 @@ MassJ.average(filename::String, arguments::FilterType...; stats::Bool=true)
 MassJ.save
 MassJ.save_mzml
 MassJ.save_mzxml
+MassJ.save_mgf
+MassJ.save_msp
+MassJ.save_txt
 ```
 
 ## Filtering on loaded scans
-The same operations are available directly on a `Vector{MSscans}` produced by
-[`load`](@ref). Filters are composed into a single short-circuiting predicate
-and applied in one pass — see [Composed predicates](@ref).
+The same operations are available directly on the `MSrun` (or any
+`AbstractVector{MSscans}`) produced by [`load`](@ref). Filters are composed into
+a single short-circuiting predicate and applied in one pass — see
+[Composed predicates](@ref).
 
 ```@docs
-MassJ.average(scans::Vector{MSscans}, arguments::FilterType...; stats::Bool=true)
-MassJ.chromatogram(scans::Vector{MSscans}, filters::FilterType...; method::MethodType=TIC())
-MassJ.retention_time(scans::Vector{MSscans})
+MassJ.average(scans::AbstractVector{MSscans}, arguments::FilterType...; stats::Bool=true)
+MassJ.chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+MassJ.retention_time(scans::AbstractVector{MSscans})
 ```
 
 ## Extracting subsets
 ```@docs
 MassJ.extract(filename::String, arguments::FilterType...)
-MassJ.extract(scans::Vector{MSscans}, arguments::FilterType...)
+MassJ.extract(scans::AbstractVector{MSscans}, arguments::FilterType...)
 ```
 
 ## Composed predicates
-Internal predicate composition used by `extract`/`chromatogram`/`average` on a
-`Vector{MSscans}`. Exposed here for users extending the package with new
+Internal predicate composition used by `extract`/`chromatogram`/`average` on any
+`AbstractVector{MSscans}`. Exposed here for users extending the package with new
 [`MassJ.FilterType`](@ref) subtypes — implement `to_predicate(f::MyFilter)`
 and the new filter is automatically composable with all existing ones.
 
@@ -119,11 +128,11 @@ MassJ.compose_predicates
 ### Mass spectrum
 ```@docs
 MassJ.smooth(scan::MScontainer; method::MethodType=SG(5, 9, 0))
-MassJ.smooth(scans::Vector{MSscans}; method::MethodType=SG(5, 9, 0))
+MassJ.smooth(scans::AbstractVector{MSscans}; method::MethodType=SG(5, 9, 0))
 MassJ.centroid(scan::MScontainer; method::MethodType=SNRA(1., 100) )
-MassJ.centroid(scans::Vector{MSscans}; method::MethodType=SNRA(1., 100))
+MassJ.centroid(scans::AbstractVector{MSscans}; method::MethodType=SNRA(1., 100))
 MassJ.baseline_correction(scan::MScontainer; method::MethodType=TopHat(100) )
-MassJ.baseline_correction(scans::Vector{MSscans}; method::MethodType=TopHat(100) )
+MassJ.baseline_correction(scans::AbstractVector{MSscans}; method::MethodType=TopHat(100) )
 ```
 
 ## Deconvolution
@@ -152,6 +161,23 @@ MassJ.normalize_flux
 MassJ.drop_peaks
 MassJ.read_peaklist
 MassJ.write_csv
+```
+
+
+## Chimeric-spectra statistical decomposition
+----------------------------------------------
+Data-driven resolution of multiplexed (chimeric) tandem mass spectra. The score
+matrices feed hierarchical clustering to group ions by precursor.
+[`MassJ.cmi_matrix`](@ref) requires `EntropyInvariant` and
+[`MassJ.cluster_ions`](@ref) requires `Clustering`; both are loaded on demand as
+package extensions.
+
+```@docs
+MassJ.abundance_matrix
+MassJ.partial_correlation
+MassJ.cmi_matrix
+MassJ.cluster_ions
+MassJ.cluster_spectra
 ```
 
 
