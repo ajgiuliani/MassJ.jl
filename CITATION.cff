@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+title: MassJ.jl
+message: >-
+  If you use this software, please cite it using the metadata below.
+type: software
+authors:
+  - given-names: Alexandre
+    family-names: Giuliani
+    email: giuliani@synchrotron-soleil.fr
+    affiliation: Synchrotron SOLEIL
+repository-code: "https://github.com/ajgiuliani/MassJ.jl"
+url: "https://ajgiuliani.github.io/MassJ.jl/stable"
+abstract: >-
+  MassJ.jl is a Julia package for loading, processing, and analysing mass
+  spectrometry data. It supports the common open file formats (mzML, mzXML,
+  MGF, MSP, imzML), provides signal-processing tools (Savitzky-Golay smoothing,
+  centroiding, baseline correction), isotopic distribution calculations,
+  UniDec-style charge-state deconvolution, energy-resolved peak yields with
+  per-scan error propagation, and Plots.jl recipes for native plotting.
+keywords:
+  - mass spectrometry
+  - mzML
+  - mzXML
+  - proteomics
+  - isotopic distribution
+  - charge deconvolution
+  - julia
+license: GPL-3.0-or-later
+version: 1.0.0
