@@ -1265,6 +1265,32 @@ function test_text_writers()
 end
 
 
+function test_cwt()
+    @testset "Centroid - CWT (continuous wavelet transform)" begin
+        Random.seed!(3)
+        mz = collect(100.0:0.02:200.0); n = length(mz)
+        int = 0.5 .* abs.(randn(n))                         # noise floor
+        centres = [120.0, 150.0, 175.0]
+        for (c, h) in zip(centres, [100.0, 60.0, 80.0])
+            int .+= h .* exp.(-((mz .- c).^2) ./ (2 * 0.08^2))
+        end
+        s = MassJ.MSscans(1, 0.0, sum(int), mz, int, 1,
+                          mz[argmax(int)], maximum(int), 0.0, "", "", 0.0)
+
+        c = MassJ.centroid(s; method = MassJ.CWT())
+        @test c isa MassJ.MSscans
+        @test length(c.mz) == 3                              # the three peaks, no noise
+        @test all(any(abs.(c.mz .- ctr) .< 0.2) for ctr in centres)
+
+        c5 = MassJ.centroid(s; method = MassJ.CWT(threshold = 5.0))
+        @test length(c5.mz) == 3                             # higher SNR threshold still clean
+
+        cs = MassJ.centroid([s, s]; method = MassJ.CWT())    # vector method
+        @test length(cs) == 2 && all(x -> length(x.mz) == 3, cs)
+    end
+end
+
+
 function test_chimeric()
     # Build a synthetic series of two co-isolated precursors A and B whose
     # abundances are anticorrelated (they share the TIC). A fragments at
@@ -1938,6 +1964,7 @@ test_composed_predicates()
 test_new_filters()
 test_export()
 test_text_writers()
+test_cwt()
 test_chimeric()
 test_yields()
 test_yields_targetpeak()
