@@ -386,6 +386,49 @@ function test_isotopes()
 end
 
 
+function test_adducts()
+    @testset "Adducts - m/z <-> neutral mass" begin
+        M = MassJ.masses("C6H12O6")["Monoisotopic"]   # glucose, 180.0634
+
+        # reference m/z values (electron-mass aware)
+        @test MassJ.adduct_mz(M, "[M+H]+")  ≈ 181.07066 atol = 1e-4
+        @test MassJ.adduct_mz(M, "[M+Na]+") ≈ 203.05261 atol = 1e-4
+        @test MassJ.adduct_mz(M, "[M-H]-")  ≈ 179.05611 atol = 1e-4
+
+        # round-trip for every tabulated adduct, accepting either a name or an Adduct
+        for (name, a) in MassJ.Adducts
+            mz = MassJ.adduct_mz(M, name)
+            @test MassJ.neutral_mass(mz, name) ≈ M atol = 1e-9
+            @test MassJ.neutral_mass(mz, a)    ≈ M atol = 1e-9
+            @test MassJ.adduct_mz(M, a)        ≈ mz atol = 1e-12
+        end
+
+        # multiply-charged ions divide by |z|
+        @test MassJ.adduct_mz(M, "[M+2H]2+") < MassJ.adduct_mz(M, "[M+H]+")
+        @test MassJ.adduct_mz(M, "[M+3H]3+") * 3 ≈ M + 3 * MassJ.masses("H")["Monoisotopic"] - 3 * MassJ.m_electron atol = 1e-6
+
+        # dimer carries n = 2
+        @test MassJ.adduct_mz(M, "[2M+H]+") ≈ 2M + MassJ.masses("H")["Monoisotopic"] - MassJ.m_electron atol = 1e-6
+
+        # electron-mass toggle differs by exactly mₑ for a singly charged ion
+        @test MassJ.adduct_mz(M, "[M+H]+"; electron = false) -
+              MassJ.adduct_mz(M, "[M+H]+"; electron = true) ≈ MassJ.m_electron atol = 1e-12
+
+        # radical cation [M]+ is M − mₑ
+        @test MassJ.adduct_mz(M, "[M]+") ≈ M - MassJ.m_electron atol = 1e-9
+
+        # custom adduct via keyword constructor round-trips
+        cust = MassJ.Adduct("[M+Li]+", charge = +1, add = "Li")
+        @test MassJ.neutral_mass(MassJ.adduct_mz(M, cust), cust) ≈ M atol = 1e-9
+        @test MassJ.polarity(cust) == "+"
+        @test MassJ.polarity(MassJ.Adducts["[M-H]-"]) == "-"
+
+        # unknown adduct name raises
+        @test_throws ErrorException MassJ.adduct_mz(M, "[M+Foo]+")
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -1975,6 +2018,7 @@ end
 
 tests()
 test_isotopes()
+test_adducts()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
