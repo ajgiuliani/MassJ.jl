@@ -652,3 +652,58 @@ struct CompensationVoltage{argT <: Union{Real, AbstractVector{<:Real} }} <: Filt
    CompensationVoltage(arg::argT) where{argT} = new{argT}(arg)
 end
 
+
+
+# ----------------------------------------------------------------------------
+# REPL-friendly `show` methods
+#
+# The default Julia `show(::IO, ::MIME"text/plain", x)` for a struct dumps
+# every field — for `MSscan` / `MSscans` that floods the REPL with arrays
+# tens of thousands of elements long. These compact summaries print a
+# one-liner with the most informative fields instead.
+# ----------------------------------------------------------------------------
+
+function Base.show(io::IO, ::MIME"text/plain", s::MSscan)
+    pol  = isempty(s.polarity) ? "?" : s.polarity
+    mzlo = isempty(s.mz) ? "—" : string(round(first(s.mz), digits = 3))
+    mzhi = isempty(s.mz) ? "—" : string(round(last(s.mz),  digits = 3))
+    actm = isempty(s.activationMethod) ? "" : " " * s.activationMethod
+    ce   = s.collisionEnergy > 0 ? "@" * string(s.collisionEnergy) * "eV" : ""
+    prec = s.precursor > 0 ? "  precursor=" * string(s.precursor) : ""
+    print(io, "MSscan(num=", s.num,
+              ", MS", s.level, pol, actm, ce,
+              ", ", length(s.mz), " pts m/z=[", mzlo, ", ", mzhi, "]",
+              ", rt=", round(s.rt, digits = 4), " min, tic=", s.tic,
+              prec, ")")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", s::MSscans)
+    n    = length(s.num)
+    mzlo = isempty(s.mz) ? "—" : string(round(first(s.mz), digits = 3))
+    mzhi = isempty(s.mz) ? "—" : string(round(last(s.mz),  digits = 3))
+    print(io, "MSscans(averaged ", n, " scan", n == 1 ? "" : "s",
+              ", ", length(s.mz), " pts m/z=[", mzlo, ", ", mzhi, "]",
+              ", tic=", s.tic, ")")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", c::Chromatogram)
+    rtlo = isempty(c.rt) ? "—" : string(round(first(c.rt), digits = 3))
+    rthi = isempty(c.rt) ? "—" : string(round(last(c.rt),  digits = 3))
+    print(io, "Chromatogram(", length(c.rt), " pts rt=[", rtlo, ", ", rthi, "] min",
+              ", max ic=", c.maxic, ")")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", run::MSrun)
+    keys_summary = isempty(run.metadata) ? "—" :
+                   join(sort(collect(keys(run.metadata))), ", ")
+    println(io, "MSrun(", length(run.scans), " scans, ",
+                length(run.chromatograms), " chromatograms)")
+    println(io, "  file_metadata keys: ", keys_summary)
+    if !isempty(run.scans)
+        s1, sn = first(run.scans), last(run.scans)
+        println(io, "  first scan: ", sprint(show, MIME"text/plain"(), s1))
+        if length(run.scans) > 1
+            println(io, "  last  scan: ", sprint(show, MIME"text/plain"(), sn))
+        end
+    end
+end
