@@ -605,6 +605,77 @@ struct CompensationVoltage{argT <: Union{Real, AbstractVector{<:Real} }} <: Filt
 end
 
 
+"""
+    struct ChargeState{argT <: Union{Int, AbstractVector{<:Int} }} <: FilterType
+Dispatch filter to the precursor charge state (e.g. `ChargeState(2)` or `ChargeState([2, 3])`).
+"""
+struct ChargeState{argT <: Union{Int, AbstractVector{<:Int} }} <: FilterType
+   arg::argT
+   ChargeState(arg::argT) where{argT} = new{argT}(arg)
+end
+
+"""
+    struct SpectrumType{argT <: Union{Symbol, AbstractVector{Symbol} }} <: FilterType
+Dispatch filter to the spectrum representation: `SpectrumType(:centroid)`, `SpectrumType(:profile)`,
+or a list such as `SpectrumType([:centroid, :profile])`.
+"""
+struct SpectrumType{argT <: Union{Symbol, AbstractVector{Symbol} }} <: FilterType
+   arg::argT
+   SpectrumType(arg::argT) where{argT} = new{argT}(arg)
+end
+
+"""
+    struct MobilityType{argT <: Union{Symbol, AbstractVector{Symbol} }} <: FilterType
+Dispatch filter to the ion-mobility type: `MobilityType(:TIMS)`, `MobilityType(:FAIMS)`,
+`MobilityType(:none)`, or a list of them.
+"""
+struct MobilityType{argT <: Union{Symbol, AbstractVector{Symbol} }} <: FilterType
+   arg::argT
+   MobilityType(arg::argT) where{argT} = new{argT}(arg)
+end
+
+"""
+    struct MetaData{V} <: FilterType
+Generic filter over a per-spectrum [`MassJ.MSscans`](@ref) `metadata` entry, which is where the
+mzML reader stores acquisition cvParams (`filter_string`, `ion_injection_time`,
+`mass_resolving_power`, `scan_window_lower`/`scan_window_upper`, isolation-window parameters,
+`spectrum_title`, …). Match semantics depend on the value type:
+
+```julia
+MetaData("mass_resolving_power", 60000.0)        # numeric exact match
+MetaData("mass_resolving_power", [50000, Inf])   # numeric range  lo ≤ x ≤ hi
+MetaData("filter_string", "FTMS")                # substring match on the stored string
+MetaData("ion_injection_time")                   # presence test: the key exists
+```
+"""
+struct MetaData{V} <: FilterType
+   key::String
+   value::V
+   MetaData(key::AbstractString) = new{Nothing}(String(key), nothing)
+   MetaData(key::AbstractString, value::V) where{V} = new{V}(String(key), value)
+end
+
+"""
+    struct InstrumentConfig <: FilterType
+Filter spectra by the instrument configuration they were acquired with. `query` is matched
+against the configuration `id`, against any of its cvParam names/accessions, and against its
+component types (source / analyzer / detector), resolved through the run-level instrument table
+carried by an [`MassJ.MSrun`](@ref):
+
+```julia
+InstrumentConfig("IC1")         # by configuration id
+InstrumentConfig("orbitrap")    # by a cvParam name of the configuration
+InstrumentConfig("analyzer")    # by component type
+```
+When applied to a plain `Vector{MSscans}` (no run-level table), `query` is matched directly
+against each spectrum's stored `instrument_configuration_ref`.
+"""
+struct InstrumentConfig <: FilterType
+   query::String
+   InstrumentConfig(q::AbstractString) = new(String(q))
+end
+
+
 
 # ----------------------------------------------------------------------------
 # REPL-friendly `show` methods
