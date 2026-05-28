@@ -1,0 +1,24 @@
+# Codecov configuration for MassJ.jl
+# See https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  # Round percentage to one decimal place when reporting.
+  precision: 1
+  # Don't fail the CI run on small coverage swings — we want notification,
+  # not a hard gate, until coverage has stabilised post-publication.
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%   # allow ≤1 pp drop on a PR before flagging
+    patch:
+      default:
+        # New code shouldn't drop coverage; require ≥80% on the changed lines.
+        target: 80%
+
+# Exclude generated docs, the official PSI schema we ship as a fixture, and
+# the streaming script wrapper from coverage reports.
+ignore:
+  - "docs/"
+  - "test/schema/"
+  - "scripts/"
