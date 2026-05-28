@@ -1,6 +1,6 @@
 # Importing data
 
-The [`load`](@ref) function reads a mass spectrometry file and returns a `Vector{MSscans}`. The file format is automatically determined from the extension.
+The [`load`](@ref) function reads a mass spectrometry file and returns an [`MassJ.MSrun`](@ref) — a vector of [`MassJ.MSscans`](@ref) bundled with any file-level metadata. The file format is automatically determined from the extension. (A TXT file, or a single spectrum saved as a scalar, comes back as a bare [`MassJ.MSscans`](@ref) instead — see [Data types](@ref).)
 
 Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
@@ -50,11 +50,12 @@ The mzXML reader supports both 32-bit and 64-bit precision data, zlib compressio
 ### mzML
 The mzML reader supports the PSI (Proteomics Standards Initiative) standard format. It handles both `indexedmzML` and raw `mzML` files. Binary data arrays are decoded from base64 with optional zlib compression in little-endian byte order. Retention times are automatically converted to minutes regardless of the unit in the file (minutes or seconds). Ion mobility metadata (drift time, 1/K0, compensation voltage) is extracted when present.
 
-For mzML files, [`load`](@ref) returns a [`MassJ.MSrun`](@ref) — a wrapper
-that holds the spectrum vector alongside the *file-level* metadata
-(instrument configuration, software list, source file, data processing,
-referenceable parameter groups) and any pre-computed chromatograms baked
-into the source file. `MSrun` is a subtype of `AbstractVector{MSscans}`, so
+[`load`](@ref) returns a [`MassJ.MSrun`](@ref) — a wrapper that holds the
+spectrum vector alongside the *file-level* metadata (instrument configuration,
+software list, source file, data processing, referenceable parameter groups)
+and any pre-computed chromatograms baked into the source file. The mzML reader
+populates all of these; the other multi-spectrum formats leave the metadata and
+chromatogram list empty. `MSrun` is a subtype of `AbstractVector{MSscans}`, so
 code that treated `load`'s output as a vector keeps working unchanged:
 
 ```julia-repl
@@ -78,8 +79,8 @@ IonCurrent[]
 
 Slicing with a range (`run[1:5]`) returns a plain `Vector{MSscans}` — the
 file-level metadata is dropped because the slice no longer represents a
-complete run. For other formats (mzXML, MGF, MSP, imzML, TXT) `load`
-continues to return `Vector{MSscans}` directly.
+complete run. A TXT file (a single spectrum) and a scalar-saved single
+spectrum are the exceptions: they load as a bare [`MassJ.MSscans`](@ref).
 
 Several optional cvParams that don't have a dedicated [`MassJ.MSscans`](@ref)
 field are extracted into the scan's `metadata::Dict{String,Any}`. Keys are
