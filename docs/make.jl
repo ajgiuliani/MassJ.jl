@@ -29,6 +29,7 @@ makedocs(
             "Processing"                   => "man/processing.md",
             "Properties calculations"      => "man/calculations.md",
             "Energy-resolved yields"       => "man/yields.md",
+            "Chimeric spectra"             => "man/chimeric.md",
             "Plotting"                     => "man/plotting.md",
         ],
         "References"                       => "reference.md",
