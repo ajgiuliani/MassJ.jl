@@ -1,15 +1,15 @@
 # Combining and filtering data
 ## Average
 
-The [`average`](@ref) returns the average of the mass spectra directly from a `Vector{MSscan}` after [Importing data](@ref) data or directly from the `filename`.
+The [`average`](@ref) returns the average of the mass spectra directly from a `Vector{MSscans}` after [Importing data](@ref) data or directly from the `filename`.
 
 ```julia-repl
 julia> average("filename")
 MassJ.MSscans([1, 2, 3 ....
 
 julia> scans = load("filename")
-51-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....)
+51-element Array{MassJ.MSscans,1}:
+ MassJ.MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....)
 ...
 
 julia> average(scans)
@@ -17,7 +17,7 @@ MassJ.MSscans([1, 2, 3 ....
 
 ```
 
-Operating on files takes more time than working on `Vector{MSscan}` but may be useful to reduce the memory load.
+Operating on files takes more time than working on `Vector{MSscans}` but may be useful to reduce the memory load.
 
 Without any argument the [`average`](@ref) function averages the entire content of the data and the [`chromatogram`](@ref) function operates on also on the entire data.
 
@@ -92,7 +92,7 @@ chromatogram("filename", method = MassJ.∆MZ( [258, 1] ) )
 
 ## Extracting subsets
 
-The [`extract`](@ref) returns a Vector of `MSscan`from either a file of from a Vector{MSscan} following a [`load`](@ref) command, which corresponds to the filter conditions. See the [Filtering](@ref) part above.
+The [`extract`](@ref) returns a Vector of `MSscans`from either a file of from a Vector{MSscans} following a [`load`](@ref) command, which corresponds to the filter conditions. See the [Filtering](@ref) part above.
 
 ```julia
 sub_set = extract("filename")                       # extracting without any conditions returns a vector identical to the output 

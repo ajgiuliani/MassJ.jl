@@ -24,12 +24,10 @@ MassJ
 ### Data types
 ```@docs
 MassJ.MScontainer
-MassJ.MSscan
 MassJ.MSscans
-MassJ.Chromatogram
+MassJ.IonCurrent
+MassJ.maxic
 MassJ.MSrun
-MassJ.Mobilogram
-MassJ.Ionogram
 MassJ.Isotope
 MassJ.AbstractPeak
 MassJ.Peak
@@ -88,25 +86,25 @@ MassJ.save_mzxml
 ```
 
 ## Filtering on loaded scans
-The same operations are available directly on a `Vector{MSscan}` produced by
+The same operations are available directly on a `Vector{MSscans}` produced by
 [`load`](@ref). Filters are composed into a single short-circuiting predicate
 and applied in one pass — see [Composed predicates](@ref).
 
 ```@docs
-MassJ.average(scans::Vector{MSscan}, arguments::FilterType...; stats::Bool=true)
-MassJ.chromatogram(scans::Vector{MSscan}, filters::FilterType...; method::MethodType=TIC())
-MassJ.retention_time(scans::Vector{MSscan})
+MassJ.average(scans::Vector{MSscans}, arguments::FilterType...; stats::Bool=true)
+MassJ.chromatogram(scans::Vector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+MassJ.retention_time(scans::Vector{MSscans})
 ```
 
 ## Extracting subsets
 ```@docs
 MassJ.extract(filename::String, arguments::FilterType...)
-MassJ.extract(scans::Vector{MSscan}, arguments::FilterType...)
+MassJ.extract(scans::Vector{MSscans}, arguments::FilterType...)
 ```
 
 ## Composed predicates
 Internal predicate composition used by `extract`/`chromatogram`/`average` on a
-`Vector{MSscan}`. Exposed here for users extending the package with new
+`Vector{MSscans}`. Exposed here for users extending the package with new
 [`MassJ.FilterType`](@ref) subtypes — implement `to_predicate(f::MyFilter)`
 and the new filter is automatically composable with all existing ones.
 
@@ -121,11 +119,11 @@ MassJ.compose_predicates
 ### Mass spectrum
 ```@docs
 MassJ.smooth(scan::MScontainer; method::MethodType=SG(5, 9, 0))
-MassJ.smooth(scans::Vector{MSscan}; method::MethodType=SG(5, 9, 0))
+MassJ.smooth(scans::Vector{MSscans}; method::MethodType=SG(5, 9, 0))
 MassJ.centroid(scan::MScontainer; method::MethodType=SNRA(1., 100) )
-MassJ.centroid(scans::Vector{MSscan}; method::MethodType=SNRA(1., 100))
+MassJ.centroid(scans::Vector{MSscans}; method::MethodType=SNRA(1., 100))
 MassJ.baseline_correction(scan::MScontainer; method::MethodType=TopHat(100) )
-MassJ.baseline_correction(scans::Vector{MSscan}; method::MethodType=TopHat(100) )
+MassJ.baseline_correction(scans::Vector{MSscans}; method::MethodType=TopHat(100) )
 ```
 
 ## Deconvolution
@@ -174,9 +172,7 @@ combined directly — interpolation aligns the m/z axes automatically.
 ```@docs
 +(a::MScontainer, b::MScontainer)
 -(a::MScontainer, b::MScontainer)
-/(a::MSscan, N::Real)
 /(a::MSscans, N::Real)
-*(a::MSscan, N::Real)
 *(a::MSscans, N::Real)
 *(N::Real, a::MScontainer)
 *(a::MScontainer, b::MScontainer)

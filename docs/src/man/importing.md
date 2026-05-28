@@ -1,40 +1,40 @@
 # Importing data
 
-The [`load`](@ref) function reads a mass spectrometry file and returns a `Vector{MSscan}`. The file format is automatically determined from the extension.
+The [`load`](@ref) function reads a mass spectrometry file and returns a `Vector{MSscans}`. The file format is automatically determined from the extension.
 
 Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
 ```julia-repl
 julia> scans = load("test.mzXML")
-6-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.1384, 5.08195e6, ...)
+6-element Array{MassJ.MSscans,1}:
+ MassJ.MSscans(1, 0.1384, 5.08195e6, ...)
 ...
 
 julia> scans = load("test.mzML")
-3-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.5, 19000.0, ...)
+3-element Array{MassJ.MSscans,1}:
+ MassJ.MSscans(1, 0.5, 19000.0, ...)
 ...
 
 julia> scans = load("test.mgf")
-3-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.5, 4800.0, ...)
+3-element Array{MassJ.MSscans,1}:
+ MassJ.MSscans(1, 0.5, 4800.0, ...)
 ...
 
 julia> scans = load("library.msp")
-3-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.0, 178600.0, ...)
+3-element Array{MassJ.MSscans,1}:
+ MassJ.MSscans(1, 0.0, 178600.0, ...)
 ...
 
 julia> scans = load("sample.imzML")
-10000-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.0, 8000.0, ...)
+10000-element Array{MassJ.MSscans,1}:
+ MassJ.MSscans(1, 0.0, 8000.0, ...)
 ...
 ```
 
 Individual scans may be retrieved from the array the usual way:
 ```julia-repl
 julia> scans[1]
-MassJ.MSscan(1, 0.1384, 5.08195e6, ...)
+MassJ.MSscans(1, 0.1384, 5.08195e6, ...)
 
 julia> scans[1].mz
 22320-element Array{Float64,1}:
@@ -54,7 +54,7 @@ For mzML files, [`load`](@ref) returns a [`MassJ.MSrun`](@ref) — a wrapper
 that holds the spectrum vector alongside the *file-level* metadata
 (instrument configuration, software list, source file, data processing,
 referenceable parameter groups) and any pre-computed chromatograms baked
-into the source file. `MSrun` is a subtype of `AbstractVector{MSscan}`, so
+into the source file. `MSrun` is a subtype of `AbstractVector{MSscans}`, so
 code that treated `load`'s output as a vector keeps working unchanged:
 
 ```julia-repl
@@ -64,24 +64,24 @@ julia> typeof(run)
 MassJ.MSrun
 
 julia> length(run), eltype(run)
-(26906, MassJ.MSscan)
+(26906, MassJ.MSscans)
 
 julia> run[1]                                  # indexing
-MSscan(…)
+MSscans(…)
 
 julia> run.metadata["instruments"][1]["id"]    # file-level metadata
 "IC1"
 
 julia> run.chromatograms                        # pre-computed TIC etc.
-Chromatogram[]
+IonCurrent[]
 ```
 
-Slicing with a range (`run[1:5]`) returns a plain `Vector{MSscan}` — the
+Slicing with a range (`run[1:5]`) returns a plain `Vector{MSscans}` — the
 file-level metadata is dropped because the slice no longer represents a
 complete run. For other formats (mzXML, MGF, MSP, imzML, TXT) `load`
-continues to return `Vector{MSscan}` directly.
+continues to return `Vector{MSscans}` directly.
 
-Several optional cvParams that don't have a dedicated [`MassJ.MSscan`](@ref)
+Several optional cvParams that don't have a dedicated [`MassJ.MSscans`](@ref)
 field are extracted into the scan's `metadata::Dict{String,Any}`. Keys are
 added only when the corresponding cvParam is present in the source file
 (absent fields stay absent — no zero or `missing` placeholders):
@@ -117,7 +117,7 @@ julia> scans[1].metadata["scan_window_upper"]
 ```
 
 ### MGF
-The MGF (Mascot Generic Format) reader loads centroided peak lists. Each `BEGIN IONS`...`END IONS` block becomes one `MSscan`. The `PEPMASS` field sets the precursor m/z, `CHARGE` sets the charge state, and `RTINSECONDS` is converted to minutes. The `TITLE` and original `SCANS` values are stored in the `metadata` dictionary.
+The MGF (Mascot Generic Format) reader loads centroided peak lists. Each `BEGIN IONS`...`END IONS` block becomes one `MSscans`. The `PEPMASS` field sets the precursor m/z, `CHARGE` sets the charge state, and `RTINSECONDS` is converted to minutes. The `TITLE` and original `SCANS` values are stored in the `metadata` dictionary.
 
 ### MSP
 The MSP reader loads spectra from NIST Mass Spectral Library files used by NIST, MoNA, MassBank, and GNPS. Each entry starts with `Name:` and contains metadata fields (e.g. `Precursor_mz`, `Ion_mode`, `Collision_energy`, `Formula`, `InChIKey`) followed by `Num Peaks:` and the peak list. Both one-pair-per-line and semicolon-separated formats are supported. Rich metadata (name, formula, MW, InChIKey, CAS#, DB#, precursor type, comments) is stored in the `metadata` dictionary of each scan.
@@ -130,10 +130,10 @@ The TXT reader loads a single spectrum from a two-column whitespace-separated fi
 
 ## Chromatograms
 
-Chromatograms may be retrieved from a file and imported in [`MassJ.Chromatogram`](@ref):
+Chromatograms may be retrieved from a file and imported in [`MassJ.IonCurrent`](@ref):
 ```julia-repl
 julia> chromatogram("test.mzML")
-MassJ.Chromatogram([0.5, 1.0, 1.5], [19000.0, 4800.0, 2100.0], 19000.0)
+MassJ.IonCurrent([0.5, 1.0, 1.5], [19000.0, 4800.0, 2100.0], 19000.0)
 ```
 
 ## Retention time

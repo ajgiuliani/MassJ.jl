@@ -5,7 +5,7 @@ Home
 * Getting information on the file
 * Load a file
 * Averaging mass spectra based on various criteria that may be combined
-* Chromatogram
+* IonCurrent
 * Processing the data
    - smoothing
    - baseline correction

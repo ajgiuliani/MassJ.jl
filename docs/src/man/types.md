@@ -1,56 +1,93 @@
 # Data types
 The main data type of the package is the abstract type [`MassJ.MScontainer`](@ref).
 
-Mass spectrometry scans are stored in the following structure, which is a subtype of [`MassJ.MScontainer`](@ref).
+!!! note "Changed in v2.0"
+    Earlier versions had two spectrum types, `MSscan` (a raw scan) and `MSscans`
+    (a composite of several scans), and three separate trace types,
+    `Chromatogram`, `Mobilogram`, and `Ionogram`. Version 2.0 unifies each group
+    into a single type: [`MassJ.MSscans`](@ref) for spectra and
+    [`MassJ.IonCurrent`](@ref) for traces. See the migration notes in
+    `CHANGELOG.md`.
+
+## Spectra: `MSscans`
+
+Every mass spectrum — whether a single scan read from a file or a composite
+produced by [`average`](@ref) or the arithmetic operators — is stored in one
+type, [`MassJ.MSscans`](@ref):
+
 ```julia
-struct MSscan <: MScontainer
-    num::Int                          # scan number
-    rt::Float64                       # retention time (minutes)
-    tic::Float64                      # total ion current
-    mz::Vector{Float64}              # m/z values
-    int::Vector{Float64}             # intensity values
-    level::Int                        # MS level
-    basePeakMz::Float64              # base peak m/z
-    basePeakIntensity::Float64       # base peak intensity
-    precursor::Float64               # precursor m/z
-    polarity::String                 # polarity ("+" or "-")
-    activationMethod::String         # activation method (e.g. "CID", "HCD")
-    collisionEnergy::Float64         # collision energy
-    chargeState::Int                 # precursor charge state (0 = unknown)
-    spectrumType::Symbol             # :centroid, :profile, or :unknown
-    driftTime::Float64               # ion mobility drift time or 1/K0 (-1.0 = not present)
-    compensationVoltage::Float64     # FAIMS/DMS compensation voltage (0.0 = not present)
-    mobilityType::Symbol             # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
-    metadata::Dict{String,Any}       # additional format-specific metadata
+struct MSscans <: MScontainer
+    num::Vector{Int}                     # scan number(s)
+    rt::Vector{Float64}                  # retention time(s), minutes
+    tic::Float64                         # total ion current
+    mz::Vector{Float64}                  # m/z values
+    int::Vector{Float64}                 # intensity values
+    level::Vector{Int}                   # MS level(s)
+    basePeakMz::Float64                  # base peak m/z
+    basePeakIntensity::Float64           # base peak intensity
+    precursor::Vector{Float64}           # precursor m/z value(s)
+    polarity::Vector{String}             # polarity/polarities ("+" or "-")
+    activationMethod::Vector{String}     # activation method(s) (e.g. "CID", "HCD")
+    collisionEnergy::Vector{Float64}     # collision energy/energies
+    s::Vector{Float64}                   # per-m/z variance (empty for a single scan)
+    chargeState::Vector{Int}             # precursor charge state(s) (0 = unknown)
+    spectrumType::Symbol                 # :centroid, :profile, or :unknown
+    driftTime::Vector{Float64}           # ion mobility drift time(s) or 1/K0 (-1.0 = absent)
+    compensationVoltage::Vector{Float64} # FAIMS/DMS compensation voltage(s) (0.0 = absent)
+    mobilityType::Symbol                 # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
+    metadata::Dict{String,Any}           # additional format-specific metadata
 end
 ```
 
-A backward-compatible constructor accepting the original 12 fields is provided. The 6 new fields (`chargeState`, `spectrumType`, `driftTime`, `compensationVoltage`, `mobilityType`, `metadata`) default to neutral values (0, `:unknown`, -1.0, 0.0, `:none`, empty dict).
+The per-scan *provenance* fields (`num`, `rt`, `level`, `precursor`, `polarity`,
+`activationMethod`, `collisionEnergy`, `chargeState`, `driftTime`,
+`compensationVoltage`) are vectors. A raw scan has length-1 provenance, so
+`scans[1].num` is `[1]` rather than `1`; a composite of several scans carries
+one entry per contributing scan. This keeps the *history* of the operations:
+the result of `scans[1] + scans[2]` has `num == [1, 2]`. Use `length(s.num)` to
+get the number of contributing scans.
 
-Another subtype, [`MassJ.Chromatogram`](@ref), is used to store the retention time, the ionic current and the maximum value of the ion current.
+The variance accumulator `s` is empty for a single scan and is filled in by
+[`avg`](@ref) once two or more spectra are combined (a Welford M2 accumulator).
+
+Construct a single raw scan with the scalar 12- or 18-argument form (provenance
+values are scalars and are wrapped into length-1 vectors automatically); the 13-
+and 19-argument vector forms build a composite spectrum directly.
+
+## Traces: `IonCurrent`
+
+A one-dimensional ion-current trace against a single separation axis is stored
+in [`MassJ.IonCurrent`](@ref):
 
 ```julia
-struct Chromatogram  <: MScontainer
-    rt::Vector{Float64}               # array of retention times
-    ic::Vector{Float64}               # array of ion current
-    maxic::Float64                    # maximum ion current (used in plotting normalization)
+struct IonCurrent <: MScontainer
+    x::Vector{Float64}      # axis values (retention time, drift time, or compensation voltage)
+    ic::Vector{Float64}     # ion current
+    axis::Symbol            # :rt, :drift, or :cv
+    mobilityType::Symbol    # :DTIMS/:TIMS/:TWIMS/:FAIMS for a mobility axis, else :none
 end
 ```
+
+`axis` records what the abscissa `x` represents: `:rt` for a chromatogram,
+`:drift` for a mobilogram, `:cv` for a FAIMS/DMS ionogram. The peak ion current
+is obtained on demand with [`MassJ.maxic`](@ref) rather than stored. The keyword
+constructor `IonCurrent(x, ic; axis = :rt, mobilityType = :none)` is the usual
+entry point; [`chromatogram`](@ref) returns an `:rt` trace.
 
 ## mzML run wrapper: `MSrun`
 
 [`MassJ.MSrun`](@ref) wraps the result of [`load`](@ref) on an mzML file:
 ```julia
-struct MSrun <: AbstractVector{MSscan}
-    scans::Vector{MSscan}             # spectrum list
+struct MSrun <: AbstractVector{MSscans}
+    scans::Vector{MSscans}            # spectrum list
     metadata::Dict{String,Any}        # file-level cvParams (instrument, software, …)
-    chromatograms::Vector{Chromatogram}  # pre-computed chromatograms
+    chromatograms::Vector{IonCurrent} # pre-computed traces
 end
 ```
 
-`MSrun` is a subtype of `AbstractVector{MSscan}`, so the standard array
+`MSrun` is a subtype of `AbstractVector{MSscans}`, so the standard array
 interface (`length`, indexing, iteration, broadcasting) is delegated to the
-underlying `scans` vector. Slicing returns a plain `Vector{MSscan}` — the
+underlying `scans` vector. Slicing returns a plain `Vector{MSscans}` — the
 metadata is dropped because the slice no longer corresponds to a complete
 run.
 
@@ -61,62 +98,7 @@ run.
 source file information, processing history, and so on.
 
 For non-mzML formats (mzXML, MGF, MSP, imzML, TXT), `load` returns
-`Vector{MSscan}` directly.
-
-
-## Ion mobility container types
-
-Two additional container types are provided for ion mobility data:
-
-[`MassJ.Mobilogram`](@ref) stores drift time vs intensity data (analogous to a chromatogram for ion mobility):
-```julia
-struct Mobilogram <: MScontainer
-    dt::Vector{Float64}               # drift time or 1/K0 values
-    ic::Vector{Float64}               # ion current
-    maxic::Float64                    # maximum ion current
-    mobilityType::Symbol              # :DTIMS, :TIMS, :TWIMS, or :none
-end
-```
-
-[`MassJ.Ionogram`](@ref) stores compensation voltage vs intensity data (for FAIMS/DMS differential mobility):
-```julia
-struct Ionogram <: MScontainer
-    cv::Vector{Float64}               # compensation voltage values
-    ic::Vector{Float64}               # ion current
-    maxic::Float64                    # maximum ion current
-end
-```
-
-## Averaged spectra
-
-Combination of mass spectra requires another subtype of [`MassJ.MScontainer`](@ref) called [`MassJ.MSscans`](@ref) (notice the ending s).
-
-```julia
-struct MSscans  <: MScontainer
-    num::Vector{Int}                  # scan numbers
-    rt::Vector{Float64}               # retention times
-    tic::Float64                      # total ion current
-    mz::Vector{Float64}               # m/z values
-    int::Vector{Float64}              # intensity values
-    level::Vector{Int}                # MS levels
-    basePeakMz::Float64               # base peak m/z
-    basePeakIntensity::Float64        # base peak intensity
-    precursor::Vector{Float64}        # precursor m/z values
-    polarity::Vector{String}          # polarities
-    activationMethod::Vector{String}  # activation methods
-    collisionEnergy::Vector{Float64}  # collision energies
-    s::Vector{Float64}                # variance
-    chargeState::Vector{Int}          # precursor charge states (0 = unknown)
-    spectrumType::Symbol              # :centroid, :profile, or :unknown
-    driftTime::Vector{Float64}        # ion mobility drift times (-1.0 = not present)
-    compensationVoltage::Vector{Float64} # FAIMS/DMS compensation voltages (0.0 = not present)
-    mobilityType::Symbol              # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
-    metadata::Dict{String,Any}        # additional format-specific metadata
-end
-```
-The [`MassJ.MSscans`](@ref) structure is similar to [`MassJ.MSscan`](@ref), except that the fields `num`, `rt`, `precursor`, `polarity`, `activationMethod`, `collisionEnergy`, `chargeState`, `driftTime`, and `compensationVoltage` are vectors. This design keeps track of the *history* of the operations. For example, if an `MSscans` element is the result of the addition of two individual scans such as `scans[1] + scans[2]`, then the `num` field of the resulting `MSscans` is `[1, 2]`.
-
-A backward-compatible constructor accepting the original 13 fields is provided. The 6 new fields default to neutral values.
+`Vector{MSscans}` directly.
 
 ## Peak and yield-curve types
 
@@ -164,7 +146,7 @@ end
 ```
 `yields_err` and `tic_err` carry propagated 1-σ uncertainties — see
 [Uncertainties](@ref) in the energy-resolved yields manual. They are `NaN`
-when no error information is available (single scan / `MSscan` input).
+when no error information is available (a single scan).
 
 ## Deconvolution method types
 

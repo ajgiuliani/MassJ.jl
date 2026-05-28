@@ -1,10 +1,10 @@
 # Processing
 ## Smooth
-The [`smooth`](@ref) function is public and applies on `MSscan`or `MSscans` objects, with an optional `method` argument set to `MassJ.SG(5, 9, 0)`.  Smoothing is performed on the `int` field using the [Savinsky and Golay](https://en.wikipedia.org/wiki/Savitzky%E2%80%93Golay_filter). The first argument is the order (5 by default), the second is the number of points (default 9)  and the last, is the derivative level (0).
+The [`smooth`](@ref) function is public and applies on `MSscans`or `MSscans` objects, with an optional `method` argument set to `MassJ.SG(5, 9, 0)`.  Smoothing is performed on the `int` field using the [Savinsky and Golay](https://en.wikipedia.org/wiki/Savitzky%E2%80%93Golay_filter). The first argument is the order (5 by default), the second is the number of points (default 9)  and the last, is the derivative level (0).
 The function returns an `MScontainer` type identical to the input. 
 	
 ## Base line correction
-Base line correction is performed using the [`baseline_correction`](@ref) function. This function as two methods and operates either on [`MScontainer`](@ref) or on Array of [`MSscan`](@ref) such as obtained after [importing data](Importing data).
+Base line correction is performed using the [`baseline_correction`](@ref) function. This function as two methods and operates either on [`MScontainer`](@ref) or on Array of [`MSscans`](@ref) such as obtained after [importing data](Importing data).
 ```julia
 baseline_correction(scans)
 baseline_correction(scans, method = MassJ.IPSA(51, 100))
@@ -24,7 +24,7 @@ This algorithm takes the number of iteration to be performed. Usually 3 iteratio
 
 
 ## Peak picking
-Pick-picking is performed using the public [`centroid`](@ref) function. It operates on `MSscan`or `MSscans`type of data and return a similar type. It takes a method argument, set by default to the Signal to Noise Analysis method: `MassJ.SNRA`.
+Pick-picking is performed using the public [`centroid`](@ref) function. It operates on `MSscans`or `MSscans`type of data and return a similar type. It takes a method argument, set by default to the Signal to Noise Analysis method: `MassJ.SNRA`.
 ```julia
 centroid(scan)
 ```
@@ -53,7 +53,7 @@ centroid(scan, method = MassJ.TBPD(:voight,  1000., 0.1)
 ## Deconvolution
 Charge state deconvolution is performed using the [`deconv`](@ref) function. It implements the [UniDec](https://doi.org/10.1021/acs.analchem.5b00140) algorithm to deconvolve multiply charged mass spectra into zero-charge mass spectra.
 
-The function operates on `MSscan` or `MSscans` objects and returns an object of the same type with the deconvolved mass spectrum.
+The function operates on `MSscans` or `MSscans` objects and returns an object of the same type with the deconvolved mass spectrum.
 
 ```julia
 deconv(scan, Charges(adduct="H", range=(1,10)))

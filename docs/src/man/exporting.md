@@ -10,8 +10,8 @@ from the file extension, mirroring how [`load`](@ref) reads:
 | `.mzXML`  | mzXML     | [`MassJ.save_mzxml`](@ref) |
 
 `save` accepts any of the spectrum containers — a single
-[`MassJ.MSscan`](@ref), an averaged [`MassJ.MSscans`](@ref), or a
-`Vector{MSscan}` produced by [`load`](@ref).
+[`MassJ.MSscans`](@ref), an averaged [`MassJ.MSscans`](@ref), or a
+`Vector{MSscans}` produced by [`load`](@ref).
 
 ## Basic usage
 
@@ -74,7 +74,7 @@ others).
 
 The writers stream directly to disk one spectrum at a time, so peak RAM is
 bounded by the largest single spectrum (typically tens of KB) plus the size of
-the in-memory `Vector{MSscan}` you're writing — *not* by the total file size.
+the in-memory `Vector{MSscans}` you're writing — *not* by the total file size.
 A 1.2 GB proteomics file that previously needed ~30 GB of RAM (and ~45 min)
 now writes in a few minutes with memory bounded by the input vector you
 already loaded.
@@ -102,16 +102,16 @@ MassJ.
 
 | `typeof(save argument)` | `typeof(load result)`   |
 |-------------------------|-------------------------|
-| `MSscan`                | `MSscan`                |
+| `MSscans`                | `MSscans`                |
 | `MSscans`               | `MSscans`               |
-| `Vector{MSscan}`        | `Vector{MSscan}`        |
+| `Vector{MSscans}`        | `Vector{MSscans}`        |
 | `Vector{MSscans}`       | `Vector{MSscans}`       |
-| (file not saved by MassJ) | `Vector{MSscan}`      |
+| (file not saved by MassJ) | `Vector{MSscans}`      |
 
-The single-value paths (`MSscan`, `MSscans`) tag the spectrum with a MassJ
+The single-value paths (`MSscans`, `MSscans`) tag the spectrum with a MassJ
 `userParam` so `load` knows to unwrap it from the surrounding container. For
 files that did not pass through `save`, `load` keeps its long-standing
-`Vector{MSscan}` return type.
+`Vector{MSscans}` return type.
 
 Saving a `Vector{MSscans}` writes one spectrum per element, each carrying its
 own variance array and history but without the scalar marker. `load` then

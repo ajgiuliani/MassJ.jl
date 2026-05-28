@@ -224,7 +224,7 @@ shape changes, baseline drift, etc. — without the optimistic
 bin-independence assumption that diagonal-only error propagation makes.
 
 The combined uncertainty on each row's total is `yc.tic_err[i] = sqrt(Σ_p
-yields_err[i, p]²)`. For a single-scan input (`MSscan` or any file
+yields_err[i, p]²)`. For a single-scan input (`MSscans` or any file
 containing only one scan), there is no scan-to-scan variation to estimate
 and the corresponding entries are `NaN`.
 

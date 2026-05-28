@@ -1,5 +1,5 @@
 # Plotting
-Plotting facilities are available as a submodule to the `MassJ` package. The [`MassJ.plots`](@ref) module relies on the [RecipesBase package](https://github.com/JuliaPlots/RecipesBase.jl), which allows writing recipes to plot users' data types. Recipes are provided for `MSscan`, `MSscans`, `Chromatogram`, and `YieldCurve`:
+Plotting facilities are available as a submodule to the `MassJ` package. The [`MassJ.plots`](@ref) module relies on the [RecipesBase package](https://github.com/JuliaPlots/RecipesBase.jl), which allows writing recipes to plot users' data types. Recipes are provided for `MSscans`, `MSscans`, `IonCurrent`, and `YieldCurve`:
 
 ```julia
 plot(scans[1], method = :relative)
