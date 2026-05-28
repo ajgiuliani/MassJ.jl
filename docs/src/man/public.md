@@ -20,6 +20,9 @@ The functions below are exported:
 - [`normalize_flux`](@ref)
 - [`drop_peaks`](@ref)
 - [`read_peaklist`](@ref)
+- [`nscans`](@ref)
+- [`stdev`](@ref)
+- [`sem`](@ref)
 
 The following types are exported:
 - [`MassJ.Peak`](@ref)

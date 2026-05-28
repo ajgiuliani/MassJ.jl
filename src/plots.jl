@@ -15,6 +15,7 @@ using MassJ:IonCurrent
 using MassJ:maxic
 using MassJ:MSscans
 using MassJ:YieldCurve
+using MassJ:stdev, sem
 
 """
     normalisation(ms::MassJ.MScontainer)
@@ -45,22 +46,31 @@ end
 
 
 """
-    g(ms::MassJ.MSscans; method = :relative)
-Allows plotting mass spectra directly. The default relative-intensity plotting may be changed by setting method = :absolute.
+    g(ms::MassJ.MSscans; method = :relative, band = :none)
+Allows plotting mass spectra directly. The default relative-intensity plotting
+may be changed by setting `method = :absolute`. Set `band = :sem` or `band = :std`
+to draw a ±1-σ uncertainty ribbon (standard error of the mean, or sample standard
+deviation) on an averaged spectrum; it is ignored when no replicate statistics are
+present.
 """
-@recipe function g(ms::MSscans; method = :relative)
+@recipe function g(ms::MSscans; method = :relative, band = :none)
     seriestype --> :path
     seriescolor --> :red
     label --> ""
     xlabel --> "m/z"
     if method == :relative
-        y = normalisation(ms)
+        factor = 100. / ms.basePeakIntensity
         ylabel --> "Intensity (%)"
-    elseif method == :absolute
-        y = ms.int
+    else  # :absolute
+        factor = 1.0
         ylabel --> "Intensity (a.u.)"
     end
-    ms.mz, y
+    if (band === :std || band === :sem) && !isempty(ms.s)
+        e = band === :sem ? sem(ms) : stdev(ms)
+        ribbon    --> e .* factor
+        fillalpha --> 0.15
+    end
+    ms.mz, ms.int .* factor
 end
 
 

@@ -206,6 +206,16 @@ combined directly — interpolation aligns the m/z axes automatically.
 *(a::MScontainer, b::MScontainer)
 ```
 
+## Uncertainty accessors
+Retrieve the per-m/z uncertainty carried by an averaged spectrum — see
+[Uncertainties and errors](@ref).
+
+```@docs
+MassJ.nscans
+MassJ.stdev
+MassJ.sem
+```
+
 ## Other utilities
 ```@docs
 MassJ.avg(a::MScontainer, b::MScontainer)

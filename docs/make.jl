@@ -27,6 +27,7 @@ makedocs(
             "Exporting data"               => "man/exporting.md",
             "Combining and filtering data" => "man/filtering.md",
             "Processing"                   => "man/processing.md",
+            "Uncertainties and errors"     => "man/uncertainties.md",
             "Properties calculations"      => "man/calculations.md",
             "Energy-resolved yields"       => "man/yields.md",
             "Chimeric spectra"             => "man/chimeric.md",

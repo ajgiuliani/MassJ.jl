@@ -44,7 +44,7 @@ simply an `MSscans` whose provenance vectors have length 1, while a composite of
         polarity::Vector{String}             # polarity/polarities
         activationMethod::Vector{String}     # activation method(s)
         collisionEnergy::Vector{Float64}     # collision energy/energies
-        s::Vector{Float64}                   # per-m/z variance (empty for a single scan)
+        s::Vector{Float64}                   # per-m/z uncertainty (empty for a single scan; see note below)
         chargeState::Vector{Int}             # precursor charge state(s) (0 = unknown)
         spectrumType::Symbol                 # :centroid, :profile, or :unknown
         driftTime::Vector{Float64}           # ion mobility drift time(s) or 1/K0 (-1.0 = absent)
@@ -53,9 +53,12 @@ simply an `MSscans` whose provenance vectors have length 1, while a composite of
         metadata::Dict{String,Any}           # additional format-specific metadata
     end
 
-The variance accumulator `s` (Welford M2) is empty for a single scan and is
-populated by [`avg`](@ref) once two or more spectra are combined. Use `length(s.num)`
-to obtain the number of contributing scans.
+The uncertainty field `s` is empty for a single scan. During incremental
+averaging it holds the Welford **M2** accumulator (sum of squared deviations);
+[`average`](@ref)`(...; stats = true)` then finalizes it to the per-m/z **sample
+standard deviation** σ. Rather than reading `s` directly, use the accessors
+[`stdev`](@ref) (σ), [`sem`](@ref) (σ/√N, the error on the mean), and
+[`nscans`](@ref) (number of contributing scans).
 
 Construct a single raw scan with the scalar 12- or 18-argument forms (provenance
 values are scalars and are wrapped into length-1 vectors automatically); the
@@ -74,7 +77,7 @@ struct MSscans  <: MScontainer
     polarity::Vector{String}          # polarities
     activationMethod::Vector{String}  # activation methods
     collisionEnergy::Vector{Float64}  # collision energies
-    s::Vector{Float64}                # variance
+    s::Vector{Float64}                # per-m/z uncertainty (Welford M2 while accumulating; σ after average); use stdev/sem
     chargeState::Vector{Int}          # precursor charge states (0 = unknown)
     spectrumType::Symbol              # :centroid, :profile, or :unknown
     driftTime::Vector{Float64}        # ion mobility drift times or 1/K0 (-1.0 = not present)

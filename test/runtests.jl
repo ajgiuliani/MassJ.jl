@@ -775,6 +775,34 @@ function test_mobility()
 end
 
 
+function test_uncertainty()
+    @testset "Uncertainty accessors + plot band" begin
+        scans = MassJ.load("test.mzML")
+        avg = MassJ.average(scans)                       # stats = true → s holds σ
+
+        @test MassJ.nscans(avg) == length(scans)
+        sd = MassJ.stdev(avg)
+        se = MassJ.sem(avg)
+        @test !isempty(sd)
+        @test length(sd) == length(avg.mz)
+        @test all(sd .>= 0.0)
+        @test se ≈ sd ./ sqrt(MassJ.nscans(avg)) atol = 1e-12
+
+        # a single scan carries no replicate statistics
+        s1 = scans[1]
+        @test MassJ.nscans(s1) == 1
+        @test isempty(MassJ.stdev(s1))
+        @test isempty(MassJ.sem(s1))
+
+        # plot recipe band options return a plot; band is ignored when s is empty
+        @test plot(avg; band = :sem) isa Plots.Plot
+        @test plot(avg; band = :std, method = :absolute) isa Plots.Plot
+        @test plot(avg) isa Plots.Plot
+        @test plot(s1; band = :sem) isa Plots.Plot
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2168,11 +2196,6 @@ function test_yields_errors()
             @test yc.tic_err[i] ≈ sqrt(sum(abs2, yc.yields_err[i, :]))
         end
 
-        # MSscan path: no variance available → NaN error
-        scans = MassJ.load("test.mzXML")
-        _, σ_one = MassJ._integrate_window_with_err(scans[1], 400.0, 500.0)
-        @test isnan(σ_one)
-
         # normalize_tic: standard division error propagation
         yn = MassJ.normalize_tic(yc)
         @test all(isfinite, yn.yields_err)
@@ -2322,29 +2345,13 @@ function test_yields_errors()
         # Plot with ribbon still works
         @test typeof(plot(yc)) == Plots.Plot{Plots.GRBackend}
 
-        # -- Per-scan-area error >> the old diagonal-only SEM ---------------
-        # The pre-fix `_integrate_window_with_err` propagated the Welford
-        # per-bin SEM through a diagonal-only `var(Σ wᵢ yᵢ) = Σ wᵢ² var(yᵢ)`
-        # formula, which assumes independence between m/z bins. For a real
-        # peak that's wrong — adjacent bins fluctuate together — and the
-        # resulting SEM underestimates the true scan-to-scan variability.
-        # The current per-scan-area implementation should give a strictly
-        # larger SEM than the old approach for the same window.
+        # Per-scan-area error: a single-file yields still produces a finite,
+        # non-negative SEM from the spread of the per-scan integrals.
         scans_real = MassJ.load("test.mzXML")
-        bp_idx     = argmax(scans_real[1].int)
-        bp_mz      = scans_real[1].mz[bp_idx]
-        peaks_cmp  = [MassJ.TargetPeak(bp_mz, "bp"; tol = 0.5)]
-        yc_cmp     = MassJ.yields(["test.mzXML"], peaks_cmp; x = [1.0])
-        # Old diagonal-only approach (still computable from MSscans + Welford)
-        avg_cmp    = MassJ.average(scans_real)
-        _, old_sem = MassJ._integrate_window_with_err(avg_cmp,
-                                                      bp_mz - 0.5, bp_mz + 0.5)
+        bp_mz      = scans_real[1].mz[argmax(scans_real[1].int)]
+        yc_cmp     = MassJ.yields(["test.mzXML"], [MassJ.TargetPeak(bp_mz, "bp"; tol = 0.5)]; x = [1.0])
         @test isfinite(yc_cmp.yields_err[1, 1])
-        @test yc_cmp.yields_err[1, 1] > old_sem        # bigger and honest
-        # Ratio is several orders of magnitude on this heterogeneous fixture
-        # — guard a generous lower bound so the assertion is robust across
-        # platforms / future refactors.
-        @test yc_cmp.yields_err[1, 1] / old_sem > 10
+        @test yc_cmp.yields_err[1, 1] >= 0
     end
 end
 
@@ -2373,6 +2380,7 @@ test_yield_transforms()
 test_peptides()
 test_fragment_peaks()
 test_mobility()
+test_uncertainty()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()

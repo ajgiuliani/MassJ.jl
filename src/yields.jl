@@ -149,44 +149,6 @@ integrate_window(scan::MScontainer, mz1::Real, mz2::Real) =
     integrate_window(scan.mz, scan.int, mz1, mz2)
 
 
-# Internal: trapezoidal integration that also returns the 1-σ uncertainty on the
-# area, derived from the per-m/z standard error of the mean (SEM) carried by an
-# composite MSscans. Falls back to (area, NaN) when no error info is available
-# (single scan, or only one point in the window).
-function _integrate_window_with_err(spec::MScontainer, mz1::Real, mz2::Real)
-    lo, hi = mz1 <= mz2 ? (mz1, mz2) : (mz2, mz1)
-    idx = findall(x -> lo <= x <= hi, spec.mz)
-    n = length(idx)
-    n < 2 && return (0.0, NaN)
-
-    area = 0.0
-    @inbounds for k in 1:n - 1
-        i, j  = idx[k], idx[k + 1]
-        area += 0.5 * (spec.int[i] + spec.int[j]) * (spec.mz[j] - spec.mz[i])
-    end
-
-    # Per-point variance is available only on a composite of > 1 scan
-    if length(spec.num) > 1 && !isempty(spec.s)
-        N = length(spec.num)
-        var_acc = 0.0
-        @inbounds for k in 1:n
-            i = idx[k]
-            w = if k == 1
-                0.5 * (spec.mz[idx[2]] - spec.mz[idx[1]])
-            elseif k == n
-                0.5 * (spec.mz[idx[n]] - spec.mz[idx[n - 1]])
-            else
-                0.5 * (spec.mz[idx[k + 1]] - spec.mz[idx[k - 1]])
-            end
-            sem_i_sq = spec.s[i] / (N * (N - 1))
-            var_acc += w * w * sem_i_sq
-        end
-        return (area, sqrt(max(var_acc, 0.0)))
-    end
-    return (area, NaN)
-end
-
-
 """
     yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
            x::AbstractVector{<:Real},

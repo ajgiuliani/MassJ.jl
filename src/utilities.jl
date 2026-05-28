@@ -6,7 +6,7 @@ Utility functions to work on MScontainer data types.
 # User Interface.
 # --------------
 
-export avg, num2pnt
+export avg, num2pnt, nscans, stdev, sem
 
 
 
@@ -292,6 +292,32 @@ end
 function standard_deviation(a::MSscans, N::Int)
     return MSscans(a.num, a.rt, a.tic, a.mz, a.int, a.level, a.basePeakMz, a.basePeakIntensity, a.precursor, a.polarity, a.activationMethod, a.collisionEnergy, map(sqrt, (a.s / (N -1)) ) )
 end
+
+
+### Uncertainty accessors (public)
+
+"""
+    nscans(spec::MSscans) -> Int
+Number of scans averaged into `spec` (1 for a single raw scan).
+"""
+nscans(spec::MSscans) = length(spec.num)
+
+"""
+    stdev(spec::MSscans) -> Vector{Float64}
+Per-m/z **sample standard deviation** of an averaged spectrum — the spread of the
+replicate intensities, as produced by `average(...; stats = true)`. Returns an
+empty vector when no replicate statistics are available (a single scan, or
+`stats = false`). See also [`sem`](@ref), [`nscans`](@ref).
+"""
+stdev(spec::MSscans) = spec.s
+
+"""
+    sem(spec::MSscans) -> Vector{Float64}
+Per-m/z **standard error of the mean** intensity, `stdev(spec) ./ sqrt(nscans(spec))`
+— the 1-σ uncertainty on each averaged intensity. Empty when no replicate
+statistics are available. See also [`stdev`](@ref).
+"""
+sem(spec::MSscans) = isempty(spec.s) ? Float64[] : spec.s ./ sqrt(nscans(spec))
 
 
 
