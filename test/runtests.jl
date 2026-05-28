@@ -530,6 +530,54 @@ function test_centroid_metrics()
 end
 
 
+function test_assignment()
+    @testset "Formula assignment + isotope scoring" begin
+        M = MassJ.masses("C6H12O6")["Monoisotopic"]          # glucose
+        mzobs = MassJ.adduct_mz(M, "[M+H]+")
+        elems = Dict("C" => 0:12, "H" => 0:24, "O" => 0:12, "N" => 0:6)
+
+        cands = MassJ.assign_formula(mzobs; adduct = "[M+H]+", tol_ppm = 5, elements = elems)
+        @test !isempty(cands)
+        gi = findfirst(c -> c.formula == Dict("C" => 6, "H" => 12, "O" => 6), cands)
+        @test gi !== nothing
+        @test cands[gi].rdbe ≈ 1.0
+        @test abs(cands[gi].error_ppm) < 1e-3                 # mz built from this exact formula
+        @test cands[gi].mass ≈ M atol = 1e-6
+        # results are sorted by |error| → the true formula ranks first
+        @test cands[1].formula == Dict("C" => 6, "H" => 12, "O" => 6)
+        @test issorted(abs.([c.error_ppm for c in cands]))
+
+        # RDBE filter excludes glucose (DBE = 1) when a higher floor is required
+        hi = MassJ.assign_formula(mzobs; adduct = "[M+H]+", tol_ppm = 5, elements = elems,
+                                  rdbe = (2.0, 40.0))
+        @test all(c -> c.formula != Dict("C" => 6, "H" => 12, "O" => 6), hi)
+
+        # unreachable target within the given ranges → no candidates
+        @test isempty(MassJ.assign_formula(5000.0; adduct = "[M+H]+", tol_ppm = 1, elements = elems))
+
+        # max_results truncates
+        @test length(MassJ.assign_formula(500.1; adduct = "[M+H]+", tol_ppm = 10, max_results = 5)) <= 5
+
+        # unknown element raises
+        @test_throws ErrorException MassJ.assign_formula(mzobs; elements = Dict("Xx" => 0:2))
+
+        # isotope-pattern scoring: measured pattern built from glucose theory
+        theo = MassJ.isotopic_distribution(Dict("C" => 6, "H" => 12, "O" => 6), 0.999; charge = 1)
+        mmz = [MassJ.adduct_mz(Float64(theo[i, 1]), "[M+H]+") for i in 2:size(theo, 1)]
+        mint = Float64.(theo[2:end, 2])
+        sc_true = MassJ.score_isotope_pattern(mmz, mint, cands[gi]; adduct = "[M+H]+", tol = 0.02)
+        @test sc_true > 0.99
+        wrong = MassJ.FormulaCandidate(Dict("C" => 2, "H" => 4, "O" => 1), 44.026, 0.0, 1.0)
+        @test MassJ.score_isotope_pattern(mmz, mint, wrong; adduct = "[M+H]+", tol = 0.02) < sc_true
+
+        # MSscans convenience method agrees with the vector method
+        spec = MassJ.MSscans(1, 0.0, sum(mint), mmz, mint, 1, mmz[1], maximum(mint),
+                             0.0, "+", "", 0.0)
+        @test MassJ.score_isotope_pattern(spec, cands[gi]; adduct = "[M+H]+", tol = 0.02) ≈ sc_true atol = 1e-9
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2122,6 +2170,7 @@ test_isotopes()
 test_adducts()
 test_calibration()
 test_centroid_metrics()
+test_assignment()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
