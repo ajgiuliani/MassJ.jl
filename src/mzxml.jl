@@ -128,11 +128,11 @@ function load_mzxml_all(filename::String)
     scalar_vec = scalar_of[1:index-1]
 
     # Bit-symmetric scalar round-trip: a single spectrum saved as a scalar comes
-    # back bare rather than wrapped in a length-1 vector.
+    # back bare rather than wrapped in a run.
     if length(raw) == 1 && scalar_vec[1]
         return raw[1]
     end
-    return raw
+    return MSrun(raw)
 end
 
 """
@@ -703,6 +703,27 @@ function filter(msRun::XMLElement, argument::IC{<:AbstractVector})
         end
     end
     return subindex
+end
+
+
+"""
+    filter(msRun::XMLElement, f::FilterType)
+Generic fallback for the file-direct mzXML path: load every scan and apply the same
+single-pass predicate machinery used for in-memory data, so any [`FilterType`](@ref) — including
+filters for mzML-specific fields not present in mzXML — composes here too. Returns the set of
+matching scan numbers.
+"""
+function filter(msRun::XMLElement, f::FilterType)
+    scans = MSscans[]
+    for c in child_elements(msRun)
+        while name(c) == "scan"
+            push!(scans, load_mzxml_spectrum(c))
+            c = find_element(c, "scan")
+            c === nothing && break
+        end
+    end
+    pred = compose_predicates(scans, (f,))
+    return Set(s.num[1] for s in scans if pred(s))
 end
 
 
