@@ -1262,6 +1262,27 @@ function test_text_writers()
         @test MassJ.save(s1, tempname() * ".mgf") |> isfile
         @test_throws ErrorException MassJ.save(s1, tempname() * ".weird")
     end
+
+    @testset "imzML writer round-trip (.imzML + .ibd)" begin
+        orig = MassJ.load("test.imzML")
+        tmp  = tempname() * ".imzML"
+        MassJ.save(orig, tmp)
+        @test isfile(tmp)
+        @test isfile(splitext(tmp)[1] * ".ibd")          # companion binary written
+        back = MassJ.load(tmp)
+        @test length(back) == length(orig)
+        for (a, b) in zip(orig, back)
+            @test a.mz  ≈ b.mz
+            @test a.int ≈ b.int
+            @test a.metadata["position_x"] == b.metadata["position_x"]
+            @test a.metadata["position_y"] == b.metadata["position_y"]
+        end
+        # zlib-compressed .ibd round-trips too
+        tmpc = tempname() * ".imzML"
+        MassJ.save(orig, tmpc; compress = true)
+        backc = MassJ.load(tmpc)
+        @test all(orig[i].mz ≈ backc[i].mz && orig[i].int ≈ backc[i].int for i in eachindex(orig))
+    end
 end
 
 
