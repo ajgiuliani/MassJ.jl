@@ -38,6 +38,72 @@ The [`average`](@ref) and [`chromatogram`](@ref) functions may takes arguments t
 | MassJ.IC                     | Ion current           | Vector{Real}                             | average               |
 | MassJ.DriftTime              | Ion mobility drift time | Real, Vector{Real}                     | average, chromatogram |
 | MassJ.CompensationVoltage    | FAIMS/DMS CV          | Real, Vector{Real}                       | average, chromatogram |
+| MassJ.ChargeState            | Precursor charge state | Int, Vector{Int}                        | average, chromatogram, extract |
+| MassJ.SpectrumType           | :centroid / :profile  | Symbol, Vector{Symbol}                   | average, chromatogram, extract |
+| MassJ.MobilityType           | :DTIMS/:TIMS/:FAIMS/:none | Symbol, Vector{Symbol}               | average, chromatogram, extract |
+| MassJ.MetaData               | per-spectrum cvParam  | key + value / [lo,hi] / substring / key-only | average, chromatogram, extract |
+| MassJ.InstrumentConfig       | instrument configuration | String (id / cvParam name / component) | average, chromatogram, extract |
+
+The last block is new in v2 and targets the richer per-spectrum information that the mzML
+reader exposes. Every `FilterType` is converted to a predicate and **composed with `all`**, so
+any combination of filters — old or new — can be passed together and is applied in a single pass.
+
+### Filtering on charge state, spectrum type and mobility
+
+These three filters select on dedicated [`MassJ.MSscans`](@ref) fields. Like every filter they
+accept a single value or a vector of values:
+
+```julia
+extract(run, ChargeState(2))                     # only 2+ precursors
+extract(run, ChargeState([2, 3]))                # 2+ or 3+
+extract(run, SpectrumType(:centroid))            # only centroided spectra
+extract(run, MobilityType(:TIMS))                # only TIMS scans
+extract(run, MobilityType([:TIMS, :FAIMS]))      # TIMS or FAIMS
+```
+
+### Filtering on acquisition cvParams — `MetaData`
+
+`MassJ.MetaData` filters on any key the reader stored in a spectrum's `metadata` dictionary
+(`filter_string`, `ion_injection_time`, `mass_resolving_power`, `scan_window_lower`/`upper`,
+isolation-window parameters, `spectrum_title`, …). The match depends on the value you supply:
+
+```julia
+MetaData("mass_resolving_power", 60000.0)        # numeric exact match
+MetaData("mass_resolving_power", [50000, Inf])   # numeric range  lo ≤ x ≤ hi
+MetaData("filter_string", "FTMS")                # substring match on the stored string
+MetaData("ion_injection_time")                   # presence test (the key exists)
+```
+
+### Filtering by instrument configuration — `InstrumentConfig`
+
+`MassJ.InstrumentConfig` selects spectra by the instrument configuration they were acquired
+with. The query is resolved through the run-level instrument table carried by the
+[`MassJ.MSrun`](@ref): it matches the configuration `id`, any of its cvParam names/accessions, or
+a component type (source / analyzer / detector).
+
+```julia
+extract(run, InstrumentConfig("IC1"))         # by configuration id
+extract(run, InstrumentConfig("orbitrap"))    # by a cvParam name of the configuration
+extract(run, InstrumentConfig("analyzer"))    # by component type
+```
+
+(When applied to a plain `Vector{MSscans}` with no run-level table, the query is matched
+directly against each spectrum's stored `instrument_configuration_ref`.)
+
+### Combining old and new filters
+
+New and existing filters compose freely — pass as many as you like and they are AND-combined in
+a single pass. For example, to average the centroided 2+ MS² spectra acquired on the orbitrap at
+high resolving power:
+
+```julia
+run = load("data.mzML")
+average(run, Level(2),
+             SpectrumType(:centroid),
+             ChargeState(2),
+             InstrumentConfig("orbitrap"),
+             MetaData("mass_resolving_power", [60000, Inf]))
+```
 
 
 
