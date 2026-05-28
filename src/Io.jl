@@ -172,7 +172,7 @@ julia> retention_time("scans")
 ....
 ```
 """
-function retention_time(scans::Vector{MSscans})
+function retention_time(scans::AbstractVector{MSscans})
     rt  = Vector{Float64}(undef,0)
     for elem in scans
         push!(rt, elem.rt[1])
@@ -186,7 +186,7 @@ end
     chromatogram(filename::String, filters::FilterType...; method::MethodType=TIC())
 Returns a [`Chromatogram`](@ref) holding the retention time (rt), the ion current (ic) and the maximum value (maxic) for all the mass spectra within the file. The `method` keyword controls how the ion current is computed: `TIC()` (default) for total ion current, `BasePeak()` for base peak intensity, `∆MZ([mz, Δ])` for extracted ion current around mz ± Δ, or `MZ([mz1, mz2])` for a m/z range.
 
-The data may be filtered using [`FilterType`](@ref) arguments: `Level(N)`, `Precursor(mz)`, `Activation_Method("method")`, `Activation_Energy(ce)`, `Polarity("+")`, `Scan(n)`, `RT([t1,t2])`, `IC([min,max])`.
+The data may be filtered using [`FilterType`](@ref) arguments: `Level(N)`, `Precursor(mz)`, `Activation_Method("method")`, `Activation_Energy(ce)`, `Polarity("+")`, `Scan(n)`, `RT([t1,t2])`, `IC([min,max])`, `DriftTime(dt)`, `CompensationVoltage(cv)`, `ChargeState(z)`, `SpectrumType(:centroid)`, `MobilityType(:TIMS)`, `MetaData(key[, value])`, `InstrumentConfig("id")`. Filters compose (AND) in a single pass — see [Combining and filtering data](@ref).
 
 Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 
@@ -259,7 +259,7 @@ julia> rt, ic = chromatogram("test.mzxml", method = MassJ.MZ([200,1000]))
 ([0.1384  …  60.4793], [4.74795e6  …  17.4918])
 ```
 """
-function chromatogram(scans::Vector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+function chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
     pred = compose_predicates(scans, filters)
 
     xrt = Vector{Float64}(undef, 0)
@@ -373,7 +373,7 @@ julia> spectrum = average("test.mzxml", MassJ.Activation_Method("PQD"), MassJ.Po
 MassJ.MSscans([9, 12, 15, 18], ...
 ```
 """
-function average(scans::Vector{MSscans}, arguments::FilterType...; stats::Bool=true)
+function average(scans::AbstractVector{MSscans}, arguments::FilterType...; stats::Bool=true)
     pred = compose_predicates(scans, arguments)
 
     result = nothing
