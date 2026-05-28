@@ -362,8 +362,8 @@ function filter(msRun::XMLElement, argument::Precursor{<:Real})
     subindex = Set{Int}()
     for c in child_elements(msRun)
         while name(c) == "scan"
-            if load_mzxml_spectrum(c).precursor == argument.arg
-                push!(subindex, load_mzxml_spectrum(c).num)
+            if load_mzxml_spectrum(c).precursor[1] == argument.arg
+                push!(subindex, load_mzxml_spectrum(c).num[1])
             end
             c = find_element(c,"scan")
             if c == nothing
@@ -384,8 +384,8 @@ function filter(msRun::XMLElement, argument::Level{<:Int})
     subindex = Set{Int}()
     for c in child_elements(msRun)
         while name(c) == "scan"
-            if load_mzxml_spectrum(c).level == argument.arg
-                    push!(subindex, load_mzxml_spectrum(c).num)
+            if load_mzxml_spectrum(c).level[1] == argument.arg
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
             end
             c = find_element(c,"scan")
             if c == nothing
@@ -406,8 +406,8 @@ function filter(msRun::XMLElement, argument::Level{<:AbstractVector})
     for i in argument.arg       
         for c in child_elements(msRun)
             while name(c) == "scan"
-                if load_mzxml_spectrum(c).level == i
-                    push!(subindex, load_mzxml_spectrum(c).num)
+                if load_mzxml_spectrum(c).level[1] == i
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
                 end
                 c = find_element(c,"scan")
                 if c == nothing
@@ -429,8 +429,8 @@ function filter(msRun::XMLElement, argument::Precursor{<:AbstractVector})
     for i in argument.arg       
         for c in child_elements(msRun)
             while name(c) == "scan"
-                if load_mzxml_spectrum(c).precursor == i
-                    push!(subindex, load_mzxml_spectrum(c).num)
+                if load_mzxml_spectrum(c).precursor[1] == i
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
                 end
                 c = find_element(c,"scan")
                 if c == nothing
@@ -452,8 +452,8 @@ function filter(msRun::XMLElement, argument::Activation_Energy{<:AbstractVector}
     for i in argument.arg       
         for c in child_elements(msRun)
             while name(c) == "scan"
-                if load_mzxml_spectrum(c).collisionEnergy == i
-                    push!(subindex, load_mzxml_spectrum(c).num)
+                if load_mzxml_spectrum(c).collisionEnergy[1] == i
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
                 end
                 c = find_element(c,"scan")
                 if c == nothing
@@ -473,8 +473,8 @@ function filter(msRun::XMLElement, argument::Activation_Energy{<:Real})
     subindex = Set{Int}()
     for c in child_elements(msRun)
         while name(c) == "scan"
-            if load_mzxml_spectrum(c).collisionEnergy == argument.arg
-                    push!(subindex, load_mzxml_spectrum(c).num)
+            if load_mzxml_spectrum(c).collisionEnergy[1] == argument.arg
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
             end
             c = find_element(c,"scan")
             if c == nothing
@@ -494,8 +494,8 @@ function filter(msRun::XMLElement, argument::Activation_Method{<:AbstractVector}
     for i in argument.arg
         for c in child_elements(msRun)
             while name(c) == "scan"
-                if load_mzxml_spectrum(c).activationMethod == i
-                    push!(subindex, load_mzxml_spectrum(c).num)
+                if load_mzxml_spectrum(c).activationMethod[1] == i
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
                 end
                 c = find_element(c,"scan")
                 if c == nothing
@@ -515,8 +515,8 @@ function filter(msRun::XMLElement, argument::Activation_Method{<:String})
     subindex = Set{Int}()
     for c in child_elements(msRun)
         while name(c) == "scan"
-            if load_mzxml_spectrum(c).activationMethod == argument.arg
-                    push!(subindex, load_mzxml_spectrum(c).num)
+            if load_mzxml_spectrum(c).activationMethod[1] == argument.arg
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
             end
             c = find_element(c,"scan")
             if c == nothing
@@ -536,8 +536,8 @@ function filter(msRun::XMLElement, argument::Polarity{<:AbstractVector})
     for i in argument.arg       
         for c in child_elements(msRun)
             while name(c) == "scan"
-                if load_mzxml_spectrum(c).polarity == i
-                    push!(subindex, load_mzxml_spectrum(c).num)
+                if load_mzxml_spectrum(c).polarity[1] == i
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
                 end
                 c = find_element(c,"scan")
                 if c == nothing
@@ -557,8 +557,8 @@ function filter(msRun::XMLElement, argument::Polarity{<:String})
     subindex = Set{Int}()
     for c in child_elements(msRun)
         while name(c) == "scan"
-            if load_mzxml_spectrum(c).polarity == argument.arg
-                    push!(subindex, load_mzxml_spectrum(c).num)
+            if load_mzxml_spectrum(c).polarity[1] == argument.arg
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
             end
             c = find_element(c,"scan")
             if c == nothing
@@ -579,8 +579,8 @@ function filter(msRun::XMLElement, argument::Scan{<:AbstractVector})
     for i in argument.arg       
         for c in child_elements(msRun)
             while name(c) == "scan"
-                if load_mzxml_spectrum(c).num == i
-                    push!(subindex, load_mzxml_spectrum(c).num)
+                if load_mzxml_spectrum(c).num[1] == i
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
                 end
                 c = find_element(c,"scan")
                 if c == nothing
@@ -600,8 +600,8 @@ function filter(msRun::XMLElement, argument::Scan{<:Int})
     subindex = Set{Int}()
     for c in child_elements(msRun)
         while name(c) == "scan"
-            if load_mzxml_spectrum(c).num == argument.arg
-                push!(subindex, load_mzxml_spectrum(c).num)
+            if load_mzxml_spectrum(c).num[1] == argument.arg
+                push!(subindex, load_mzxml_spectrum(c).num[1])
             end
             c = find_element(c,"scan")
             if c == nothing
@@ -623,8 +623,8 @@ function filter(msRun::XMLElement, argument::RT{<:Real})
 
     for c in child_elements(msRun)
         while name(c) == "scan"
-            if load_mzxml_spectrum(c).num == index
-                    push!(subindex, load_mzxml_spectrum(c).num)
+            if load_mzxml_spectrum(c).num[1] == index
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
             end
             c = find_element(c,"scan")
             if c == nothing
@@ -647,8 +647,8 @@ function filter(msRun::XMLElement, argument::RT{<:AbstractVector})
         index_high = num2pnt(rt, argument.arg[2])
         for c in child_elements(msRun)
             while name(c) == "scan"
-                if index_low <= load_mzxml_spectrum(c).num <= index_high
-                    push!(subindex, load_mzxml_spectrum(c).num)
+                if index_low <= load_mzxml_spectrum(c).num[1] <= index_high
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
                 end
                 c = find_element(c,"scan")
                 if c == nothing
@@ -672,8 +672,8 @@ function filter(msRun::XMLElement, argument::RT{<:AbstractVector{<:AbstractVecto
         index_high = num2pnt(rt, el[2])
         for c in child_elements(msRun)
             while name(c) == "scan"
-                if index_low <= load_mzxml_spectrum(c).num <= index_high
-                    push!(subindex, load_mzxml_spectrum(c).num)
+                if index_low <= load_mzxml_spectrum(c).num[1] <= index_high
+                    push!(subindex, load_mzxml_spectrum(c).num[1])
                 end
                 c = find_element(c,"scan")
                 if c == nothing
@@ -694,7 +694,7 @@ function filter(msRun::XMLElement, argument::IC{<:AbstractVector})
     for c in child_elements(msRun)
         while name(c) == "scan"
             if argument.arg[1] <= load_mzxml_spectrum(c).tic <= argument.arg[2]
-                push!(subindex, load_mzxml_spectrum(c).num)
+                push!(subindex, load_mzxml_spectrum(c).num[1])
             end
             c = find_element(c,"scan")
             if c == nothing
