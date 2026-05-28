@@ -69,7 +69,7 @@ function load_mgf_all(filename::String)
         end
     end
 
-    return scans
+    return MSrun(scans)
 end
 
 

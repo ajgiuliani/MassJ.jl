@@ -181,7 +181,7 @@ function load_imzml_all(filename::String)
     end
 
     free(xdoc)
-    return scans[1:min(scanCount, length(scans))]
+    return MSrun(scans[1:min(scanCount, length(scans))])
 end
 
 

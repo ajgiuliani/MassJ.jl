@@ -109,7 +109,7 @@ function load_msp_all(filename::String)
         end
     end
 
-    return scans
+    return MSrun(scans)
 end
 
 
