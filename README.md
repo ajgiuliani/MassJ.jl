@@ -20,7 +20,7 @@
 ## What MassJ does
 
 MassJ.jl is a general-purpose Julia package for loading, processing, and
-analysing mass spectrometry data. It is designed to slot into the rest of the
+analysing mass spectromet8ry data. It is designed to slot into the rest of the
 Julia ecosystem (Plots.jl, Statistics, DataFrames) rather than to replicate
 the feature surface of pipelines like OpenMS or pyteomics.
 
@@ -28,7 +28,8 @@ the feature surface of pipelines like OpenMS or pyteomics.
   imzML, plain TXT. mzML output is PSI 1.1.0 schema-validated and accepted by
   MaxQuant and other downstream tools.
 - **Signal processing** — Savitzky-Golay smoothing, centroiding (SNRA,
-  template-based peak detection), baseline correction (TopHat, LOESS, IPSA).
+  template-based peak detection, continuous wavelet transform), baseline
+  correction (TopHat, LOESS, IPSA).
 - **Isotopes & deconvolution** — chemical-formula parsing, exact/average/
   nominal masses, isotopic distribution simulation, UniDec-style charge-state
   deconvolution.
@@ -99,14 +100,19 @@ If you use MassJ in published work, please cite it via the [CITATION.cff](CITATI
 metadata at the repository root (GitHub provides a "Cite this repository"
 widget that turns this into BibTeX/APA).
 
-The deconvolution and isotopic-distribution routines are independent
-re-implementations of published algorithms — please also cite the original
-work:
+The deconvolution, isotopic-distribution, and wavelet peak-detection routines
+are independent re-implementations of published algorithms — please also cite
+the original work:
 
 * **IsoSpec** (isotopic distributions): Łącki, M. K.; Startek, M.;
   Valkenborg, D.; Gambin, A. *IsoSpec: Hyperfast Fine Structure Calculator.*
   Anal. Chem. **2017**, 89, 3272.
   [Project](https://github.com/MatteoLacki/IsoSpec)
+* **CWT peak detection** (continuous wavelet transform centroiding): Du, P.;
+  Kibbe, W. A.; Lin, S. M. *Improved peak detection in mass spectrum by
+  incorporating continuous wavelet transform-based pattern matching.*
+  Bioinformatics **2006**, 22, 2059.
+  DOI: [10.1093/bioinformatics/btl355](https://doi.org/10.1093/bioinformatics/btl355).
 * **UniDec** (charge/mass deconvolution): Marty, M. T.; Baldwin, A. J.;
   Marklund, E. G.; Hochberg, G. K. A.; Benesch, J. L. P.; Robinson, C. V.
   *Bayesian Deconvolution of Mass and Ion Mobility Spectra: From Binary
