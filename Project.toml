@@ -23,9 +23,19 @@ SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
+[weakdeps]
+Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+EntropyInvariant = "73e3304b-a6b6-4b69-aa20-e611882c686e"
+
+[extensions]
+MassJClusteringExt = "Clustering"
+MassJEntropyInvariantExt = "EntropyInvariant"
+
 [compat]
+Clustering = "0.15"
 Codecs = "0.5"
 Combinatorics = "1"
+EntropyInvariant = "1"
 DataStructures = "0.18, 0.19"
 DelimitedFiles = "1"
 FFTViews = "0.3"
@@ -46,7 +56,10 @@ julia = "1.10"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+EntropyInvariant = "73e3304b-a6b6-4b69-aa20-e611882c686e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Aqua", "Test"]
+test = ["Aqua", "Clustering", "EntropyInvariant", "Random", "Test"]
