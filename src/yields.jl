@@ -12,7 +12,8 @@ plotted directly or post-processed with [`normalize_tic`](@ref) / [`normalize_fl
 
 export AbstractPeak, Peak, TargetPeak, YieldCurve,
        yields, integrate_window, normalize_tic, normalize_flux,
-       read_peaklist, drop_peaks
+       read_peaklist, drop_peaks,
+       combine_yields, shift_x, scale_yields, recalibrate_x
 
 
 const _YIELDS_SUPPORTED_EXT = ("mzml", "mzxml", "mgf", "msp", "imzml", "txt")
@@ -639,3 +640,105 @@ function write_csv(yc::YieldCurve, path::AbstractString)
     end
     return path
 end
+
+
+# --- YieldCurve transforms (each returns a new, immutable YieldCurve) --------
+
+# Row-wise TIC and its 1-σ from a (scaled) yields / error matrix — matches the
+# convention used when `yields` first builds the curve (TIC = Σ peak areas).
+function _recompute_tic(Y::AbstractMatrix, Yerr::AbstractMatrix)
+    n = size(Y, 1)
+    tic     = vec(sum(Y, dims = 2))
+    tic_err = fill(NaN, n)
+    @inbounds for i in 1:n
+        acc = 0.0; any_err = false
+        for j in 1:size(Yerr, 2)
+            e = Yerr[i, j]
+            if isfinite(e); acc += e * e; any_err = true; end
+        end
+        tic_err[i] = any_err ? sqrt(acc) : NaN
+    end
+    return tic, tic_err
+end
+
+"""
+    combine_yields(ycs::YieldCurve...) -> YieldCurve
+Concatenate two or more [`YieldCurve`](@ref)s along the x axis — e.g. stitch
+adjacent energy/parameter ranges into one curve. All inputs must share the same
+peak columns (identical `labels`); rows are pooled and re-sorted by x.
+"""
+function combine_yields(ycs::YieldCurve...)
+    isempty(ycs) && error("combine_yields: need at least one YieldCurve")
+    length(ycs) == 1 && return ycs[1]
+    ref = ycs[1]
+    for yc in ycs[2:end]
+        yc.labels == ref.labels ||
+            error("combine_yields: YieldCurves have different peak labels")
+    end
+    x       = vcat((yc.x          for yc in ycs)...)
+    Y       = vcat((yc.yields     for yc in ycs)...)
+    Yerr    = vcat((yc.yields_err for yc in ycs)...)
+    tic     = vcat((yc.tic        for yc in ycs)...)
+    tic_err = vcat((yc.tic_err    for yc in ycs)...)
+    fmz     = vcat((yc.found_mz   for yc in ycs)...)
+    files   = vcat((yc.files      for yc in ycs)...)
+    o = sortperm(x)
+    md = Dict{String,Any}("combined_from" => length(ycs))
+    return YieldCurve(x[o], ref.xlabel, Y[o, :], Yerr[o, :], tic[o], tic_err[o],
+                      fmz[o, :], ref.labels, ref.windows, files[o], md)
+end
+
+"""
+    shift_x(yc::YieldCurve, Δ::Real) -> YieldCurve
+Offset the x axis by `Δ` (everything else unchanged).
+"""
+function shift_x(yc::YieldCurve, Δ::Real)
+    md = copy(yc.metadata)
+    md["x_shift"] = get(md, "x_shift", 0.0) + Δ
+    return YieldCurve(yc.x .+ Δ, yc.xlabel, yc.yields, yc.yields_err, yc.tic,
+                      yc.tic_err, yc.found_mz, yc.labels, yc.windows, yc.files, md)
+end
+
+"""
+    scale_yields(yc::YieldCurve, factor) -> YieldCurve
+Multiply the yields matrix by `factor` — a scalar applied to every peak, or a
+length-`npeaks` vector applied per peak. `yields_err` scales by `|factor|`, and
+the TIC (and its error) are recomputed from the scaled matrix.
+"""
+function scale_yields(yc::YieldCurve, factor)
+    npeaks = size(yc.yields, 2)
+    f = factor isa Real ? fill(Float64(factor), npeaks) :
+        (length(factor) == npeaks ? collect(Float64, factor) :
+         error("scale_yields: factor must be a scalar or a length-$npeaks vector"))
+    Y    = similar(yc.yields)
+    Yerr = similar(yc.yields_err)
+    for j in 1:npeaks
+        @views Y[:, j]    .= yc.yields[:, j]     .* f[j]
+        @views Yerr[:, j] .= yc.yields_err[:, j] .* abs(f[j])
+    end
+    tic, tic_err = _recompute_tic(Y, Yerr)
+    md = copy(yc.metadata)
+    md["scaled"] = factor isa Real ? Float64(factor) : collect(Float64, factor)
+    return YieldCurve(copy(yc.x), yc.xlabel, Y, Yerr, tic, tic_err,
+                      copy(yc.found_mz), yc.labels, yc.windows, yc.files, md)
+end
+
+"""
+    recalibrate_x(yc::YieldCurve, cal::Calibration) -> YieldCurve
+    recalibrate_x(yc::YieldCurve, obs_x, ref_x; model=:linear, degree=0) -> YieldCurve
+Recalibrate the x axis with a [`Calibration`](@ref) (or fit one on the fly from
+`obs_x`/`ref_x`). Rows are re-sorted by the corrected x.
+"""
+function recalibrate_x(yc::YieldCurve, cal::Calibration)
+    newx = cal(yc.x)
+    o = sortperm(newx)
+    md = copy(yc.metadata)
+    md["x_recalibrated"] = string(cal.model)
+    return YieldCurve(newx[o], yc.xlabel, yc.yields[o, :], yc.yields_err[o, :],
+                      yc.tic[o], yc.tic_err[o], yc.found_mz[o, :], yc.labels,
+                      yc.windows, yc.files[o], md)
+end
+
+recalibrate_x(yc::YieldCurve, obs_x::AbstractVector{<:Real}, ref_x::AbstractVector{<:Real};
+              model::Symbol = :linear, degree::Integer = 0) =
+    recalibrate_x(yc, calibrate(obs_x, ref_x; model = model, degree = degree))
