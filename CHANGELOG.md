@@ -51,6 +51,11 @@ types changed shape. Functionality is otherwise unchanged.
   `cluster_ions` ship as **package extensions** — they activate when `EntropyInvariant` /
   `Clustering` are loaded, so neither becomes a hard dependency.
 
+* ![Feature][badge-feature] Continuous Wavelet Transform centroiding (`centroid(scan;
+  method = CWT())`), a Ricker-wavelet ridge-line peak detector after Du, Kibbe & Lin
+  (*Bioinformatics* 2006). Replaces the former unimplemented `CWT` stub; joins the existing
+  `SNRA` and `TBPD` centroiding methods.
+
 ### Migration from v1.x
 
 | v1.x                                   | v2.0                                       |
