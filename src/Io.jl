@@ -6,7 +6,7 @@ Module for importing and exporting data. Dispatch to specific methods according 
 # User Interface.
 # ---------------
 
-export info, load, chromatogram, average
+export info, load, chromatogram, mobilogram, ionogram, average
 
 
 
@@ -317,6 +317,25 @@ julia> rt, ic = chromatogram("test.mzxml", method = MassJ.MZ([200,1000]))
 ([0.1384  …  60.4793], [4.74795e6  …  17.4918])
 ```
 """
+# Per-scan ion-current value for a chromatogram/mobilogram/ionogram `method`:
+# TIC (default), base-peak intensity, or summed intensity over an m/z window
+# (∆MZ = mz ± Δ, MZ = [mz1, mz2]).
+function _ion_current(scan::MSscans, method::MethodType)
+    if method isa BasePeak
+        return scan.basePeakIntensity
+    elseif method isa ∆MZ
+        mz1 = convert(Float64, method.arg[1] - method.arg[2])
+        mz1 < 0.0 && error("Bad mz ± ∆mz values.")
+        mz2 = convert(Float64, method.arg[1] + method.arg[2])
+        return add_ion_current(scan.mz, scan.int, mz1, mz2)
+    elseif method isa MZ
+        return add_ion_current(scan.mz, scan.int,
+                               convert(Float64, method.arg[1]), convert(Float64, method.arg[2]))
+    else  # TIC
+        return scan.tic
+    end
+end
+
 function chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
     pred = compose_predicates(scans, filters)
 
@@ -326,22 +345,7 @@ function chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; me
     for scan in scans
         pred(scan) || continue
         push!(xrt, scan.rt[1])
-        if method isa BasePeak
-            push!(xic, scan.basePeakIntensity)
-        elseif method isa ∆MZ
-            mz1 = convert(Float64, method.arg[1] - method.arg[2])
-            if mz1 < 0.0
-                error("Bad mz ± ∆mz values.")
-            end
-            mz2 = convert(Float64, method.arg[1] + method.arg[2])
-            push!(xic, add_ion_current(scan.mz, scan.int, mz1, mz2))
-        elseif method isa MZ
-            mz1 = convert(Float64, method.arg[1])
-            mz2 = convert(Float64, method.arg[2])
-            push!(xic, add_ion_current(scan.mz, scan.int, mz1, mz2))
-        else  # TIC
-            push!(xic, scan.tic)
-        end
+        push!(xic, _ion_current(scan, method))
     end
 
     if !isempty(xic)
@@ -350,6 +354,75 @@ function chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; me
         error("No matching spectra.")
     end
 end
+
+
+"""
+    mobilogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+    mobilogram(filename::String, filters::FilterType...; method::MethodType=TIC())
+Extract an ion-mobility trace (an [`IonCurrent`](@ref) on the `:drift` axis): the
+drift time / `1/K₀` of each matching scan versus its ion current. The `method`
+keyword controls the ion current exactly as for [`chromatogram`](@ref) (`TIC()`,
+`BasePeak()`, `∆MZ([mz, Δ])`, `MZ([mz1, mz2])`), and [`FilterType`](@ref)
+arguments compose as usual. Scans without a drift-time dimension
+(`driftTime == -1.0`) are skipped; points follow scan order.
+
+# Examples
+```julia-repl
+julia> m = mobilogram(scans, MassJ.Level(1), method = MassJ.∆MZ([885.5, 0.5]));
+```
+"""
+function mobilogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+    pred = compose_predicates(scans, filters)
+    x  = Float64[]
+    ic = Float64[]
+    mt = :none
+    for scan in scans
+        pred(scan) || continue
+        scan.driftTime[1] == -1.0 && continue        # no mobility dimension
+        push!(x, scan.driftTime[1])
+        push!(ic, _ion_current(scan, method))
+        mt = scan.mobilityType
+    end
+    isempty(ic) && error("No matching spectra with drift-time information.")
+    return IonCurrent(x, ic; axis = :drift, mobilityType = mt)
+end
+
+mobilogram(filename::String, filters::FilterType...; method::MethodType=TIC()) =
+    mobilogram(load(filename), filters...; method = method)
+
+
+"""
+    ionogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+    ionogram(filename::String, filters::FilterType...; method::MethodType=TIC())
+Extract a differential-mobility (FAIMS/DMS) trace (an [`IonCurrent`](@ref) on the
+`:cv` axis): the compensation voltage of each matching scan versus its ion
+current. `method` and [`FilterType`](@ref) arguments behave as for
+[`chromatogram`](@ref). Scans without a compensation-voltage dimension
+(`compensationVoltage == 0.0`) are skipped; points follow scan order.
+
+# Examples
+```julia-repl
+julia> g = ionogram(scans, method = MassJ.BasePeak());
+```
+"""
+function ionogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+    pred = compose_predicates(scans, filters)
+    x  = Float64[]
+    ic = Float64[]
+    mt = :none
+    for scan in scans
+        pred(scan) || continue
+        scan.compensationVoltage[1] == 0.0 && continue   # no CV dimension (sentinel)
+        push!(x, scan.compensationVoltage[1])
+        push!(ic, _ion_current(scan, method))
+        mt = scan.mobilityType
+    end
+    isempty(ic) && error("No matching spectra with compensation-voltage information.")
+    return IonCurrent(x, ic; axis = :cv, mobilityType = mt)
+end
+
+ionogram(filename::String, filters::FilterType...; method::MethodType=TIC()) =
+    ionogram(load(filename), filters...; method = method)
 
 
 

@@ -733,6 +733,48 @@ function test_fragment_peaks()
 end
 
 
+function test_mobility()
+    @testset "Mobilogram / ionogram extraction" begin
+        mz = collect(100.0:1.0:110.0)
+        int = fill(5.0, length(mz)); int[6] = 50.0
+        mk(num, dt, cv, mt) = MassJ.MSscans(num, 0.0, sum(int), mz, int, 1, mz[6], 50.0,
+                                            0.0, "+", "", 0.0, 0, :profile, dt, cv, mt,
+                                            Dict{String,Any}())
+        ims   = [mk(1, 10.0, 0.0, :TIMS),  mk(2, 20.0, 0.0, :TIMS),  mk(3, 30.0, 0.0, :TIMS)]
+        faims = [mk(1, -1.0, -5.0, :FAIMS), mk(2, -1.0, -3.0, :FAIMS), mk(3, -1.0, -1.0, :FAIMS)]
+
+        m = MassJ.mobilogram(ims)
+        @test m isa MassJ.IonCurrent
+        @test m.axis == :drift
+        @test m.mobilityType == :TIMS
+        @test m.x == [10.0, 20.0, 30.0]
+        @test m.ic == fill(sum(int), 3)                                  # TIC
+        @test MassJ.mobilogram(ims; method = MassJ.BasePeak()).ic == fill(50.0, 3)
+
+        g = MassJ.ionogram(faims)
+        @test g.axis == :cv
+        @test g.mobilityType == :FAIMS
+        @test g.x == [-5.0, -3.0, -1.0]
+
+        # scans lacking the dimension are skipped
+        @test length(MassJ.mobilogram(vcat(ims, [mk(4, -1.0, 0.0, :none)])).x) == 3
+        # filters compose (drift time 20 & 30 fall in [15, 35])
+        @test length(MassJ.mobilogram(ims, MassJ.DriftTime([15.0, 35.0])).x) == 2
+        @test length(MassJ.ionogram(faims, MassJ.CompensationVoltage([-4.0, 0.0])).x) == 2
+
+        # no matching dimension throws
+        @test_throws ErrorException MassJ.mobilogram(faims)
+        @test_throws ErrorException MassJ.ionogram(ims)
+        # filename form delegates through load (test.mzML carries no mobility data)
+        @test_throws ErrorException MassJ.mobilogram("test.mzML")
+
+        # plot recipe handles the :drift and :cv axes
+        @test plot(m, method = :absolute) isa Plots.Plot
+        @test plot(g, method = :absolute) isa Plots.Plot
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2330,6 +2372,7 @@ test_multifolder()
 test_yield_transforms()
 test_peptides()
 test_fragment_peaks()
+test_mobility()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
