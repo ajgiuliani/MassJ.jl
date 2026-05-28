@@ -11,6 +11,7 @@ from the file extension, mirroring how [`load`](@ref) reads:
 | `.mgf`    | MGF       | [`MassJ.save_mgf`](@ref)   | Mascot Generic Format peak lists   |
 | `.msp`    | MSP       | [`MassJ.save_msp`](@ref)   | NIST spectral-library text         |
 | `.txt`    | TXT       | [`MassJ.save_txt`](@ref)   | two columns; one spectrum per file |
+| `.imzML`  | imzML     | [`MassJ.save_imzml`](@ref) | imaging MS; paired `.imzML` + `.ibd` |
 
 `save` accepts any of the spectrum containers — a single or averaged
 [`MassJ.MSscans`](@ref), a `Vector{MSscans}`, or the [`MassJ.MSrun`](@ref)
@@ -192,6 +193,24 @@ preserve everything.
 save(scans, "peaklist.mgf")          # MS/MS peak lists for a search engine
 save(scans, "library.msp")           # build a spectral library
 save(average(scans), "mean.txt")     # a single averaged spectrum, two columns
+```
+
+## Imaging data (imzML)
+
+[`MassJ.save_imzml`](@ref) writes the paired imaging format: the `.imzML` XML and
+its companion `.ibd` binary (same basename). Spectra are written in *processed*
+mode — each spectrum carries its own m/z and intensity arrays — and the `.ibd`
+begins with a 16-byte UUID followed by the raw little-endian (optionally
+zlib-compressed) arrays, referenced from the `.imzML` by byte offset. The file's
+SHA-1 checksum and UUID are recorded in the `.imzML`. Each spectrum's pixel
+coordinates come from `metadata["position_x"]` / `["position_y"]` (defaulting to a
+1-D raster when absent), so a `load` → `save` round-trip preserves the image
+geometry.
+
+```julia
+img = load("sample.imzML")           # reads sample.imzML + sample.ibd
+save(img, "copy.imzML")              # writes copy.imzML + copy.ibd
+save(img, "copy.imzML"; compress = true)   # zlib-compress the .ibd arrays
 ```
 
 ## Use cases
