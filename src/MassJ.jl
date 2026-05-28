@@ -41,6 +41,7 @@ include("deconvolution.jl")
 include("txt.jl")
 include("yields.jl")
 include("export.jl")
+include("chimeric.jl")
 
 
 # Submodules
