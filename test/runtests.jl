@@ -429,6 +429,64 @@ function test_adducts()
 end
 
 
+function test_calibration()
+    @testset "Calibration - fit and apply" begin
+        ref = [118.0863, 322.0481, 622.0290, 922.0098, 1521.9715]
+        obs = ref .* (1 + 3e-6) .+ 0.002    # 3 ppm gain + 2 mDa offset
+
+        cal = MassJ.calibrate(obs, ref; model = :linear)
+        @test cal.model == :linear
+        @test length(cal.coeffs) == 2
+        @test maximum(abs, cal.residuals_ppm) < 1e-6          # linear drift fully recovered
+
+        # callable maps observed back onto reference, scalar and vector forms
+        @test cal(obs) isa Vector{Float64}
+        @test maximum(abs, cal(obs) .- ref) < 1e-6
+        @test cal(obs[1]) ≈ ref[1] atol = 1e-6
+
+        # apply to a single scan: m/z + base-peak m/z corrected, intensities untouched
+        ints = [10.0, 20.0, 30.0, 40.0, 50.0]
+        s = MassJ.MSscans(1, 0.0, sum(ints), copy(obs), ints, 1, obs[3], 30.0,
+                          0.0, "+", "", 0.0)
+        sc = MassJ.calibrate(s, cal)
+        @test maximum(abs, sc.mz .- ref) < 1e-6
+        @test sc.basePeakMz ≈ ref[3] atol = 1e-6
+        @test sc.int == ints
+        @test sc.tic == s.tic
+
+        # NaN base-peak m/z (e.g. empty centroid) is preserved, not corrupted
+        snan = MassJ.MSscans(2, 0.0, 0.0, copy(obs), ints, 1, NaN, NaN, 0.0, "+", "", 0.0)
+        @test isnan(MassJ.calibrate(snan, cal).basePeakMz)
+
+        # vector-of-scans and MSrun apply
+        scans = MassJ.calibrate([s, s], cal)
+        @test scans isa Vector{MassJ.MSscans}
+        @test maximum(abs, scans[2].mz .- ref) < 1e-6
+
+        run = MassJ.MSrun([s, s])
+        rc = MassJ.calibrate(run, cal)
+        @test rc isa MassJ.MSrun
+        @test maximum(abs, rc[1].mz .- ref) < 1e-6
+        @test rc.metadata === run.metadata                    # file-level metadata preserved
+
+        # quadratic recovers a quadratic distortion
+        obs2 = [0.001 + 1.0r + 1e-8 * r^2 for r in ref]
+        cal2 = MassJ.calibrate(obs2, ref; model = :quadratic)
+        @test length(cal2.coeffs) == 3
+        @test maximum(abs, cal2.residuals_ppm) < 1e-3
+        @test maximum(abs, cal2(obs2) .- ref) < 1e-3
+
+        # :poly with explicit degree
+        @test length(MassJ.calibrate(obs, ref; model = :poly, degree = 1).coeffs) == 2
+
+        # error paths
+        @test_throws ErrorException MassJ.calibrate([1.0, 2.0], [1.0, 2.0, 3.0])
+        @test_throws ErrorException MassJ.calibrate([1.0], [1.0]; model = :quadratic)
+        @test_throws ErrorException MassJ.calibrate(ref, ref; model = :cubic)
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2019,6 +2077,7 @@ end
 tests()
 test_isotopes()
 test_adducts()
+test_calibration()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
