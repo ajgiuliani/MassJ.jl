@@ -12,74 +12,118 @@
 
 ##
 [![CI](https://github.com/ajgiuliani/MassJ.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/ajgiuliani/MassJ.jl/actions/workflows/CI.yml)
+[![codecov](https://codecov.io/gh/ajgiuliani/MassJ.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/ajgiuliani/MassJ.jl)
 [![Coverage Status](https://coveralls.io/repos/github/ajgiuliani/MassJ.jl/badge.svg?branch=master)](https://coveralls.io/github/ajgiuliani/MassJ.jl?branch=master)
 [![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://ajgiuliani.github.io/MassJ.jl/stable)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+## What MassJ does
+
+MassJ.jl is a general-purpose Julia package for loading, processing, and
+analysing mass spectrometry data. It is designed to slot into the rest of the
+Julia ecosystem (Plots.jl, Statistics, DataFrames) rather than to replicate
+the feature surface of pipelines like OpenMS or pyteomics.
+
+- **Read & write open formats** — mzML (incl. indexed-mzML), mzXML, MGF, MSP,
+  imzML, plain TXT. mzML output is PSI 1.1.0 schema-validated and accepted by
+  MaxQuant and other downstream tools.
+- **Signal processing** — Savitzky-Golay smoothing, centroiding (SNRA,
+  template-based peak detection), baseline correction (TopHat, LOESS, IPSA).
+- **Isotopes & deconvolution** — chemical-formula parsing, exact/average/
+  nominal masses, isotopic distribution simulation, UniDec-style charge-state
+  deconvolution.
+- **Energy-resolved yields** — purpose-built pipeline for UVPD / action
+  spectroscopy / CID breakdown: locate peaks, integrate per scan, propagate
+  proper per-scan errors, normalize by TIC and/or photon flux, plot with
+  uncertainty ribbons.
+- **Native plots** — Plots.jl recipes for spectra, chromatograms, and yield
+  curves out of the box.
 
 ## Installation
-This package is registered. It can be installed either with the Julia package manager.
-From the Julia REPL, type `]` to enter the Pkg REPL mode and run:
-```julia
-pkg> add MassJ
-```
-or using the package API:
 
 ```julia
-using Pkg
-Pkg.add("MassJ")
+julia> ]
+pkg> add MassJ
+```
+
+## Quick start
+
+```julia
+using MassJ, Plots
+
+scans = load("input.mzML")               # → MSrun (a Vector{MSscan} + file metadata)
+avg   = average(scans, Level(1))         # average all MS1 spectra
+clean = baseline_correction(smooth(avg)) # SG smooth + TopHat baseline
+plot(clean)                              # one-line plot
+
+# Save back (indexed mzML by default; MaxQuant-compatible)
+save(clean, "processed.mzML")
+```
+
+A more substantial workflow — energy-resolved yields for action-spectroscopy
+data:
+
+```julia
+peaks = [Peak(110.5, "fragment_a"; tol = 0.5),
+         Peak(500.05, "precursor"; ppm = 5.0)]
+
+yc = yields("data/UVPD/", peaks; x0 = 3.0, step = 0.1,
+            xlabel = "photon energy (eV)")
+yc = yc |> normalize_tic |> y -> normalize_flux(y, "flux.txt")
+
+plot(yc)                                 # ribbons show per-scan SEM
+write_csv(yc, "yields.csv")
 ```
 
 ## Documentation
-Documentation is available [here](https://ajgiuliani.github.io/MassJ.jl/stable).
 
+Full documentation is at
+[ajgiuliani.github.io/MassJ.jl](https://ajgiuliani.github.io/MassJ.jl/stable).
+The manual covers each format, the processing pipeline, the yields workflow,
+and the reference API.
 
-## Usage
-MassJ is a package for loading, processing and plotting mass spectrometry data. It provides the following functionalities:
+## Supported file formats
 
-    Getting information on the file
-    Load a file
-    Averaging mass spectra based on various criteria that may be combined
-    Chromatogram and extracted chromatograms
-    Processing the data
-        smoothing
-        baseline correction
-        peak-picking
-    Calculation of isotopic distribution
-	Charge states deconvolution
+| Format | Read | Write          |
+|--------|:----:|:--------------:|
+| mzML   | ✅   | ✅ (indexed)   |
+| mzXML  | ✅   | ✅              |
+| MGF    | ✅   | —              |
+| MSP    | ✅   | —              |
+| imzML  | ✅   | —              |
+| TXT    | ✅   | —              |
 
-To get information on a file:
-```julia
-info("path/to/file")
-```
+## Citing
 
-Mass spectra can be loaded by:
-```julia
-data = load("path/to/file")
-```
+If you use MassJ in published work, please cite it via the [CITATION.cff](CITATION.cff)
+metadata at the repository root (GitHub provides a "Cite this repository"
+widget that turns this into BibTeX/APA).
 
-And averaged as follow:
-```julia
-ms1 = average(data, MassJ.Level(1))                   # full MS scans
-ms2 = average(data, MassJ.Level(2))                   # MS2 spectra
-ms3 = average(data, MassJ.Activation_Method("CID"))   # CID spectra
-```
+The deconvolution and isotopic-distribution routines are independent
+re-implementations of published algorithms — please also cite the original
+work:
 
-See the [documentation](https://ajgiuliani.github.io/MassJ.jl/stable) for additional information.
+* **IsoSpec** (isotopic distributions): Łącki, M. K.; Startek, M.;
+  Valkenborg, D.; Gambin, A. *IsoSpec: Hyperfast Fine Structure Calculator.*
+  Anal. Chem. **2017**, 89, 3272.
+  [Project](https://github.com/MatteoLacki/IsoSpec)
+* **UniDec** (charge/mass deconvolution): Marty, M. T.; Baldwin, A. J.;
+  Marklund, E. G.; Hochberg, G. K. A.; Benesch, J. L. P.; Robinson, C. V.
+  *Bayesian Deconvolution of Mass and Ion Mobility Spectra: From Binary
+  Interactions to Polydisperse Ensembles.* Anal. Chem. **2015**, 87, 4370.
+  DOI: [10.1021/acs.analchem.5b00140](https://doi.org/10.1021/acs.analchem.5b00140).
+  [Project](https://github.com/michaelmarty/UniDec)
 
-## Supported file format
-* mzxml
-* mzML
-* MGF
-* MSP
-* imzML
-* txt
+## Related Julia packages
 
-## Other Julia packages
-* [MzXML.jl](https://github.com/timholy/MzXML.jl): Load mass spectrometry mzXML files.
-* [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl): Mass spectometry utilities for Julia
+* [MzXML.jl](https://github.com/timholy/MzXML.jl) — older mzXML loader
+* [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl) — assorted MS utilities
 
-## References
-The isotopic distribution and charge deconvolution routines are independent reimplementations of published algorithms. If you use them, please cite the original works:
+## Contributing
 
-* **IsoSpec** (isotopic distributions): Łącki, M. K.; Startek, M.; Valkenborg, D.; Gambin, A. *IsoSpec: Hyperfast Fine Structure Calculator.* Anal. Chem. **2017**, 89, 3272. [Project](https://github.com/MatteoLacki/IsoSpec)
-* **UniDec** (charge/mass deconvolution): Marty, M. T.; Baldwin, A. J.; Marklund, E. G.; Hochberg, G. K. A.; Benesch, J. L. P.; Robinson, C. V. *Bayesian Deconvolution of Mass and Ion Mobility Spectra: From Binary Interactions to Polydisperse Ensembles.* Anal. Chem. **2015**, 87, 4370. DOI: [10.1021/acs.analchem.5b00140](https://doi.org/10.1021/acs.analchem.5b00140). [Project](https://github.com/michaelmarty/UniDec)
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)
+for the workflow.
 
+## License
+
+GPL-3.0-or-later, see [LICENSE](LICENSE).
