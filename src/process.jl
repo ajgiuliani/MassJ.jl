@@ -62,34 +62,41 @@ end
  
 
 """
-    centroid(scan::MScontainer; method::MethodType=MethodType=SNRA(1., 100) )
-Peak picking algorithm taking a MSscan or MSscans object as input and returning an object of the same type containing the detected peaks.  Available algorithm are : Signal to Noise Ratio (SNR) and Template Based Peak Detection (TBPD). Default method is Signal to Noise Ratio Analysis (SNRA), with default threshold = 1.0 and region = 100.
-# Examples
-```julia-repl
-julia> centroid(scans)
-MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-```
+    centroid(scan::MScontainer; method::MethodType=SNRA(1., 100), metrics=false, noise_region=100)
+Peak picking on a single spectrum, returning the detected peaks as an
+[`MSscans`](@ref). Available algorithms: Signal-to-Noise Ratio Analysis
+(`SNRA`), Template Based Peak Detection (`TBPD`), and Continuous Wavelet
+Transform (`CWT`).
+
+When `metrics=true`, per-peak descriptors are computed from the input profile and
+stored in the returned spectrum's `metadata` under the keys `"peak_fwhm"`,
+`"peak_snr"`, `"peak_area"`, and `"peak_resolution"` (one entry per detected
+peak, in the same order). `noise_region` is the structuring-element width (in
+points) used for the morphological noise floor behind S/N.
 """
-function centroid(scan::MScontainer; method::MethodType=SNRA(1., 100) )
+function centroid(scan::MScontainer; method::MethodType=SNRA(1., 100),
+                  metrics::Bool=false, noise_region::Int=100)
     if method isa TBPD
         ∆mz = 500.0 / method.resolution       # according to mz / ∆mz  = R, we take the value @ m/z 500
         if method.shape == :gauss
-            return tbpd(scan, gauss, ∆mz, convert(Float64,method.threshold))
+            result = tbpd(scan, gauss, ∆mz, convert(Float64,method.threshold))
         elseif method.shape == :lorentz
-            return tbpd(scan, lorentz, ∆mz, convert(Float64,method.threshold))
+            result = tbpd(scan, lorentz, ∆mz, convert(Float64,method.threshold))
         elseif method.shape == :voigt
-            return tbpd(scan, voigt, ∆mz, convert(Float64,method.threshold))
+            result = tbpd(scan, voigt, ∆mz, convert(Float64,method.threshold))
         else
-            ErrorException("Unsupported peak profile. Use :gauss, :lorentz or :voigt.")
+            error("Unsupported peak profile. Use :gauss, :lorentz or :voigt.")
         end
-
     elseif method isa SNRA
-        return snra(scan, method.threshold, method.region)
-
+        result = snra(scan, method.threshold, method.region)
     elseif method isa CWT
-        return cwt(scan, method.scales, method.threshold, method.min_length)
+        result = cwt(scan, method.scales, method.threshold, method.min_length)
+    else
+        error("Unsupported centroiding method $(typeof(method)). Use SNRA, TBPD, or CWT.")
     end
 
+    metrics && _attach_metrics!(result, scan, noise_region)
+    return result
 end
 
 """
@@ -102,34 +109,10 @@ julia> reduced_data = centroid(scans)
 MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
 ```
 """
-function centroid(scans::AbstractVector{MSscans}; method::MethodType=SNRA(1., 100) )
-    cent_scans = Vector{MSscans}(undef,0)
-    if method isa TBPD
-        for el in scans
-            ∆mz = 500.0 / method.resolution       # according to ∆mz / mz  = R, we take the value @ m/z 500
-            if method.shape == :gauss
-                push!(cent_scans, tbpd(el, gauss, ∆mz, convert(Float64,method.threshold)))
-            elseif method.shape == :lorentz
-                push!(cent_scans, tbpd(el, lorentz, ∆mz, convert(Float64,method.threshold)))
-            elseif method.shape == :voigt
-                push!(cent_scans, tbpd(el, voigt, ∆mz, convert(Float64,method.threshold)))
-            else
-                ErrorException("Unsupported peak profile. Use :gauss, :lorentz or :voigt.")
-            end
-        end
-        return cent_scans
-    elseif method isa SNRA
-        for el in scans
-            push!(cent_scans, snra(el, method.threshold, method.region))
-        end
-        return cent_scans
-    elseif method isa CWT
-        for el in scans
-            push!(cent_scans, cwt(el, method.scales, method.threshold, method.min_length))
-        end
-        return cent_scans
-    end
-
+function centroid(scans::AbstractVector{MSscans}; method::MethodType=SNRA(1., 100),
+                  metrics::Bool=false, noise_region::Int=100)
+    return MSscans[centroid(el; method = method, metrics = metrics,
+                            noise_region = noise_region) for el in scans]
 end
 
 """
@@ -307,8 +290,9 @@ end
 
 """
     cwt(scan::MScontainer, scales, threshold::Real, min_length::Int)
-Continuous Wavelet Transform peak detection (Ricker wavelet, after Du, Kibbe &
-Lin 2006). Builds the CWT of the intensity over `scales`, links local maxima into
+Continuous Wavelet Transform peak detection (Ricker wavelet) after Du, Kibbe &
+Lin, *Bioinformatics* **2006**, 22, 2059 (DOI: 10.1093/bioinformatics/btl355).
+Builds the CWT of the intensity over `scales`, links local maxima into
 ridge lines, and keeps ridges spanning at least `min_length` scales whose
 amplitude exceeds `threshold` times the local noise. Returns the detected peaks
 as an [`MSscans`](@ref).
@@ -359,6 +343,80 @@ function cwt(scan::MScontainer, scales, threshold::Real, min_length::Int)
     return MSscans(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level,
                    bpm, bpi, scan.precursor, scan.polarity, scan.activationMethod,
                    scan.collisionEnergy, peaks_s)
+end
+
+
+# Walk outward from the apex index `ip` in direction `dir` (±1) until the profile
+# drops to `level`, returning the linearly interpolated m/z at the crossing.
+# Returns NaN if the profile never reaches `level` before the array edge.
+function _halfmax_crossing(mz, int, ip::Int, level::Real, dir::Int)
+    n = length(int)
+    i = ip
+    while true
+        j = i + dir
+        (j < 1 || j > n) && return NaN
+        if int[j] <= level
+            denom = int[i] - int[j]
+            t = denom == 0 ? 0.0 : (int[i] - level) / denom
+            return mz[i] + t * (mz[j] - mz[i])
+        end
+        i = j
+    end
+end
+
+# Walk outward from the apex index `ip` to the nearest local minimum (valley) in
+# direction `dir` (±1); returns the valley index (or the array edge).
+function _valley_index(int, ip::Int, dir::Int)
+    n = length(int)
+    i = ip
+    while true
+        j = i + dir
+        (j < 1 || j > n) && return i
+        int[j] > int[i] && return i
+        i = j
+    end
+end
+
+# Per-peak metrics from the profile spectrum (`mz`, `int`) at the detected peak
+# positions `peaks_mz`. Returns (FWHM, S/N, area, resolution) vectors, one entry
+# per peak. Half-maximum is taken above the local morphological noise floor;
+# area is the valley-to-valley trapezoidal integral of the profile.
+function _peak_metrics(mz::AbstractVector{<:Real}, int::AbstractVector{<:Real},
+                       peaks_mz::AbstractVector{<:Real}; region::Int = 100)
+    np = length(peaks_mz)
+    fwhm = fill(NaN, np); snr = fill(NaN, np); area = fill(NaN, np); reso = fill(NaN, np)
+    (np == 0 || length(mz) < 2) && return (fwhm, snr, area, reso)
+
+    r = max(1, min(region, length(int) - 1))
+    noise = opening(collect(float.(int)), r)
+    for (k, pmz) in enumerate(peaks_mz)
+        ip = num2pnt(mz, pmz)
+        apex = float(int[ip])
+        nz = float(noise[ip])
+        snr[k] = nz > 0 ? apex / nz : Inf
+        half = nz + 0.5 * (apex - nz)
+        lo = _halfmax_crossing(mz, int, ip, half, -1)
+        hi = _halfmax_crossing(mz, int, ip, half, +1)
+        if !isnan(lo) && !isnan(hi) && hi > lo
+            fwhm[k] = hi - lo
+            reso[k] = pmz / fwhm[k]
+        end
+        li = _valley_index(int, ip, -1)
+        ri = _valley_index(int, ip, +1)
+        area[k] = integrate_window(mz, int, mz[li], mz[ri])
+    end
+    return (fwhm, snr, area, reso)
+end
+
+# Compute per-peak metrics from `profile` at the peaks in `result` and store them
+# in `result.metadata` (mutating the metadata dict in place).
+function _attach_metrics!(result::MSscans, profile::MScontainer, region::Int)
+    fwhm, snr, area, reso = _peak_metrics(profile.mz, profile.int, result.mz; region = region)
+    result.metadata["peak_fwhm"]       = fwhm
+    result.metadata["peak_snr"]        = snr
+    result.metadata["peak_area"]       = area
+    result.metadata["peak_resolution"] = reso
+    return result
 end
 
 
