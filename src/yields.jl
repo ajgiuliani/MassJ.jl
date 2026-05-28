@@ -13,7 +13,8 @@ plotted directly or post-processed with [`normalize_tic`](@ref) / [`normalize_fl
 export AbstractPeak, Peak, TargetPeak, YieldCurve,
        yields, integrate_window, normalize_tic, normalize_flux,
        read_peaklist, drop_peaks,
-       combine_yields, shift_x, scale_yields, recalibrate_x
+       combine_yields, shift_x, scale_yields, recalibrate_x,
+       fragment_peaks
 
 
 const _YIELDS_SUPPORTED_EXT = ("mzml", "mzxml", "mgf", "msp", "imzml", "txt")
@@ -742,3 +743,52 @@ end
 recalibrate_x(yc::YieldCurve, obs_x::AbstractVector{<:Real}, ref_x::AbstractVector{<:Real};
               model::Symbol = :linear, degree::Integer = 0) =
     recalibrate_x(yc, calibrate(obs_x, ref_x; model = model, degree = degree))
+
+
+# --- Peptide fragment ions → peak list (bridge to the yields machinery) ------
+
+"""
+    fragment_peaks(ions::AbstractVector{FragmentIon}; tol=0.5, ppm=nothing, fixed=true, method=:local_max)
+    fragment_peaks(sequence; ions=(:a,:b,:c,:x,:y,:z), charges=1:1, hshifts=(0,), tol=0.5, ppm=nothing, fixed=true, method=:local_max)
+
+Turn peptide fragment ions (see [`fragment_ions`](@ref)) into a peak list for the
+[`yields`](@ref) machinery, so spectral/fragmentation yields can be computed.
+Each ion becomes a peak centred on its m/z and labelled with the ion label
+(e.g. `"b3"`, `"y5(2+)"`, `"w3'"`).
+
+With `fixed = true` (default) each ion becomes a fixed-window [`Peak`](@ref) — a
+consistent integration window across a whole spectral series, and quiet when a
+fragment is absent. With `fixed = false` each becomes a [`TargetPeak`](@ref) that
+is *located* in every spectrum (`method` ∈ `:local_max`, `:edges`, `:centroid`).
+Give either `tol` (Da, default 0.5) or `ppm`. The second form builds the ions
+from a sequence in one step.
+
+# Examples
+```julia-repl
+julia> pks = fragment_peaks("PEPTIDE"; ions = (:b, :y, :c, :z), charges = 1:2, ppm = 10);
+
+julia> yc = yields(dir, pks; x0 = 10.0, step = 0.5, xlabel = "collision energy (eV)");
+```
+"""
+function fragment_peaks(ions::AbstractVector{FragmentIon};
+                        tol::Real = 0.5, ppm::Union{Real,Nothing} = nothing,
+                        fixed::Bool = true, method::Symbol = :local_max)
+    peaks = AbstractPeak[]
+    for f in ions
+        if fixed
+            push!(peaks, ppm === nothing ? Peak(f.mz, f.label; tol = tol) :
+                                           Peak(f.mz, f.label; ppm = ppm))
+        else
+            push!(peaks, ppm === nothing ? TargetPeak(f.mz, f.label; tol = tol, method = method) :
+                                           TargetPeak(f.mz, f.label; ppm = ppm, method = method))
+        end
+    end
+    return peaks
+end
+
+fragment_peaks(sequence::AbstractString;
+               ions = (:a, :b, :c, :x, :y, :z), charges = 1:1, hshifts = (0,),
+               tol::Real = 0.5, ppm::Union{Real,Nothing} = nothing,
+               fixed::Bool = true, method::Symbol = :local_max) =
+    fragment_peaks(fragment_ions(sequence; ions = ions, charges = charges, hshifts = hshifts);
+                   tol = tol, ppm = ppm, fixed = fixed, method = method)
