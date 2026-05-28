@@ -85,13 +85,11 @@ function centroid(scan::MScontainer; method::MethodType=SNRA(1., 100) )
 
     elseif method isa SNRA
         return snra(scan, method.threshold, method.region)
-        
-#    elseif method isa CWT()
-#        return cwt(scan, method.threshold)
-#    else
-#        ErrorException("Unsupported method.")
+
+    elseif method isa CWT
+        return cwt(scan, method.scales, method.threshold, method.min_length)
     end
-    
+
 end
 
 """
@@ -125,12 +123,13 @@ function centroid(scans::AbstractVector{MSscans}; method::MethodType=SNRA(1., 10
             push!(cent_scans, snra(el, method.threshold, method.region))
         end
         return cent_scans
-#    elseif method isa CWT()
-#        return cwt(scan, method.threshold)
-#    else
-#        ErrorException("Unsupported method.")
+    elseif method isa CWT
+        for el in scans
+            push!(cent_scans, cwt(el, method.scales, method.threshold, method.min_length))
+        end
+        return cent_scans
     end
-    
+
 end
 
 """
@@ -225,11 +224,142 @@ end
 
 
     
-"""
-function cwt(scan::MScontainer)                                         # Continuous Wavelet Transform 
-    error("Wavelets not implemented")
+# Ricker ("Mexican hat") wavelet kernel for a given scale `a` (in points),
+# sampled on integer offsets out to ±⌈5a⌉.
+function _ricker_kernel(a::Real)
+    m  = max(1, ceil(Int, 5a))
+    js = -m:m
+    c  = 2 / (sqrt(3a) * pi^0.25)
+    t2 = (js ./ a) .^ 2
+    return c .* (1 .- t2) .* exp.(-t2 ./ 2)
 end
+
+# One CWT row: cross-correlation of the signal with the Ricker kernel at scale a
+# (zero padding at the edges).
+function _cwt_row(y::AbstractVector{<:Real}, a::Real)
+    ker = _ricker_kernel(a)
+    m   = (length(ker) - 1) ÷ 2
+    n   = length(y)
+    out = zeros(Float64, n)
+    @inbounds for i in 1:n
+        s = 0.0
+        for (kj, j) in enumerate(-m:m)
+            idx = i + j
+            (1 <= idx <= n) && (s += y[idx] * ker[kj])
+        end
+        out[i] = s
+    end
+    return out
+end
+
+# Indices at which `v` is a local maximum within a half-window `w` (positive only).
+function _local_maxima(v::AbstractVector{<:Real}, w::Int)
+    n = length(v); maxima = Int[]
+    @inbounds for i in 1:n
+        v[i] > 0 || continue
+        lo = max(1, i - w); hi = min(n, i + w)
+        ismax = true
+        for j in lo:hi
+            if v[j] > v[i]; ismax = false; break; end
+        end
+        ismax && push!(maxima, i)
+    end
+    return maxima
+end
+
+# Link local maxima of the CWT matrix into ridge lines, from the coarsest scale
+# down to the finest. Each ridge is a vector of (scale_index, position) pairs.
+function _cwt_ridges(W::AbstractMatrix{<:Real}, scales)
+    n      = size(W, 2)
+    order  = sortperm(collect(scales); rev = true)   # coarse → fine
+    maxgap = 3
+    ridges = Vector{Vector{Tuple{Int,Int}}}()
+    open   = Tuple{Int,Int,Int}[]                    # (ridge id, current pos, gap count)
+    for si in order
+        w    = max(1, round(Int, scales[si]))
+        lmax = _local_maxima(view(W, si, :), w)
+        used = falses(length(lmax))
+        newopen = Tuple{Int,Int,Int}[]
+        for (rid, cpos, gaps) in open
+            best, bestd = -1, typemax(Int)
+            for (li, p) in enumerate(lmax)
+                used[li] && continue
+                d = abs(p - cpos)
+                if d <= w && d < bestd; bestd, best = d, li; end
+            end
+            if best != -1
+                used[best] = true
+                push!(ridges[rid], (si, lmax[best]))
+                push!(newopen, (rid, lmax[best], 0))
+            elseif gaps + 1 <= maxgap
+                push!(newopen, (rid, cpos, gaps + 1))
+            end
+        end
+        for (li, p) in enumerate(lmax)
+            used[li] && continue
+            push!(ridges, [(si, p)])
+            push!(newopen, (length(ridges), p, 0))
+        end
+        open = newopen
+    end
+    return ridges
+end
+
 """
+    cwt(scan::MScontainer, scales, threshold::Real, min_length::Int)
+Continuous Wavelet Transform peak detection (Ricker wavelet, after Du, Kibbe &
+Lin 2006). Builds the CWT of the intensity over `scales`, links local maxima into
+ridge lines, and keeps ridges spanning at least `min_length` scales whose
+amplitude exceeds `threshold` times the local noise. Returns the detected peaks
+as an [`MSscans`](@ref).
+"""
+function cwt(scan::MScontainer, scales, threshold::Real, min_length::Int)
+    y = scan.int
+    n = length(y)
+    ns = length(scales)
+    (n < 3 || ns == 0) && return MSscans(scan.num, scan.rt, 0.0, Float64[], Float64[],
+        scan.level, NaN, NaN, scan.precursor, scan.polarity, scan.activationMethod,
+        scan.collisionEnergy, Float64[])
+
+    W = Matrix{Float64}(undef, ns, n)
+    for (si, a) in enumerate(scales)
+        @views W[si, :] .= _cwt_row(y, float(a))
+    end
+
+    fine = argmin(collect(scales))          # finest-scale row index
+    absfine = abs.(view(W, fine, :))
+    minlen  = min_length > 0 ? min_length : max(1, cld(ns, 3))
+    halfwin = max(10, n ÷ 50)               # local-noise window half-width
+
+    peaks_mz  = Float64[]; peaks_int = Float64[]; peaks_s = Float64[]
+    for r in _cwt_ridges(W, scales)
+        length(r) >= minlen || continue
+        # finest-scale member gives the best-localised position
+        _, j   = findmin([scales[s] for (s, _) in r])
+        ipk    = r[j][2]
+        strength = maximum(W[s, p] for (s, p) in r)
+        lo = max(1, ipk - halfwin); hi = min(n, ipk + halfwin)
+        noise = quantile(view(absfine, lo:hi), 0.95)
+        snr = noise > 0 ? strength / noise : Inf
+        snr >= threshold || continue
+        push!(peaks_mz, scan.mz[ipk]); push!(peaks_int, y[ipk])
+        isempty(scan.s) || push!(peaks_s, scan.s[ipk])
+    end
+
+    if !isempty(peaks_mz)
+        o = sortperm(peaks_mz)
+        peaks_mz, peaks_int = peaks_mz[o], peaks_int[o]
+        isempty(peaks_s) || (peaks_s = peaks_s[o])
+        bpi  = maximum(peaks_int)
+        bpm  = peaks_mz[num2pnt(peaks_int, bpi)]
+    else
+        bpi, bpm = NaN, NaN
+    end
+
+    return MSscans(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level,
+                   bpm, bpi, scan.precursor, scan.polarity, scan.activationMethod,
+                   scan.collisionEnergy, peaks_s)
+end
 
 
 """
