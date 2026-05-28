@@ -216,8 +216,7 @@ function tests()
        a = MassJ.centroid(scans[1], method = MassJ.TBPD(:lorentz, 4500., 0.2))
        @test length(a.int) == 964                                                      #82
 
-       a = MassJ.centroid(scans[1], method = MassJ.TBPD(:other, 4500., 0.2))
-       @test a.msg == "Unsupported peak profile. Use :gauss, :lorentz or :voigt."      #83
+       @test_throws "Unsupported peak profile. Use :gauss, :lorentz or :voigt." MassJ.centroid(scans[1], method = MassJ.TBPD(:other, 4500., 0.2))   #83
 
        a = MassJ.centroid(scans[1], method = MassJ.SNRA(1., 100))
        @test length(a.int) == 109                                                      #84
@@ -483,6 +482,50 @@ function test_calibration()
         @test_throws ErrorException MassJ.calibrate([1.0, 2.0], [1.0, 2.0, 3.0])
         @test_throws ErrorException MassJ.calibrate([1.0], [1.0]; model = :quadratic)
         @test_throws ErrorException MassJ.calibrate(ref, ref; model = :cubic)
+    end
+end
+
+
+function test_centroid_metrics()
+    @testset "Centroid - per-peak metrics" begin
+        mz = collect(100.0:0.01:300.0)
+        sigma = 0.05
+        fwhm_true = 2.35482 * sigma
+        g(x, mu, A) = A * exp(-(x - mu)^2 / (2sigma^2))
+        int = g.(mz, 150.0, 100.0) .+ g.(mz, 200.0, 60.0) .+ 0.5   # two peaks + baseline
+        s = MassJ.MSscans(1, 0.0, sum(int), mz, int, 1, 150.0, 100.0, 0.0, "+", "", 0.0)
+
+        # metrics = true populates the four parallel metadata vectors
+        c = centroid(s; method = MassJ.SNRA(5.0, 200), metrics = true)
+        @test length(c.mz) == 2
+        for key in ("peak_fwhm", "peak_snr", "peak_area", "peak_resolution")
+            @test haskey(c.metadata, key)
+            @test length(c.metadata[key]) == length(c.mz)
+        end
+
+        # FWHM recovers the true Gaussian width; resolution = m/z / FWHM
+        @test all(isapprox.(c.metadata["peak_fwhm"], fwhm_true; atol = 5e-3))
+        @test c.metadata["peak_resolution"] ≈ c.mz ./ c.metadata["peak_fwhm"] atol = 1e-6
+
+        # S/N is apex-over-baseline: finite, above threshold, taller peak scores higher
+        @test all(c.metadata["peak_snr"] .> 5.0)
+        @test all(isfinite, c.metadata["peak_snr"])
+        @test c.metadata["peak_snr"][1] > c.metadata["peak_snr"][2]
+        @test all(c.metadata["peak_area"] .> 0.0)
+
+        # default (metrics = false) leaves the metadata untouched
+        c0 = centroid(s; method = MassJ.SNRA(5.0, 200))
+        @test !haskey(c0.metadata, "peak_fwhm")
+
+        # vector path attaches metrics to every element
+        cv = centroid([s, s]; method = MassJ.SNRA(5.0, 200), metrics = true)
+        @test length(cv) == 2
+        @test all(haskey(x.metadata, "peak_fwhm") for x in cv)
+
+        # metrics attach regardless of centroiding algorithm (CWT)
+        cc = centroid(s; method = MassJ.CWT(scales = 1.0:1.0:16.0, threshold = 3.0), metrics = true)
+        @test haskey(cc.metadata, "peak_fwhm")
+        @test length(cc.metadata["peak_fwhm"]) == length(cc.mz)
     end
 end
 
@@ -2078,6 +2121,7 @@ tests()
 test_isotopes()
 test_adducts()
 test_calibration()
+test_centroid_metrics()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
