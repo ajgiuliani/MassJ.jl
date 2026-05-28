@@ -23,26 +23,33 @@ export save
     save(data, filename::AbstractString; kwargs...)
 Export MassJ data to a file. The format is selected from the extension:
 
-| Extension | Writer            | Notes                                 |
-|-----------|-------------------|---------------------------------------|
-| `.mzML`   | [`save_mzml`](@ref)  | PSI standard; little-endian arrays    |
-| `.mzXML`  | [`save_mzxml`](@ref) | Legacy format; big-endian arrays      |
+| Extension | Writer            | Notes                                        |
+|-----------|-------------------|----------------------------------------------|
+| `.mzML`   | [`save_mzml`](@ref)  | PSI standard; little-endian arrays           |
+| `.mzXML`  | [`save_mzxml`](@ref) | Legacy format; big-endian arrays             |
+| `.mgf`    | [`save_mgf`](@ref)   | Mascot Generic Format; text peak lists       |
+| `.msp`    | [`save_msp`](@ref)   | NIST spectral-library text format            |
+| `.txt`    | [`save_txt`](@ref)   | Two-column `m/z intensity` (single spectrum) |
 
-Accepts a single [`MSscan`](@ref) / [`MSscans`](@ref), a `Vector{MSscan}`, or
-a `Vector{MSscans}`. Common keyword arguments:
+Accepts a single [`MSscans`](@ref), a `Vector{MSscans}`, or an [`MSrun`](@ref).
+Keyword arguments relevant to the binary formats (mzML / mzXML):
 
 * `precision::Int = 64`   — `64` for `Float64` arrays, `32` for `Float32`
 * `compress::Bool = true` — zlib-compress the binary arrays
 * `progress::Bool = true` — show a [`ProgressMeter`](https://github.com/timholy/ProgressMeter.jl)
   progress bar while writing (set `false` in scripts / CI)
 
+The text formats (mgf / msp / txt) ignore these keywords. `.txt` holds a single
+spectrum, so a multi-spectrum input is an error there.
+
 # Examples
 ```julia
 scans = load("input.mzML")
 save(scans, "output.mzML")                          # round-trip
 save(scans, "output.mzXML"; precision = 32)         # smaller file, lossy
-save(scans[1], "single_scan.mzML")                  # one scan
-save(scans, "quiet.mzML"; progress = false)         # no progress bar
+save(scans, "peaklist.mgf")                         # MS/MS peak lists
+save(scans, "library.msp")                          # spectral library
+save(scans[1], "single_scan.txt")                   # one spectrum, two columns
 ```
 """
 function save(data, filename::AbstractString; kwargs...)
@@ -52,8 +59,14 @@ function save(data, filename::AbstractString; kwargs...)
         return save_mzml(filename, data; kwargs...)
     elseif ext == "mzxml"
         return save_mzxml(filename, data; kwargs...)
+    elseif ext == "mgf"
+        return save_mgf(filename, data; kwargs...)
+    elseif ext == "msp"
+        return save_msp(filename, data; kwargs...)
+    elseif ext == "txt"
+        return save_txt(filename, data; kwargs...)
     else
-        error("save: unsupported file format '.$ext' (supported: .mzML, .mzXML)")
+        error("save: unsupported file format '.$ext' (supported: .mzML, .mzXML, .mgf, .msp, .txt)")
     end
 end
 
@@ -820,6 +833,118 @@ function _save_mzxml_vector(filename::AbstractString, scans::Vector{MSscans};
         _stream_mzxml_close(io)
     end
     return filename
+end
+
+
+# ============================================================================
+# Text-format writers — MGF, MSP, TXT
+#
+# These mirror the corresponding readers so a load → save → load cycle preserves
+# the data each format can represent. They take no binary-array keywords; any
+# extra keyword forwarded from `save` is ignored.
+# ============================================================================
+
+# Per-spectrum scalar helpers (provenance fields are length-1 vectors for a single scan).
+_first_or(v, default) = isempty(v) ? default : @inbounds v[1]
+
+"""
+    save_mgf(filename, data) -> filename
+Write spectra to a Mascot Generic Format (`.mgf`) file: one `BEGIN IONS … END IONS`
+block per spectrum (`TITLE`, `MSLEVEL`, `PEPMASS`, `CHARGE`, `RTINSECONDS`, peak rows).
+Round-trips with [`load`](@ref) on the fields MGF can carry. Accepts an [`MSscans`](@ref),
+a `Vector{MSscans}`, or an [`MSrun`](@ref).
+"""
+function save_mgf(filename::AbstractString, scans::AbstractVector{MSscans}; kwargs...)
+    open(filename, "w") do io
+        for (i, s) in enumerate(scans)
+            _stream_mgf_spectrum(io, s, i)
+        end
+    end
+    return filename
+end
+save_mgf(filename::AbstractString, scan::MSscans; kwargs...) = save_mgf(filename, [scan]; kwargs...)
+
+function _stream_mgf_spectrum(io::IO, s::MSscans, index::Int)
+    num  = _first_or(s.num, index)
+    write(io, "BEGIN IONS\n")
+    write(io, "TITLE=", string(get(s.metadata, "title", "scan=" * string(num))), "\n")
+    write(io, "MSLEVEL=", string(_first_or(s.level, 1)), "\n")
+    prec = _first_or(s.precursor, 0.0)
+    prec > 0 && write(io, "PEPMASS=", string(prec), "\n")
+    chg = _first_or(s.chargeState, 0)
+    if chg != 0
+        sgn = _first_or(s.polarity, "") == "-" ? "-" : "+"
+        write(io, "CHARGE=", string(chg), sgn, "\n")
+    end
+    rt = _first_or(s.rt, 0.0)
+    rt > 0 && write(io, "RTINSECONDS=", string(rt * 60.0), "\n")
+    haskey(s.metadata, "scans") && write(io, "SCANS=", string(s.metadata["scans"]), "\n")
+    @inbounds for k in eachindex(s.mz)
+        write(io, string(s.mz[k]), " ", string(s.int[k]), "\n")
+    end
+    write(io, "END IONS\n")
+end
+
+
+"""
+    save_msp(filename, data) -> filename
+Write spectra to a NIST spectral-library (`.msp`) file: a `Name:` / `PrecursorMZ:` /
+`Num Peaks:` header followed by peak rows, one entry per spectrum separated by a blank
+line. Round-trips with [`load`](@ref) on the fields MSP can carry. Accepts an
+[`MSscans`](@ref), a `Vector{MSscans}`, or an [`MSrun`](@ref).
+"""
+function save_msp(filename::AbstractString, scans::AbstractVector{MSscans}; kwargs...)
+    open(filename, "w") do io
+        for (i, s) in enumerate(scans)
+            _stream_msp_spectrum(io, s, i)
+            write(io, "\n")   # blank-line entry separator
+        end
+    end
+    return filename
+end
+save_msp(filename::AbstractString, scan::MSscans; kwargs...) = save_msp(filename, [scan]; kwargs...)
+
+function _stream_msp_spectrum(io::IO, s::MSscans, index::Int)
+    num = _first_or(s.num, index)
+    write(io, "Name: ", string(get(s.metadata, "name", "scan=" * string(num))), "\n")
+    prec = _first_or(s.precursor, 0.0)
+    prec > 0 && write(io, "PrecursorMZ: ", string(prec), "\n")
+    write(io, "MSLEVEL: ", string(_first_or(s.level, 2)), "\n")
+    pol = _first_or(s.polarity, "")
+    pol == "+" && write(io, "Ion_mode: Positive\n")
+    pol == "-" && write(io, "Ion_mode: Negative\n")
+    ce = _first_or(s.collisionEnergy, 0.0)
+    ce > 0 && write(io, "Collision_energy: ", string(ce), "\n")
+    rt = _first_or(s.rt, 0.0)
+    rt > 0 && write(io, "RT: ", string(rt), "\n")
+    haskey(s.metadata, "formula")        && write(io, "Formula: ", string(s.metadata["formula"]), "\n")
+    haskey(s.metadata, "precursor_type") && write(io, "Precursor_type: ", string(s.metadata["precursor_type"]), "\n")
+    haskey(s.metadata, "comments")       && write(io, "Comment: ", string(s.metadata["comments"]), "\n")
+    write(io, "Num Peaks: ", string(length(s.mz)), "\n")
+    @inbounds for k in eachindex(s.mz)
+        write(io, string(s.mz[k]), " ", string(s.int[k]), "\n")
+    end
+end
+
+
+"""
+    save_txt(filename, data) -> filename
+Write a single spectrum to a two-column `m/z  intensity` text (`.txt`) file, readable back
+with [`load`](@ref). The format holds one spectrum, so a multi-spectrum input is an error.
+"""
+function save_txt(filename::AbstractString, scan::MSscans; kwargs...)
+    open(filename, "w") do io
+        @inbounds for k in eachindex(scan.mz)
+            write(io, string(scan.mz[k]), " ", string(scan.int[k]), "\n")
+        end
+    end
+    return filename
+end
+function save_txt(filename::AbstractString, scans::AbstractVector{MSscans}; kwargs...)
+    length(scans) == 1 ||
+        error("save_txt: the TXT format stores a single spectrum; got $(length(scans)). " *
+              "Pass one MSscans (e.g. `run[i]`).")
+    return save_txt(filename, scans[1]; kwargs...)
 end
 
 
