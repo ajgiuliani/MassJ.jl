@@ -1,5 +1,43 @@
 # MassJ.jl changelog
 
+## Version `v2.0.0`
+
+A type-system unification. This is a **breaking** release: the public container
+types changed shape. Functionality is otherwise unchanged.
+
+* ![BREAKING][badge-breaking] ![Enhancement][badge-enhancement] The two spectrum
+  types `MSscan` (single scan) and `MSscans` (composite) are merged into a single
+  type, `MSscans`. Every per-scan provenance field (`num`, `rt`, `level`,
+  `precursor`, `polarity`, `activationMethod`, `collisionEnergy`, `chargeState`,
+  `driftTime`, `compensationVoltage`) is now a `Vector`. A raw scan is simply an
+  `MSscans` with length-1 provenance, and the variance accumulator `s` is empty
+  until two or more scans are combined.
+
+* ![BREAKING][badge-breaking] ![Enhancement][badge-enhancement] The three trace
+  types `Chromatogram`, `Mobilogram`, and `Ionogram` are merged into a single
+  type, `IonCurrent`, with an `axis` field (`:rt`, `:drift`, or `:cv`) recording
+  what the abscissa `x` represents. The maximum ion current is now obtained with
+  the function `maxic(trace)` instead of the stored `.maxic` field.
+
+* ![BREAKING][badge-breaking] `load` on a multi-spectrum mzML file always returns
+  an `MSrun` (which is an `AbstractVector{MSscans}`); a single spectrum saved as a
+  scalar still round-trips back to a bare `MSscans`.
+
+### Migration from v1.x
+
+| v1.x                                   | v2.0                                       |
+|----------------------------------------|--------------------------------------------|
+| `scan::MSscan`                         | `scan::MSscans` (provenance is now a vector)|
+| `scans[1].num` → `1`                   | `scans[1].num` → `[1]` (use `scans[1].num[1]`) |
+| `chrom::Chromatogram`, `chrom.rt`      | `chrom::IonCurrent`, `chrom.x`             |
+| `chrom.maxic`                          | `maxic(chrom)`                             |
+| `Mobilogram`, `Ionogram`               | `IonCurrent` with `axis = :drift` / `:cv`  |
+
+The scalar `MSscans(num, rt, tic, mz, int, level, …)` constructors mirror the
+former `MSscan` signatures, so code that *constructed* scans needs only the type
+name changed; code that *read* a scalar provenance field must index `[1]`.
+
+
 ## Version `v0.3.1`
 
 * [Enhacement][badge-enhancement]: documentation has been updated.
