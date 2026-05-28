@@ -19,9 +19,37 @@ types changed shape. Functionality is otherwise unchanged.
   what the abscissa `x` represents. The maximum ion current is now obtained with
   the function `maxic(trace)` instead of the stored `.maxic` field.
 
-* ![BREAKING][badge-breaking] `load` on a multi-spectrum mzML file always returns
-  an `MSrun` (which is an `AbstractVector{MSscans}`); a single spectrum saved as a
-  scalar still round-trips back to a bare `MSscans`.
+* ![BREAKING][badge-breaking] `load` now returns the same type for every
+  multi-spectrum format: an `MSrun` (an `AbstractVector{MSscans}`). Previously
+  only mzML returned `MSrun` while mzXML/MGF/MSP/imzML returned a bare
+  `Vector{MSscans}`. For the non-mzML formats the `MSrun`'s metadata and
+  chromatogram fields are empty. A TXT file (a single spectrum) and a spectrum
+  saved as a scalar still load as a bare `MSscans`. The filter/processing
+  functions (`extract`, `chromatogram`, `average`, `retention_time`, `smooth`,
+  `centroid`, `baseline_correction`) accept any `AbstractVector{MSscans}`, so
+  they work on an `MSrun` directly.
+
+* ![Feature][badge-feature] New filters for the per-spectrum information exposed by the mzML
+  reader, all composable with the existing filters in a single pass: `ChargeState`,
+  `SpectrumType` (`:centroid`/`:profile`), `MobilityType`, a generic `MetaData(key[, value])`
+  filter over any acquisition cvParam (exact / range / substring / presence), and
+  `InstrumentConfig` (match by configuration id, cvParam name, or component type, resolved
+  through the run-level instrument table). Each spectrum's `instrumentConfigurationRef` is now
+  read into its `metadata`.
+
+* ![Feature][badge-feature] Writers for the remaining open text formats — `save_mgf` (Mascot
+  Generic Format), `save_msp` (NIST spectral library), and `save_txt` (two-column m/z/intensity,
+  single spectrum) — wired into `save` by extension. Read/write is now symmetric for every
+  format except imzML (still read-only).
+
+* ![Feature][badge-feature] Statistical decomposition of chimeric (multiplexed) tandem mass
+  spectra, after Truong, Nahon & Giuliani (*J. Am. Soc. Mass Spectrom.* 2026, 37, 649):
+  `abundance_matrix` (series → binned abundance matrix + TIC), `partial_correlation` (TIC-
+  controlled partial Pearson, via `Statistics`), `cmi_matrix` (conditional mutual information,
+  via `EntropyInvariant`), `cluster_ions` (Ward hierarchical clustering + elbow, via
+  `Clustering`), and `cluster_spectra` (per-cluster reconstructed spectra). `cmi_matrix` and
+  `cluster_ions` ship as **package extensions** — they activate when `EntropyInvariant` /
+  `Clustering` are loaded, so neither becomes a hard dependency.
 
 ### Migration from v1.x
 
