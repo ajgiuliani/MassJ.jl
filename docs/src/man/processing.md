@@ -50,6 +50,13 @@ centroid(scan, method = MassJ.TBPD(:lorentz, 1000., 0.1)
 centroid(scan, method = MassJ.TBPD(:voight,  1000., 0.1)
 ```
 
+#### Continuous Wavelet Transform (CWT)
+The CWT method ([Du, Kibbe & Lin, *Bioinformatics* 2006](https://doi.org/10.1093/bioinformatics/btl355)) transforms the spectrum with a Ricker ("Mexican hat") wavelet over a range of `scales` (in points), links the local maxima into ridge lines, and keeps the ridges that persist across scales with a signal-to-noise ratio above `threshold`. It needs no explicit noise/template model and adapts to peaks of different widths. Defaults: `scales = 1:32`, `threshold = 3`, `min_length` = one third of the scales.
+```julia
+centroid(scan, method = MassJ.CWT())
+centroid(scan, method = MassJ.CWT(scales = 1.0:1.0:48.0, threshold = 5.0))
+```
+
 ## Deconvolution
 Charge state deconvolution is performed using the [`deconv`](@ref) function. It implements the [UniDec](https://doi.org/10.1021/acs.analchem.5b00140) algorithm to deconvolve multiply charged mass spectra into zero-charge mass spectra.
 
