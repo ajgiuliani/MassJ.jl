@@ -1,5 +1,5 @@
 """
-Plotting module for MScontainer data type (MSscan, MSscans and Chromatogram).
+Plotting module for MScontainer data type (MSscans and IonCurrent).
 ```julia-repl
 julia> plot(scans[1])
 julia> plot(chr)
@@ -11,8 +11,8 @@ using Plots, RecipesBase   # used for plotting
 
 
 using MassJ:MScontainer
-using MassJ:Chromatogram
-using MassJ:MSscan
+using MassJ:IonCurrent
+using MassJ:maxic
 using MassJ:MSscans
 using MassJ:YieldCurve
 
@@ -26,47 +26,29 @@ function normalisation(ms::MScontainer)
 end
 
 """
-    normalisation(cr::MassJ.Chromatogram)
-Normalization function for plotting chromatograms in raltive intensity.
+    normalisation(cr::MassJ.IonCurrent)
+Normalization function for plotting ion-current traces in relative intensity.
 """
-function normalisation(cr::Chromatogram)
-    factor = 100. / cr.maxic
+function normalisation(cr::IonCurrent)
+    factor = 100. / maxic(cr)
     return cr.ic .* factor
 end
 
 """
-    scaling(cr::MassJ.Chromatogram)
+    scaling(cr::MassJ.IonCurrent)
 Scaling function to display retention times of chromatograms in minutes instead of seconds.
+Other axes (drift time, compensation voltage) are returned unscaled.
 """
-function scaling(cr::Chromatogram)
-    return cr.rt ./ 60.
+function scaling(cr::IonCurrent)
+    return cr.axis === :rt ? cr.x ./ 60. : cr.x
 end
 
-
-"""
-    f(ms::MSscan; method = :relative) 
-Allows plotting directly mass spectra MSscan. The defaults relative intensity plotting may be changed by setting method = :absolute.
-"""
-@recipe function f(ms::MSscan; method = :relative) 
-    seriestype --> :path
-    seriescolor --> :red
-    label --> ""
-    xlabel --> "m/z"
-    if method == :relative
-        y = normalisation(ms)
-        ylabel --> "Intensity (%)"
-    elseif method == :absolute
-        y = ms.int
-        ylabel --> "Intensity (a.u.)"
-    end
-    ms.mz, y
-end
 
 """
     g(ms::MassJ.MSscans; method = :relative)
-Allows plotting directly mass spectra MSscans. The defaults relative intensity plotting may be changed by setting method = :absolute.
+Allows plotting mass spectra directly. The default relative-intensity plotting may be changed by setting method = :absolute.
 """
-@recipe function g(ms::MSscans; method = :relative) 
+@recipe function g(ms::MSscans; method = :relative)
     seriestype --> :path
     seriescolor --> :red
     label --> ""
@@ -83,16 +65,17 @@ end
 
 
 """
-    h(cr::MassJ.Chromatogram; method = :relative) 
-Allows plotting directly chromatograms. The defaults relative intensity plotting may be changed by setting method = :absolute.
+    h(cr::MassJ.IonCurrent; method = :relative)
+Allows plotting ion-current traces directly. The default relative-intensity plotting may be changed by setting method = :absolute.
 """
-@recipe function h(cr::Chromatogram; method = :relative) 
+@recipe function h(cr::IonCurrent; method = :relative)
     seriestype  --> :path
     seriescolor --> :blue
-    fillrange   --> 0 
+    fillrange   --> 0
     fillalpha   --> 0.3
     label       --> ""
-    xlabel      --> "time (mins)"
+    xlabel      --> (cr.axis === :rt ? "time (mins)" :
+                     cr.axis === :drift ? "drift time" : "compensation voltage")
     if method == :relative
         y = normalisation(cr)
         ylabel  --> "Intensity (%)"

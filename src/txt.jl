@@ -59,7 +59,7 @@ Load the content of an ascii file into a Vector of MSscan.
 # Examples
 ```julia-repl
 julia> scan = msJ.load("test1.txt")
-MSscan(10, 11.0422, 5.37656e6, [140.083  …  2000.0], [91.044 … 29.5873])
+MSscans(10, 11.0422, 5.37656e6, [140.083  …  2000.0], [91.044 … 29.5873])
 ```
 """
 function load_txt_all(filename::String)
@@ -83,7 +83,7 @@ function load_txt_spectrum(filename::String)
     activationMethod = ""
     collisionEnergy = 0.0
     
-    return  MSscan(num, rt, tic, scan[:,1], scan[:,2], msLevel, basePeakMz, basePeakIntensity, precursorMz, polarity, activationMethod, collisionEnergy)
+    return  MSscans(num, rt, tic, scan[:,1], scan[:,2], msLevel, basePeakMz, basePeakIntensity, precursorMz, polarity, activationMethod, collisionEnergy)
 end
 
 

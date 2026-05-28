@@ -80,12 +80,9 @@ function deconv(scan::MScontainer, method::Charges; FWHM::Real = -1, R::Real = -
     basePeakMz = deconv_mz[num2pnt(proj, basePeakIntensity)]
     tic = sum(proj)
 
-    if scan isa MSscan
-        return MSscan(scan.num, scan.rt, tic, collect(deconv_mz), proj .* (100.0 / basePeakIntensity), scan.level, basePeakMz, 100.0, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
-    elseif scan isa MSscans
-        return MSscans(scan.num, scan.rt, tic, collect(deconv_mz), proj .* (100.0 / basePeakIntensity), scan.level, basePeakMz, 100.0, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, [0.0])
-    end
-
+    # Deconvolution rebuilds the m/z axis, so any prior per-m/z variance no longer
+    # aligns — emit an empty variance vector.
+    return MSscans(scan.num, scan.rt, tic, collect(deconv_mz), proj .* (100.0 / basePeakIntensity), scan.level, basePeakMz, 100.0, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, Float64[])
 end
 
 

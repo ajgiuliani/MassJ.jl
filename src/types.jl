@@ -23,97 +23,43 @@ abstract type MScontainer  end
 
 
 """
-    struct MSscan <: MScontainer
-Data structure used to store individual mass spectrometry scans.
+    struct MSscans <: MScontainer
 
-    struct MSscan <: MScontainer
-        num::Int                          # scan number
-        rt::Float64                       # retention time
-        tic::Float64                      # total ion current
-        mz::Vector{Float64}              # m/z values
-        int::Vector{Float64}             # intensity values
-        level::Int                        # MS level
-        basePeakMz::Float64              # base peak m/z
-        basePeakIntensity::Float64       # base peak intensity
-        precursor::Float64               # precursor m/z
-        polarity::String                 # polarity
-        activationMethod::String         # activation method
-        collisionEnergy::Float64         # collision energy
-        chargeState::Int                 # precursor charge state (0 = unknown)
-        spectrumType::Symbol             # :centroid, :profile, or :unknown
-        driftTime::Float64               # ion mobility drift time or 1/K0 (-1.0 = not present)
-        compensationVoltage::Float64     # FAIMS/DMS compensation voltage (0.0 = not present)
-        mobilityType::Symbol             # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
-        metadata::Dict{String,Any}       # additional format-specific metadata
+The single spectrum container in MassJ. A raw scan read from a file and a
+composite spectrum produced by [`average`](@ref) or the arithmetic operators
+share one type: all per-scan *provenance* fields are vectors, so a raw scan is
+simply an `MSscans` whose provenance vectors have length 1, while a composite of
+`N` scans has length-`N` provenance.
+
+    struct MSscans <: MScontainer
+        num::Vector{Int}                     # scan number(s)
+        rt::Vector{Float64}                  # retention time(s)
+        tic::Float64                         # total ion current
+        mz::Vector{Float64}                  # m/z values
+        int::Vector{Float64}                 # intensity values
+        level::Vector{Int}                   # MS level(s)
+        basePeakMz::Float64                  # base peak m/z
+        basePeakIntensity::Float64           # base peak intensity
+        precursor::Vector{Float64}           # precursor m/z value(s)
+        polarity::Vector{String}             # polarity/polarities
+        activationMethod::Vector{String}     # activation method(s)
+        collisionEnergy::Vector{Float64}     # collision energy/energies
+        s::Vector{Float64}                   # per-m/z variance (empty for a single scan)
+        chargeState::Vector{Int}             # precursor charge state(s) (0 = unknown)
+        spectrumType::Symbol                 # :centroid, :profile, or :unknown
+        driftTime::Vector{Float64}           # ion mobility drift time(s) or 1/K0 (-1.0 = absent)
+        compensationVoltage::Vector{Float64} # FAIMS/DMS compensation voltage(s) (0.0 = absent)
+        mobilityType::Symbol                 # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
+        metadata::Dict{String,Any}           # additional format-specific metadata
     end
 
-"""
-struct MSscan <: MScontainer
-    num::Int                          # scan number
-    rt::Float64                       # retention time
-    tic::Float64                      # total ion current
-    mz::Vector{Float64}              # m/z values
-    int::Vector{Float64}             # intensity values
-    level::Int                        # MS level
-    basePeakMz::Float64              # base peak m/z
-    basePeakIntensity::Float64       # base peak intensity
-    precursor::Float64               # precursor m/z
-    polarity::String                 # polarity
-    activationMethod::String         # activation method
-    collisionEnergy::Float64         # collision energy
-    chargeState::Int                 # precursor charge state (0 = unknown)
-    spectrumType::Symbol             # :centroid, :profile, or :unknown
-    driftTime::Float64               # ion mobility drift time or 1/K0 (-1.0 = not present)
-    compensationVoltage::Float64     # FAIMS/DMS compensation voltage (0.0 = not present)
-    mobilityType::Symbol             # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
-    metadata::Dict{String,Any}       # additional format-specific metadata
+The variance accumulator `s` (Welford M2) is empty for a single scan and is
+populated by [`avg`](@ref) once two or more spectra are combined. Use `length(s.num)`
+to obtain the number of contributing scans.
 
-    # Full constructor with all 18 fields
-    function MSscan(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
-                    precursor, polarity, activationMethod, collisionEnergy,
-                    chargeState, spectrumType, driftTime, compensationVoltage,
-                    mobilityType, metadata)
-        new(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
-            precursor, polarity, activationMethod, collisionEnergy,
-            chargeState, spectrumType, driftTime, compensationVoltage,
-            mobilityType, metadata)
-    end
-
-    # Backward-compatible constructor with original 12 fields
-    function MSscan(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
-                    precursor, polarity, activationMethod, collisionEnergy)
-        new(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
-            precursor, polarity, activationMethod, collisionEnergy,
-            0, :unknown, -1.0, 0.0, :none, Dict{String,Any}())
-    end
-end
-
-"""
-    struct MSscans  <: MScontainer
-Data structure designed to store mass spectra obtained after filtering operation along with the history of these operations.
-
-    struct MSscans  <: MScontainer
-        num::Vector{Int}                  # scan numbers
-        rt::Vector{Float64}               # retention times
-        tic::Float64                      # total ion current
-        mz::Vector{Float64}               # m/z values
-        int::Vector{Float64}              # intensity values
-        level::Vector{Int}                # MS levels
-        basePeakMz::Float64               # base peak m/z
-        basePeakIntensity::Float64        # base peak intensity
-        precursor::Vector{Float64}        # precursor m/z values
-        polarity::Vector{String}          # polarities
-        activationMethod::Vector{String}  # activation methods
-        collisionEnergy::Vector{Float64}  # collision energies
-        s::Vector{Float64}                # variance
-        chargeState::Vector{Int}          # precursor charge states (0 = unknown)
-        spectrumType::Symbol              # :centroid, :profile, or :unknown
-        driftTime::Vector{Float64}        # ion mobility drift times or 1/K0 (-1.0 = not present)
-        compensationVoltage::Vector{Float64} # FAIMS/DMS compensation voltages (0.0 = not present)
-        mobilityType::Symbol              # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
-        metadata::Dict{String,Any}        # additional format-specific metadata
-    end
-
+Construct a single raw scan with the scalar 12- or 18-argument forms (provenance
+values are scalars and are wrapped into length-1 vectors automatically); the
+13- and 19-argument vector forms build a composite spectrum directly.
 """
 struct MSscans  <: MScontainer
     num::Vector{Int}                  # scan numbers
@@ -136,7 +82,7 @@ struct MSscans  <: MScontainer
     mobilityType::Symbol              # :DTIMS, :TIMS, :TWIMS, :FAIMS, or :none
     metadata::Dict{String,Any}        # additional format-specific metadata
 
-    # Full constructor with all 19 fields
+    # Composite spectrum — full 19-field constructor (vector provenance).
     function MSscans(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
                      precursor, polarity, activationMethod, collisionEnergy, s,
                      chargeState, spectrumType, driftTime, compensationVoltage,
@@ -147,7 +93,7 @@ struct MSscans  <: MScontainer
             mobilityType, metadata)
     end
 
-    # Backward-compatible constructor with original 13 fields
+    # Composite spectrum — 13-field constructor (defaults for the extra metadata).
     function MSscans(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
                      precursor, polarity, activationMethod, collisionEnergy, s)
         new(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity,
@@ -155,56 +101,100 @@ struct MSscans  <: MScontainer
             fill(0, length(num)), :unknown, fill(-1.0, length(num)),
             fill(0.0, length(num)), :none, Dict{String,Any}())
     end
+
+    # Single raw scan — full 18-field scalar form (mirrors the former MSscan).
+    function MSscans(num::Integer, rt::Real, tic::Real, mz, int, level::Integer,
+                     basePeakMz::Real, basePeakIntensity::Real, precursor::Real,
+                     polarity::AbstractString, activationMethod::AbstractString,
+                     collisionEnergy::Real, chargeState::Integer, spectrumType::Symbol,
+                     driftTime::Real, compensationVoltage::Real, mobilityType::Symbol,
+                     metadata)
+        new([Int(num)], [Float64(rt)], Float64(tic), mz, int, [Int(level)],
+            Float64(basePeakMz), Float64(basePeakIntensity), [Float64(precursor)],
+            [String(polarity)], [String(activationMethod)], [Float64(collisionEnergy)],
+            Float64[], [Int(chargeState)], spectrumType, [Float64(driftTime)],
+            [Float64(compensationVoltage)], mobilityType, metadata)
+    end
+
+    # Single raw scan — basic 12-field scalar form (mirrors the former MSscan).
+    function MSscans(num::Integer, rt::Real, tic::Real, mz, int, level::Integer,
+                     basePeakMz::Real, basePeakIntensity::Real, precursor::Real,
+                     polarity::AbstractString, activationMethod::AbstractString,
+                     collisionEnergy::Real)
+        new([Int(num)], [Float64(rt)], Float64(tic), mz, int, [Int(level)],
+            Float64(basePeakMz), Float64(basePeakIntensity), [Float64(precursor)],
+            [String(polarity)], [String(activationMethod)], [Float64(collisionEnergy)],
+            Float64[], [0], :unknown, [-1.0], [0.0], :none, Dict{String,Any}())
+    end
 end
 
 
 """
-    struct Chromatogram  <: MScontainer
-Data structure used to retrieve chromatography data.
+    struct IonCurrent <: MScontainer
 
-    struct Chromatogram  <: MScontainer   
-        rt::Vector{Float64}               # retention time
-        ic::Vector{Float64}               # ion current
-        maxic::Float64
+A one-dimensional ion-current trace against a single separation axis. Replaces
+the former `Chromatogram`, `Mobilogram`, and `Ionogram` types — the `axis` field
+records what the abscissa `x` represents.
+
+    struct IonCurrent <: MScontainer
+        x::Vector{Float64}      # axis values (retention time, drift time, or compensation voltage)
+        ic::Vector{Float64}     # ion current
+        axis::Symbol            # :rt, :drift, or :cv
+        mobilityType::Symbol    # :DTIMS/:TIMS/:TWIMS/:FAIMS for a mobility axis, else :none
     end
 
+The peak ion current is computed on demand with [`maxic`](@ref) rather than
+stored. Construct directly, or with the keyword form
+`IonCurrent(x, ic; axis = :rt, mobilityType = :none)`.
 """
-struct Chromatogram  <: MScontainer
-    rt::Vector{Float64}
+struct IonCurrent <: MScontainer
+    x::Vector{Float64}
     ic::Vector{Float64}
-    maxic::Float64
+    axis::Symbol
+    mobilityType::Symbol
 end
+
+IonCurrent(x, ic; axis::Symbol = :rt, mobilityType::Symbol = :none) =
+    IonCurrent(collect(Float64, x), collect(Float64, ic), axis, mobilityType)
+
+"""
+    maxic(c::IonCurrent)
+
+Maximum ion current of the trace (`0.0` for an empty trace). Computed on demand;
+replaces the former stored `Chromatogram.maxic` field.
+"""
+maxic(c::IonCurrent) = isempty(c.ic) ? 0.0 : maximum(c.ic)
 
 
 """
-    struct MSrun <: AbstractVector{MSscan}
-A full mzML/mzXML "run" — a vector of [`MSscan`](@ref)s together with the
+    struct MSrun <: AbstractVector{MSscans}
+A full mzML/mzXML "run" — a vector of [`MSscans`](@ref) together with the
 file-level metadata (instrument, software, source file, data processing) and
-any pre-computed chromatograms stored in the source file.
+any pre-computed ion-current traces stored in the source file.
 
-    struct MSrun <: AbstractVector{MSscan}
-        scans::Vector{MSscan}             # spectrum list
+    struct MSrun <: AbstractVector{MSscans}
+        scans::Vector{MSscans}            # spectrum list
         metadata::Dict{String,Any}        # file-level cvParams (instrument, …)
-        chromatograms::Vector{Chromatogram}  # pre-computed chromatograms
+        chromatograms::Vector{IonCurrent} # pre-computed traces
     end
 
-`MSrun` is a subtype of `AbstractVector{MSscan}`, so it transparently supports
+`MSrun` is a subtype of `AbstractVector{MSscans}`, so it transparently supports
 the standard array interface: `length(run)`, `run[i]`, iteration, and
-broadcasting. Code that previously worked on a `Vector{MSscan}` returned by
+broadcasting. Code that previously worked on a `Vector{MSscans}` returned by
 [`load`](@ref) keeps working unchanged. Slicing with a range (e.g. `run[1:5]`)
-returns a plain `Vector{MSscan}` — the file-level metadata is dropped.
+returns a plain `Vector{MSscans}` — the file-level metadata is dropped.
 
 `run.metadata` is populated by [`load`](@ref) when reading mzML, and emitted
 back by [`save`](@ref) so that the round-trip preserves instrument
 configuration, software list, source file information, and so on.
 """
-struct MSrun <: AbstractVector{MSscan}
-    scans::Vector{MSscan}
+struct MSrun <: AbstractVector{MSscans}
+    scans::Vector{MSscans}
     metadata::Dict{String,Any}
-    chromatograms::Vector{Chromatogram}
+    chromatograms::Vector{IonCurrent}
 end
 
-MSrun(scans::Vector{MSscan}) = MSrun(scans, Dict{String,Any}(), Chromatogram[])
+MSrun(scans::Vector{MSscans}) = MSrun(scans, Dict{String,Any}(), IonCurrent[])
 
 # AbstractVector interface — delegate to the underlying scans vector.
 Base.size(run::MSrun)            = size(run.scans)
@@ -212,44 +202,6 @@ Base.getindex(run::MSrun, i::Int)= run.scans[i]
 Base.getindex(run::MSrun, r)     = run.scans[r]
 Base.setindex!(run::MSrun, v, i) = (run.scans[i] = v)
 Base.IndexStyle(::Type{<:MSrun}) = IndexLinear()
-
-
-"""
-    struct Mobilogram <: MScontainer
-Data structure used to retrieve ion mobility data (intensity vs drift time or 1/K0).
-
-    struct Mobilogram <: MScontainer
-        dt::Vector{Float64}               # drift time or 1/K0 values
-        ic::Vector{Float64}               # ion current
-        maxic::Float64                    # maximum ion current
-        mobilityType::Symbol              # :DTIMS, :TIMS, :TWIMS, or :none
-    end
-
-"""
-struct Mobilogram <: MScontainer
-    dt::Vector{Float64}
-    ic::Vector{Float64}
-    maxic::Float64
-    mobilityType::Symbol
-end
-
-
-"""
-    struct Ionogram <: MScontainer
-Data structure used to retrieve differential mobility data (intensity vs compensation voltage).
-
-    struct Ionogram <: MScontainer
-        cv::Vector{Float64}               # compensation voltage values
-        ic::Vector{Float64}               # ion current
-        maxic::Float64                    # maximum ion current
-    end
-
-"""
-struct Ionogram <: MScontainer
-    cv::Vector{Float64}
-    ic::Vector{Float64}
-    maxic::Float64
-end
 
 
 """
@@ -658,39 +610,39 @@ end
 # REPL-friendly `show` methods
 #
 # The default Julia `show(::IO, ::MIME"text/plain", x)` for a struct dumps
-# every field — for `MSscan` / `MSscans` that floods the REPL with arrays
-# tens of thousands of elements long. These compact summaries print a
-# one-liner with the most informative fields instead.
+# every field — for `MSscans` that floods the REPL with arrays tens of
+# thousands of elements long. These compact summaries print a one-liner with
+# the most informative fields instead.
 # ----------------------------------------------------------------------------
-
-function Base.show(io::IO, ::MIME"text/plain", s::MSscan)
-    pol  = isempty(s.polarity) ? "?" : s.polarity
-    mzlo = isempty(s.mz) ? "—" : string(round(first(s.mz), digits = 3))
-    mzhi = isempty(s.mz) ? "—" : string(round(last(s.mz),  digits = 3))
-    actm = isempty(s.activationMethod) ? "" : " " * s.activationMethod
-    ce   = s.collisionEnergy > 0 ? "@" * string(s.collisionEnergy) * "eV" : ""
-    prec = s.precursor > 0 ? "  precursor=" * string(s.precursor) : ""
-    print(io, "MSscan(num=", s.num,
-              ", MS", s.level, pol, actm, ce,
-              ", ", length(s.mz), " pts m/z=[", mzlo, ", ", mzhi, "]",
-              ", rt=", round(s.rt, digits = 4), " min, tic=", s.tic,
-              prec, ")")
-end
 
 function Base.show(io::IO, ::MIME"text/plain", s::MSscans)
     n    = length(s.num)
     mzlo = isempty(s.mz) ? "—" : string(round(first(s.mz), digits = 3))
     mzhi = isempty(s.mz) ? "—" : string(round(last(s.mz),  digits = 3))
-    print(io, "MSscans(averaged ", n, " scan", n == 1 ? "" : "s",
-              ", ", length(s.mz), " pts m/z=[", mzlo, ", ", mzhi, "]",
-              ", tic=", s.tic, ")")
+    if n == 1
+        pol  = isempty(s.polarity) ? "?" : first(s.polarity)
+        actm = isempty(s.activationMethod) || isempty(first(s.activationMethod)) ?
+               "" : " " * first(s.activationMethod)
+        ce   = first(s.collisionEnergy) > 0 ? "@" * string(first(s.collisionEnergy)) * "eV" : ""
+        prec = first(s.precursor) > 0 ? "  precursor=" * string(first(s.precursor)) : ""
+        print(io, "MSscans(num=", first(s.num),
+                  ", MS", first(s.level), pol, actm, ce,
+                  ", ", length(s.mz), " pts m/z=[", mzlo, ", ", mzhi, "]",
+                  ", rt=", round(first(s.rt), digits = 4), " min, tic=", s.tic,
+                  prec, ")")
+    else
+        print(io, "MSscans(composite of ", n, " scans",
+                  ", ", length(s.mz), " pts m/z=[", mzlo, ", ", mzhi, "]",
+                  ", tic=", s.tic, isempty(s.s) ? "" : ", with variance", ")")
+    end
 end
 
-function Base.show(io::IO, ::MIME"text/plain", c::Chromatogram)
-    rtlo = isempty(c.rt) ? "—" : string(round(first(c.rt), digits = 3))
-    rthi = isempty(c.rt) ? "—" : string(round(last(c.rt),  digits = 3))
-    print(io, "Chromatogram(", length(c.rt), " pts rt=[", rtlo, ", ", rthi, "] min",
-              ", max ic=", c.maxic, ")")
+function Base.show(io::IO, ::MIME"text/plain", c::IonCurrent)
+    unit = c.axis === :rt ? " min" : ""
+    xlo  = isempty(c.x) ? "—" : string(round(first(c.x), digits = 3))
+    xhi  = isempty(c.x) ? "—" : string(round(last(c.x),  digits = 3))
+    print(io, "IonCurrent(", c.axis, ", ", length(c.x), " pts x=[", xlo, ", ", xhi, "]", unit,
+              ", max ic=", maxic(c), ")")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", run::MSrun)

@@ -346,7 +346,7 @@ end
 
 
 function _stream_mzml_close(io::IO;
-                            chromatograms::Vector{Chromatogram} = Chromatogram[],
+                            chromatograms::Vector{IonCurrent} = IonCurrent[],
                             precision::Int = 64, compress::Bool = true)
     write(io, "</spectrumList>\n")
     _stream_mzml_chromatogramList(io, chromatograms;
@@ -355,118 +355,41 @@ function _stream_mzml_close(io::IO;
 end
 
 
-function _stream_mzml_spectrum(io::IO, scan::MSscan, index::Int;
+# Spectrum id used both for the `id` attribute and for the indexed-footer
+# offset entry, so the two always agree. A composite spectrum (>1 contributing
+# scan) uses an index-derived id to keep ids unique; a single scan keeps its
+# own scan number.
+function _mzml_spectrum_id(scan::MSscans, index::Int)
+    if length(scan.num) > 1
+        return "scan=" * string(index + 1)
+    else
+        return "scan=" * string(isempty(scan.num) ? index + 1 : scan.num[1])
+    end
+end
+
+function _stream_mzml_spectrum(io::IO, scan::MSscans, index::Int;
                                precision::Int = 64, compress::Bool = true,
                                scalar::Bool = false)
+    composite = length(scan.num) > 1
+    lvl   = isempty(scan.level)           ? 1   : scan.level[1]
+    pol   = isempty(scan.polarity)        ? ""  : scan.polarity[1]
+    rt0   = isempty(scan.rt)              ? 0.0 : scan.rt[1]
+    prec0 = isempty(scan.precursor)       ? 0.0 : scan.precursor[1]
+    chg0  = isempty(scan.chargeState)     ? 0   : scan.chargeState[1]
+    am0   = isempty(scan.activationMethod) ? "" : scan.activationMethod[1]
+    ce0   = isempty(scan.collisionEnergy) ? 0.0 : scan.collisionEnergy[1]
+
     write(io, "<spectrum index=\"", string(index),
-              "\" id=\"scan=", string(scan.num),
+              "\" id=\"", _mzml_spectrum_id(scan, index),
               "\" defaultArrayLength=\"", string(length(scan.mz)), "\">\n")
 
     # mzML 1.1 schema requires: cvParam* userParam* (then child elements).
     # All cvParams come first; any userParams emitted strictly after.
-    _stream_cvParam(io, CV_MS_LEVEL, "ms level"; value = string(scan.level))
-    if scan.level >= 2
-        _stream_cvParam(io, CV_MSN_SPECTRUM, "MSn spectrum")
-    end
-
-    if scan.polarity == "+"
-        _stream_cvParam(io, CV_POSITIVE_SCAN, "positive scan")
-    elseif scan.polarity == "-"
-        _stream_cvParam(io, CV_NEGATIVE_SCAN, "negative scan")
-    end
-
-    if scan.spectrumType === :centroid
-        _stream_cvParam(io, CV_CENTROID, "centroid spectrum")
-    elseif scan.spectrumType === :profile
-        _stream_cvParam(io, CV_PROFILE, "profile spectrum")
-    end
-
-    _stream_cvParam(io, CV_TIC, "total ion current"; value = string(scan.tic))
-    if scan.basePeakMz > 0
-        _stream_cvParam(io, CV_BASE_PEAK_MZ, "base peak m/z";
-                       value = string(scan.basePeakMz),
-                       unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
-    end
-    if scan.basePeakIntensity > 0
-        _stream_cvParam(io, CV_BASE_PEAK_INT, "base peak intensity";
-                       value = string(scan.basePeakIntensity),
-                       unit_cv = "MS", unit_acc = "MS:1000131",
-                       unit_name = "number of detector counts")
-    end
-    _stream_mzml_metadata_spectrum_cvs(io, scan.metadata)
-
-    # userParams after cvParams (schema order).
-    if scalar
-        _stream_userParam(io, MASSJ_SCALAR_PARAM; value = "true")
-    end
-
-    write(io, "<scanList count=\"1\">\n")
-    _stream_cvParam(io, "MS:1000795", "no combination")
-    write(io, "<scan>\n")
-    _stream_cvParam(io, CV_SCAN_START_TIME, "scan start time";
-                   value = string(scan.rt), unit_cv = "UO",
-                   unit_acc = CV_UNIT_MINUTE, unit_name = "minute")
-    _stream_mzml_metadata_scan_cvs(io, scan.metadata)
-    _stream_mzml_scan_window(io, scan.metadata)
-    write(io, "</scan>\n</scanList>\n")
-
-    if scan.level >= 2 && scan.precursor > 0
-        write(io, "<precursorList count=\"1\">\n<precursor>\n")
-        _stream_mzml_isolation_window(io, scan.metadata)
-        write(io, "<selectedIonList count=\"1\">\n<selectedIon>\n")
-        _stream_cvParam(io, CV_SELECTED_ION_MZ, "selected ion m/z";
-                       value = string(scan.precursor),
-                       unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
-        if scan.chargeState != 0
-            _stream_cvParam(io, CV_CHARGE_STATE, "charge state";
-                           value = string(scan.chargeState))
-        end
-        _stream_mzml_selected_ion_intensity(io, scan.metadata)
-        write(io, "</selectedIon>\n</selectedIonList>\n<activation>\n")
-        if !isempty(scan.activationMethod)
-            for (accession, methodName) in ACTIVATION_METHODS
-                if methodName == scan.activationMethod
-                    _stream_cvParam(io, accession, methodName)
-                    break
-                end
-            end
-        end
-        if scan.collisionEnergy > 0
-            _stream_cvParam(io, CV_COLLISION_ENERGY, "collision energy";
-                           value = string(scan.collisionEnergy),
-                           unit_cv = "UO", unit_acc = "UO:0000266",
-                           unit_name = "electronvolt")
-        end
-        write(io, "</activation>\n</precursor>\n</precursorList>\n")
-    end
-
-    write(io, "<binaryDataArrayList count=\"2\">\n")
-    _stream_mzml_binaryDataArray(io, scan.mz,  :mz;  precision = precision, compress = compress)
-    _stream_mzml_binaryDataArray(io, scan.int, :int; precision = precision, compress = compress)
-    write(io, "</binaryDataArrayList>\n</spectrum>\n")
-end
-
-
-function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
-                                       precision::Int = 64, compress::Bool = true,
-                                       scalar::Bool = true)
-    # The original first scan number is preserved in MassJ:num (see below);
-    # the spectrum's `id` attribute is derived from the index so the schema's
-    # uniqueness constraint on spectrum ids holds when several MSscans are
-    # saved together.
-    write(io, "<spectrum index=\"", string(index),
-              "\" id=\"scan=", string(index + 1),
-              "\" defaultArrayLength=\"", string(length(scan.mz)), "\">\n")
-
-    # mzML 1.1 schema requires: cvParam* userParam* (then child elements).
-    # All cvParams come first; userParams are emitted after the metadata cvs.
-    lvl = isempty(scan.level) ? 1 : scan.level[1]
     _stream_cvParam(io, CV_MS_LEVEL, "ms level"; value = string(lvl))
     if lvl >= 2
         _stream_cvParam(io, CV_MSN_SPECTRUM, "MSn spectrum")
     end
 
-    pol = isempty(scan.polarity) ? "" : scan.polarity[1]
     if pol == "+"
         _stream_cvParam(io, CV_POSITIVE_SCAN, "positive scan")
     elseif pol == "-"
@@ -493,23 +416,27 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
     end
     _stream_mzml_metadata_spectrum_cvs(io, scan.metadata)
 
-    # userParams (schema-mandated to come after cvParams).
-    _stream_userParam(io, MASSJ_CONTAINER_PARAM; value = "MSscans")
+    # userParams after cvParams (schema order). A composite spectrum serialises
+    # its full provenance vectors so the round-trip reconstructs it exactly.
+    if composite
+        _stream_userParam(io, MASSJ_CONTAINER_PARAM; value = "MSscans")
+    end
     if scalar
         _stream_userParam(io, MASSJ_SCALAR_PARAM; value = "true")
     end
-    _stream_vec_userParam(io, "MassJ:num",                 scan.num)
-    _stream_vec_userParam(io, "MassJ:rt",                  scan.rt)
-    _stream_vec_userParam(io, "MassJ:level",               scan.level)
-    _stream_vec_userParam(io, "MassJ:precursor",           scan.precursor)
-    _stream_vec_userParam(io, "MassJ:polarity",            scan.polarity)
-    _stream_vec_userParam(io, "MassJ:activationMethod",    scan.activationMethod)
-    _stream_vec_userParam(io, "MassJ:collisionEnergy",     scan.collisionEnergy)
-    _stream_vec_userParam(io, "MassJ:chargeState",         scan.chargeState)
-    _stream_vec_userParam(io, "MassJ:driftTime",           scan.driftTime)
-    _stream_vec_userParam(io, "MassJ:compensationVoltage", scan.compensationVoltage)
+    if composite
+        _stream_vec_userParam(io, "MassJ:num",                 scan.num)
+        _stream_vec_userParam(io, "MassJ:rt",                  scan.rt)
+        _stream_vec_userParam(io, "MassJ:level",               scan.level)
+        _stream_vec_userParam(io, "MassJ:precursor",           scan.precursor)
+        _stream_vec_userParam(io, "MassJ:polarity",            scan.polarity)
+        _stream_vec_userParam(io, "MassJ:activationMethod",    scan.activationMethod)
+        _stream_vec_userParam(io, "MassJ:collisionEnergy",     scan.collisionEnergy)
+        _stream_vec_userParam(io, "MassJ:chargeState",         scan.chargeState)
+        _stream_vec_userParam(io, "MassJ:driftTime",           scan.driftTime)
+        _stream_vec_userParam(io, "MassJ:compensationVoltage", scan.compensationVoltage)
+    end
 
-    rt0 = isempty(scan.rt) ? 0.0 : scan.rt[1]
     write(io, "<scanList count=\"1\">\n")
     _stream_cvParam(io, "MS:1000795", "no combination")
     write(io, "<scan>\n")
@@ -520,7 +447,6 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
     _stream_mzml_scan_window(io, scan.metadata)
     write(io, "</scan>\n</scanList>\n")
 
-    prec0 = isempty(scan.precursor) ? 0.0 : scan.precursor[1]
     if lvl >= 2 && prec0 > 0
         write(io, "<precursorList count=\"1\">\n<precursor>\n")
         _stream_mzml_isolation_window(io, scan.metadata)
@@ -528,13 +454,11 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
         _stream_cvParam(io, CV_SELECTED_ION_MZ, "selected ion m/z";
                        value = string(prec0),
                        unit_cv = "MS", unit_acc = "MS:1000040", unit_name = "m/z")
-        chg0 = isempty(scan.chargeState) ? 0 : scan.chargeState[1]
         if chg0 != 0
             _stream_cvParam(io, CV_CHARGE_STATE, "charge state"; value = string(chg0))
         end
         _stream_mzml_selected_ion_intensity(io, scan.metadata)
         write(io, "</selectedIon>\n</selectedIonList>\n<activation>\n")
-        am0 = isempty(scan.activationMethod) ? "" : scan.activationMethod[1]
         if !isempty(am0)
             for (accession, methodName) in ACTIVATION_METHODS
                 if methodName == am0
@@ -543,7 +467,6 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
                 end
             end
         end
-        ce0 = isempty(scan.collisionEnergy) ? 0.0 : scan.collisionEnergy[1]
         if ce0 > 0
             _stream_cvParam(io, CV_COLLISION_ENERGY, "collision energy";
                            value = string(ce0),
@@ -553,10 +476,13 @@ function _stream_mzml_msscans_spectrum(io::IO, scan::MSscans, index::Int;
         write(io, "</activation>\n</precursor>\n</precursorList>\n")
     end
 
-    write(io, "<binaryDataArrayList count=\"3\">\n")
+    nbin = isempty(scan.s) ? 2 : 3
+    write(io, "<binaryDataArrayList count=\"", string(nbin), "\">\n")
     _stream_mzml_binaryDataArray(io, scan.mz,  :mz;  precision = precision, compress = compress)
     _stream_mzml_binaryDataArray(io, scan.int, :int; precision = precision, compress = compress)
-    _stream_mzml_variance_array(io, scan.s; precision = precision, compress = compress)
+    if !isempty(scan.s)
+        _stream_mzml_variance_array(io, scan.s; precision = precision, compress = compress)
+    end
     write(io, "</binaryDataArrayList>\n</spectrum>\n")
 end
 
@@ -627,7 +553,7 @@ Round-trips through [`load`](@ref): the loaded value has the same type as the
 saved one (scalar `MSscan` / `MSscans` come back bare; vectors come back as
 vectors).
 """
-function save_mzml(filename::AbstractString, scans::Vector{MSscan};
+function save_mzml(filename::AbstractString, scans::Vector{MSscans};
                    precision::Int = 64, compress::Bool = true,
                    progress::Bool = true, indexed::Bool = true)
     return _save_mzml_vector(filename, scans;
@@ -649,7 +575,7 @@ function save_mzml(filename::AbstractString, run::MSrun;
                              indexed = indexed)
 end
 
-function save_mzml(filename::AbstractString, scan::MSscan;
+function save_mzml(filename::AbstractString, scan::MSscans;
                    precision::Int = 64, compress::Bool = true,
                    progress::Bool = true, indexed::Bool = true)
     return _save_mzml_vector(filename, [scan];
@@ -659,11 +585,11 @@ function save_mzml(filename::AbstractString, scan::MSscan;
                              indexed = indexed)
 end
 
-function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
+function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscans};
                            precision::Int, compress::Bool,
                            scalar::Bool, progress::Bool,
                            file_metadata::Dict{String,Any} = Dict{String,Any}(),
-                           chromatograms::Vector{Chromatogram} = Chromatogram[],
+                           chromatograms::Vector{IonCurrent} = IonCurrent[],
                            indexed::Bool = true)
     open(filename, "w") do raw_io
         io = indexed ? TeeSHA1IO(raw_io) : raw_io
@@ -686,7 +612,7 @@ function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
         prog = progress && length(scans) > 1 ?
             Progress(length(scans); desc = "Writing mzML: ") : nothing
         for (i, scan) in enumerate(scans)
-            indexed && push!(spec_offsets, ("scan=$(scan.num)", position(raw_io)))
+            indexed && push!(spec_offsets, (_mzml_spectrum_id(scan, i - 1), position(raw_io)))
             _stream_mzml_spectrum(io, scan, i - 1;
                                   precision = precision, compress = compress,
                                   scalar = scalar)
@@ -704,10 +630,10 @@ function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
                 indexed && push!(chrom_offsets, (id, position(raw_io)))
                 write(io, "<chromatogram id=\"", id,
                           "\" index=\"", string(i - 1),
-                          "\" defaultArrayLength=\"", string(length(c.rt)), "\">\n")
+                          "\" defaultArrayLength=\"", string(length(c.x)), "\">\n")
                 _stream_cvParam(io, CV_TIC_CHROMATOGRAM, "total ion current chromatogram")
                 write(io, "<binaryDataArrayList count=\"2\">\n")
-                _stream_mzml_chrom_binary(io, c.rt,  :time;
+                _stream_mzml_chrom_binary(io, c.x,   :time;
                                           precision = precision, compress = compress)
                 _stream_mzml_chrom_binary(io, c.ic,  :intensity;
                                           precision = precision, compress = compress)
@@ -720,68 +646,6 @@ function _save_mzml_vector(filename::AbstractString, scans::Vector{MSscan};
 
         if indexed
             _stream_indexed_footer(io, raw_io, spec_offsets, chrom_offsets)
-        end
-    end
-    return filename
-end
-
-
-function save_mzml(filename::AbstractString, scan::MSscans;
-                   precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true, indexed::Bool = true)
-    return _save_mzml_msscans_vector(filename, [scan];
-                                     precision = precision, compress = compress,
-                                     scalar = true, progress = progress,
-                                     indexed = indexed)
-end
-
-function save_mzml(filename::AbstractString, scans::Vector{MSscans};
-                   precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true, indexed::Bool = true)
-    return _save_mzml_msscans_vector(filename, scans;
-                                     precision = precision, compress = compress,
-                                     scalar = false, progress = progress,
-                                     indexed = indexed)
-end
-
-function _save_mzml_msscans_vector(filename::AbstractString, scans::Vector{MSscans};
-                                   precision::Int, compress::Bool,
-                                   scalar::Bool, progress::Bool,
-                                   file_metadata::Dict{String,Any} = Dict{String,Any}(),
-                                   indexed::Bool = true)
-    open(filename, "w") do raw_io
-        io = indexed ? TeeSHA1IO(raw_io) : raw_io
-
-        if indexed
-            write(io, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
-                      "<indexedmzML xmlns=\"http://psi.hupo.org/ms/mzml\"",
-                      " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"",
-                      " xsi:schemaLocation=\"http://psi.hupo.org/ms/mzml",
-                      " http://psidev.info/files/ms/mzML/xsd/mzML1.1.0_idx.xsd\">\n")
-            _stream_mzml_open(io, length(scans);
-                              file_metadata = file_metadata, with_xml_decl = false)
-        else
-            _stream_mzml_open(io, length(scans); file_metadata = file_metadata)
-        end
-
-        spec_offsets = Vector{Tuple{String,Int}}(undef, 0)
-
-        prog = progress && length(scans) > 1 ?
-            Progress(length(scans); desc = "Writing mzML: ") : nothing
-        for (i, sc) in enumerate(scans)
-            # Spectrum id matches what _stream_mzml_msscans_spectrum writes
-            # (scan=<index+1>, see the uniqueness comment there).
-            indexed && push!(spec_offsets, ("scan=" * string(i), position(raw_io)))
-            _stream_mzml_msscans_spectrum(io, sc, i - 1;
-                                          precision = precision, compress = compress,
-                                          scalar = scalar)
-            prog === nothing || next!(prog)
-        end
-        write(io, "</spectrumList>\n</run>\n</mzML>\n")
-
-        if indexed
-            _stream_indexed_footer(io, raw_io, spec_offsets,
-                                   Vector{Tuple{String,Int}}())
         end
     end
     return filename
@@ -809,35 +673,63 @@ function _attr_vec(v::AbstractVector)
 end
 
 
-function _stream_mzxml_spectrum(io::IO, scan::MSscan;
+function _stream_mzxml_spectrum(io::IO, scan::MSscans;
                                 precision::Int = 64, compress::Bool = true,
                                 scalar::Bool = false)
-    write(io, "<scan num=\"", string(scan.num),
-              "\" msLevel=\"", string(scan.level),
+    composite = length(scan.num) > 1
+    num0  = isempty(scan.num)             ? 1   : scan.num[1]
+    lvl   = isempty(scan.level)           ? 1   : scan.level[1]
+    pol   = isempty(scan.polarity)        ? ""  : scan.polarity[1]
+    rt0   = isempty(scan.rt)              ? 0.0 : scan.rt[1]
+    prec0 = isempty(scan.precursor)       ? 0.0 : scan.precursor[1]
+    am0   = isempty(scan.activationMethod) ? "" : scan.activationMethod[1]
+    ce0   = isempty(scan.collisionEnergy) ? 0.0 : scan.collisionEnergy[1]
+
+    write(io, "<scan num=\"", string(num0),
+              "\" msLevel=\"", string(lvl),
               "\" peaksCount=\"", string(length(scan.mz)), "\"")
+
+    # A composite spectrum serialises its provenance vectors as custom
+    # attributes so the round-trip reconstructs it exactly.
+    if composite
+        write(io, " ", MASSJ_MZXML_CONTAINER_ATTR, "=\"MSscans\"")
+    end
     if scalar
         write(io, " ", MASSJ_MZXML_SCALAR_ATTR, "=\"true\"")
     end
-    if !isempty(scan.polarity)
-        write(io, " polarity=\"", _xmlescape(scan.polarity), "\"")
+    if composite
+        write(io, " MassJNum=\"",                 _xmlescape(_attr_vec(scan.num)),                 "\"")
+        write(io, " MassJRt=\"",                  _xmlescape(_attr_vec(scan.rt)),                  "\"")
+        write(io, " MassJLevel=\"",               _xmlescape(_attr_vec(scan.level)),               "\"")
+        write(io, " MassJPrecursor=\"",           _xmlescape(_attr_vec(scan.precursor)),           "\"")
+        write(io, " MassJPolarity=\"",            _xmlescape(_attr_vec(scan.polarity)),            "\"")
+        write(io, " MassJActivationMethod=\"",    _xmlescape(_attr_vec(scan.activationMethod)),    "\"")
+        write(io, " MassJCollisionEnergy=\"",     _xmlescape(_attr_vec(scan.collisionEnergy)),     "\"")
+        write(io, " MassJChargeState=\"",         _xmlescape(_attr_vec(scan.chargeState)),         "\"")
+        write(io, " MassJDriftTime=\"",           _xmlescape(_attr_vec(scan.driftTime)),           "\"")
+        write(io, " MassJCompensationVoltage=\"", _xmlescape(_attr_vec(scan.compensationVoltage)), "\"")
     end
-    write(io, " retentionTime=\"PT", string(scan.rt), "M\"")
+
+    if !isempty(pol)
+        write(io, " polarity=\"", _xmlescape(pol), "\"")
+    end
+    write(io, " retentionTime=\"PT", string(rt0), "M\"")
     write(io, " totIonCurrent=\"", string(scan.tic), "\"")
     if scan.basePeakMz > 0
         write(io, " basePeakMz=\"",        string(scan.basePeakMz),
                   "\" basePeakIntensity=\"", string(scan.basePeakIntensity), "\"")
     end
-    if scan.collisionEnergy > 0
-        write(io, " collisionEnergy=\"", string(scan.collisionEnergy), "\"")
+    if ce0 > 0
+        write(io, " collisionEnergy=\"", string(ce0), "\"")
     end
     write(io, ">\n")
 
-    if scan.level >= 2 && scan.precursor > 0
+    if lvl >= 2 && prec0 > 0
         write(io, "<precursorMz")
-        if !isempty(scan.activationMethod)
-            write(io, " activationMethod=\"", _xmlescape(scan.activationMethod), "\"")
+        if !isempty(am0)
+            write(io, " activationMethod=\"", _xmlescape(am0), "\"")
         end
-        write(io, ">", string(scan.precursor), "</precursorMz>\n")
+        write(io, ">", string(prec0), "</precursorMz>\n")
     end
 
     # Interleaved m/z, intensity, m/z, intensity, …
@@ -858,93 +750,20 @@ function _stream_mzxml_spectrum(io::IO, scan::MSscan;
     end
     write(io, ">", b64, "</peaks>\n")
 
-    write(io, "</scan>\n")
-end
-
-
-function _stream_mzxml_msscans_spectrum(io::IO, scan::MSscans;
-                                        precision::Int = 64, compress::Bool = true,
-                                        scalar::Bool = true)
-    num0 = isempty(scan.num) ? 1 : scan.num[1]
-    lvl  = isempty(scan.level) ? 1 : scan.level[1]
-
-    write(io, "<scan num=\"", string(num0),
-              "\" msLevel=\"", string(lvl),
-              "\" peaksCount=\"", string(length(scan.mz)), "\"")
-
-    # MassJ markers + serialised vector provenance, all as custom attributes.
-    write(io, " ", MASSJ_MZXML_CONTAINER_ATTR, "=\"MSscans\"")
-    if scalar
-        write(io, " ", MASSJ_MZXML_SCALAR_ATTR, "=\"true\"")
-    end
-    write(io, " MassJNum=\"",                 _xmlescape(_attr_vec(scan.num)),                 "\"")
-    write(io, " MassJRt=\"",                  _xmlescape(_attr_vec(scan.rt)),                  "\"")
-    write(io, " MassJLevel=\"",               _xmlescape(_attr_vec(scan.level)),               "\"")
-    write(io, " MassJPrecursor=\"",           _xmlescape(_attr_vec(scan.precursor)),           "\"")
-    write(io, " MassJPolarity=\"",            _xmlescape(_attr_vec(scan.polarity)),            "\"")
-    write(io, " MassJActivationMethod=\"",    _xmlescape(_attr_vec(scan.activationMethod)),    "\"")
-    write(io, " MassJCollisionEnergy=\"",     _xmlescape(_attr_vec(scan.collisionEnergy)),     "\"")
-    write(io, " MassJChargeState=\"",         _xmlescape(_attr_vec(scan.chargeState)),         "\"")
-    write(io, " MassJDriftTime=\"",           _xmlescape(_attr_vec(scan.driftTime)),           "\"")
-    write(io, " MassJCompensationVoltage=\"", _xmlescape(_attr_vec(scan.compensationVoltage)), "\"")
-
-    pol = isempty(scan.polarity) ? "" : scan.polarity[1]
-    if !isempty(pol)
-        write(io, " polarity=\"", _xmlescape(pol), "\"")
-    end
-    rt0 = isempty(scan.rt) ? 0.0 : scan.rt[1]
-    write(io, " retentionTime=\"PT", string(rt0), "M\"")
-    write(io, " totIonCurrent=\"", string(scan.tic), "\"")
-    if scan.basePeakMz > 0
-        write(io, " basePeakMz=\"",        string(scan.basePeakMz),
-                  "\" basePeakIntensity=\"", string(scan.basePeakIntensity), "\"")
-    end
-    ce0 = isempty(scan.collisionEnergy) ? 0.0 : scan.collisionEnergy[1]
-    if ce0 > 0
-        write(io, " collisionEnergy=\"", string(ce0), "\"")
-    end
-    write(io, ">\n")
-
-    prec0 = isempty(scan.precursor) ? 0.0 : scan.precursor[1]
-    if lvl >= 2 && prec0 > 0
-        write(io, "<precursorMz")
-        am0 = isempty(scan.activationMethod) ? "" : scan.activationMethod[1]
-        if !isempty(am0)
-            write(io, " activationMethod=\"", _xmlescape(am0), "\"")
+    # Variance blob — second <peaks> child, only when variance is present.
+    if !isempty(scan.s)
+        b64v, byte_len_v = _encode_binary(scan.s;
+                                           precision = precision, compress = compress,
+                                           endian = :big)
+        write(io, "<peaks precision=\"", string(precision),
+                  "\" byteOrder=\"network\" pairOrder=\"", MASSJ_MZXML_VARIANCE_PAIR,
+                  "\" contentType=\"", MASSJ_MZXML_VARIANCE_PAIR, "\"",
+                  " compressionType=\"", compress ? "zlib" : "none", "\"")
+        if compress
+            write(io, " compressedLen=\"", string(byte_len_v), "\"")
         end
-        write(io, ">", string(prec0), "</precursorMz>\n")
+        write(io, ">", b64v, "</peaks>\n")
     end
-
-    # Standard m/z+intensity peaks blob
-    n = length(scan.mz)
-    interleaved = Vector{Float64}(undef, 2n)
-    @inbounds for i in 1:n
-        interleaved[2i - 1] = scan.mz[i]
-        interleaved[2i]     = scan.int[i]
-    end
-    b64, byte_len = _encode_binary(interleaved;
-                                   precision = precision, compress = compress,
-                                   endian = :big)
-    write(io, "<peaks precision=\"", string(precision),
-              "\" byteOrder=\"network\" pairOrder=\"m/z-int\" contentType=\"m/z-int\"",
-              " compressionType=\"", compress ? "zlib" : "none", "\"")
-    if compress
-        write(io, " compressedLen=\"", string(byte_len), "\"")
-    end
-    write(io, ">", b64, "</peaks>\n")
-
-    # Variance blob — second <peaks> child
-    b64v, byte_len_v = _encode_binary(scan.s;
-                                       precision = precision, compress = compress,
-                                       endian = :big)
-    write(io, "<peaks precision=\"", string(precision),
-              "\" byteOrder=\"network\" pairOrder=\"", MASSJ_MZXML_VARIANCE_PAIR,
-              "\" contentType=\"", MASSJ_MZXML_VARIANCE_PAIR, "\"",
-              " compressionType=\"", compress ? "zlib" : "none", "\"")
-    if compress
-        write(io, " compressedLen=\"", string(byte_len_v), "\"")
-    end
-    write(io, ">", b64v, "</peaks>\n")
 
     write(io, "</scan>\n")
 end
@@ -961,7 +780,7 @@ Write a [`MSscan`](@ref), [`MSscans`](@ref), or `Vector{MSscan}` /
 bounded by the largest single spectrum. mzXML interleaves m/z and intensity in
 a single `<peaks>` blob and uses big-endian (network) byte order.
 """
-function save_mzxml(filename::AbstractString, scans::Vector{MSscan};
+function save_mzxml(filename::AbstractString, scans::Vector{MSscans};
                     precision::Int = 64, compress::Bool = true,
                     progress::Bool = true)
     return _save_mzxml_vector(filename, scans;
@@ -969,7 +788,15 @@ function save_mzxml(filename::AbstractString, scans::Vector{MSscan};
                               scalar = false, progress = progress)
 end
 
-function save_mzxml(filename::AbstractString, scan::MSscan;
+function save_mzxml(filename::AbstractString, run::MSrun;
+                    precision::Int = 64, compress::Bool = true,
+                    progress::Bool = true)
+    return _save_mzxml_vector(filename, run.scans;
+                              precision = precision, compress = compress,
+                              scalar = false, progress = progress)
+end
+
+function save_mzxml(filename::AbstractString, scan::MSscans;
                     precision::Int = 64, compress::Bool = true,
                     progress::Bool = true)
     return _save_mzxml_vector(filename, [scan];
@@ -977,7 +804,7 @@ function save_mzxml(filename::AbstractString, scan::MSscan;
                               scalar = true, progress = progress)
 end
 
-function _save_mzxml_vector(filename::AbstractString, scans::Vector{MSscan};
+function _save_mzxml_vector(filename::AbstractString, scans::Vector{MSscans};
                             precision::Int, compress::Bool,
                             scalar::Bool, progress::Bool)
     open(filename, "w") do io
@@ -988,41 +815,6 @@ function _save_mzxml_vector(filename::AbstractString, scans::Vector{MSscan};
             _stream_mzxml_spectrum(io, scan;
                                    precision = precision, compress = compress,
                                    scalar = scalar)
-            prog === nothing || next!(prog)
-        end
-        _stream_mzxml_close(io)
-    end
-    return filename
-end
-
-
-function save_mzxml(filename::AbstractString, scan::MSscans;
-                    precision::Int = 64, compress::Bool = true,
-                    progress::Bool = true)
-    return _save_mzxml_msscans_vector(filename, [scan];
-                                      precision = precision, compress = compress,
-                                      scalar = true, progress = progress)
-end
-
-function save_mzxml(filename::AbstractString, scans::Vector{MSscans};
-                    precision::Int = 64, compress::Bool = true,
-                    progress::Bool = true)
-    return _save_mzxml_msscans_vector(filename, scans;
-                                      precision = precision, compress = compress,
-                                      scalar = false, progress = progress)
-end
-
-function _save_mzxml_msscans_vector(filename::AbstractString, scans::Vector{MSscans};
-                                    precision::Int, compress::Bool,
-                                    scalar::Bool, progress::Bool)
-    open(filename, "w") do io
-        _stream_mzxml_open(io, length(scans))
-        prog = progress && length(scans) > 1 ?
-            Progress(length(scans); desc = "Writing mzXML: ") : nothing
-        for sc in scans
-            _stream_mzxml_msscans_spectrum(io, sc;
-                                           precision = precision, compress = compress,
-                                           scalar = scalar)
             prog === nothing || next!(prog)
         end
         _stream_mzxml_close(io)
@@ -1229,7 +1021,7 @@ end
 # Emit a <chromatogramList> after </spectrumList> when run.chromatograms is
 # non-empty. Each Chromatogram is written as a TIC chromatogram with two
 # binary arrays: time (UO:0000031, minutes) and intensity.
-function _stream_mzml_chromatogramList(io::IO, chroms::Vector{Chromatogram};
+function _stream_mzml_chromatogramList(io::IO, chroms::Vector{IonCurrent};
                                        precision::Int = 64, compress::Bool = true)
     isempty(chroms) && return
     write(io, "<chromatogramList count=\"", string(length(chroms)), "\""
@@ -1237,10 +1029,10 @@ function _stream_mzml_chromatogramList(io::IO, chroms::Vector{Chromatogram};
     for (i, c) in enumerate(chroms)
         write(io, "<chromatogram id=\"chrom_", string(i),
                   "\" index=\"", string(i - 1),
-                  "\" defaultArrayLength=\"", string(length(c.rt)), "\">\n")
+                  "\" defaultArrayLength=\"", string(length(c.x)), "\">\n")
         _stream_cvParam(io, CV_TIC_CHROMATOGRAM, "total ion current chromatogram")
         write(io, "<binaryDataArrayList count=\"2\">\n")
-        _stream_mzml_chrom_binary(io, c.rt,  :time;
+        _stream_mzml_chrom_binary(io, c.x,   :time;
                                   precision = precision, compress = compress)
         _stream_mzml_chrom_binary(io, c.ic,  :intensity;
                                   precision = precision, compress = compress)

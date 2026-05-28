@@ -149,8 +149,8 @@ integrate_window(scan::MScontainer, mz1::Real, mz2::Real) =
 
 # Internal: trapezoidal integration that also returns the 1-σ uncertainty on the
 # area, derived from the per-m/z standard error of the mean (SEM) carried by an
-# averaged MSscans. Falls back to (area, NaN) when no error info is available
-# (single scan, MSscan, or only one point in the window).
+# composite MSscans. Falls back to (area, NaN) when no error info is available
+# (single scan, or only one point in the window).
 function _integrate_window_with_err(spec::MScontainer, mz1::Real, mz2::Real)
     lo, hi = mz1 <= mz2 ? (mz1, mz2) : (mz2, mz1)
     idx = findall(x -> lo <= x <= hi, spec.mz)
@@ -163,8 +163,8 @@ function _integrate_window_with_err(spec::MScontainer, mz1::Real, mz2::Real)
         area += 0.5 * (spec.int[i] + spec.int[j]) * (spec.mz[j] - spec.mz[i])
     end
 
-    # Per-point variance is available only on MSscans with > 1 averaged scan
-    if spec isa MSscans && length(spec.num) > 1 && !isempty(spec.s)
+    # Per-point variance is available only on a composite of > 1 scan
+    if length(spec.num) > 1 && !isempty(spec.s)
         N = length(spec.num)
         var_acc = 0.0
         @inbounds for k in 1:n

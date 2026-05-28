@@ -14,24 +14,11 @@ export avg, num2pnt
 # ------------------------
 
 """
-    /(a::MSscan, N::Real)
-Divide the intensity and the tic data of a MSscan by a number.
+    /(a::MSscans, N::Real)
+Divide the intensity, tic and (when present) variance of a spectrum by a number.
 ```julia-repl
 julia> scans[1] / 1.0e2
-MassJ.MSscan(1, 0.1384, 50819.5, [140. ....
-```
-"""
-function /(a::MSscan, N::Real)
-    return MSscan(a.num, a.rt, a.tic / N, a.mz, a.int ./ N, a.level, a.basePeakMz, a.basePeakIntensity / N, a.precursor, a.polarity, a.activationMethod, a.collisionEnergy)
-end
-
-
-"""
-    /(a::MSscans, N::Real)
-Divide the intensity, tic and variance of a MSscans by a number.
-```julia-repl
-julia> a / 1.0e2
-MassJ.MSscans(1, 0.1384, 50819.5, [140. ....
+MassJ.MSscans(num=1, MS1+, ...
 ```
 """
 function /(a::MSscans, N::Real)
@@ -39,23 +26,11 @@ function /(a::MSscans, N::Real)
 end
 
 """
-    *(a::MSscan, N::Real)
-Multiply the intensity and the tic data of a MSscan by a number.
+    *(a::MSscans, N::Real)
+Multiply the intensity, tic and (when present) variance of a spectrum by a number.
 ```julia-repl
 julia> scans[1] * 1.0e2
-MassJ.MSscan(1, 0.1384, 50819.5, [140. ....
-```
-"""
-function *(a::MSscan, N::Real)
-    return MSscan(a.num, a.rt, a.tic * N, a.mz, a.int .* N, a.level, a.basePeakMz, a.basePeakIntensity * N, a.precursor, a.polarity, a.activationMethod, a.collisionEnergy)
-end
-
-"""
-    *(a::MSscans, N::Real)
-Multiply the intensity, tic and variance of a MSscans by a number.
-```julia-repl
-julia> a * 1.0e2
-MassJ.MSscans(1, 0.1384, 50819.5, [140. ....
+MassJ.MSscans(num=1, MS1+, ...
 ```
 """
 function *(a::MSscans, N::Real)
@@ -139,63 +114,47 @@ function -(a::MScontainer, b::MScontainer)
         extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
         int = a.int - [extrap(x) for x in a.mz ]
         mz = a.mz
-        if a isa MSscans
-            if b isa MSscans
-                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
-                s = a.s + [extrap2(x) for x in a.mz]
-            else
-                s = a.s
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
-                s = [extrap2(x) for x in a.mz]
-            end            
+        if !isempty(b.s)
+            extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
+            bs = [extrap2(x) for x in a.mz]
+            s = isempty(a.s) ? bs : a.s + bs
+        elseif !isempty(a.s)
+            s = a.s
         end
 
     elseif length(a.mz) < length(b.mz)
         extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
         int = [extrap(x) for x in b.mz ] - b.int
         mz = b.mz
-        if a isa MSscans
+        if !isempty(a.s)
             extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
-            if b isa MSscans
-                s = [extrap2(x) for x in b.mz] + b.s
-            else
-                s = [extrap2(x) for x in b.mz]
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                s = b.s
-            end            
+            as = [extrap2(x) for x in b.mz]
+            s = isempty(b.s) ? as : as + b.s
+        elseif !isempty(b.s)
+            s = b.s
         end
 
     elseif length(a.mz) == length(b.mz)
         mz = a.mz
         int = a.int - b.int
-        if a isa MSscans
-            if b isa MSscans
-                s = a.s + b.s
-            else
-                s = a.s
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                s = b.s
-            end
-        end         
-
+        if !isempty(a.s) && !isempty(b.s)
+            s = a.s + b.s
+        elseif !isempty(a.s)
+            s = a.s
+        elseif !isempty(b.s)
+            s = b.s
+        end
     end
 
     basePeakIntensity = maximum(int)
     basePeakMz = mz[num2pnt(int, basePeakIntensity)]
-    
+
     level = vcat(a.level, b.level)
     precursor = vcat(a.precursor, b.precursor)
     polarity = vcat(a.polarity, b.polarity)
     activationMethod = vcat( a.activationMethod,  b.activationMethod)
     collisionEnergy = vcat(a.collisionEnergy, b.collisionEnergy)
-    
+
     return  MSscans(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity, precursor, polarity, activationMethod, collisionEnergy, s)
 end
 
@@ -222,51 +181,36 @@ function +(a::MScontainer, b::MScontainer)
         extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
         int = a.int + [extrap(x) for x in a.mz ]
         mz = a.mz
-        if a isa MSscans
-            if b isa MSscans
-                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
-                s = a.s + [extrap2(x) for x in a.mz]
-            else
-                s = a.s
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
-                s = [extrap2(x) for x in a.mz]
-            end            
+        if !isempty(b.s)
+            extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
+            bs = [extrap2(x) for x in a.mz]
+            s = isempty(a.s) ? bs : a.s + bs
+        elseif !isempty(a.s)
+            s = a.s
         end
-      
+
     elseif length(a.mz) < length(b.mz)
         extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
         int = [extrap(x) for x in b.mz ] + b.int
         mz = b.mz
-        if a isa MSscans
+        if !isempty(a.s)
             extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
-            if b isa MSscans
-                s = [extrap2(x) for x in b.mz] + b.s
-            else
-                s = [extrap2(x) for x in b.mz]
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                s = b.s
-            end            
+            as = [extrap2(x) for x in b.mz]
+            s = isempty(b.s) ? as : as + b.s
+        elseif !isempty(b.s)
+            s = b.s
         end
-            
+
     elseif length(a.mz) == length(b.mz)
         mz = a.mz
         int = a.int + b.int
-        if a isa MSscans
-            if b isa MSscans
-                s = a.s + b.s
-            else
-                s = a.s
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                s = b.s
-            end
-        end         
+        if !isempty(a.s) && !isempty(b.s)
+            s = a.s + b.s
+        elseif !isempty(a.s)
+            s = a.s
+        elseif !isempty(b.s)
+            s = b.s
+        end
     end
 
     basePeakIntensity = maximum(int)
@@ -303,45 +247,33 @@ function avg(a::MScontainer, b::MScontainer)
 #    int = Vector{Float64}(undef,0)
     mz  = Vector{Float64}(undef,0)
     
+    n = length(a.num)   # scans already accumulated in `a` (1 for a raw scan)
     if length(a.mz) > length(b.mz)
         # interpolating b.int to the a.mz values and adding the result to a.int
         extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
-#        int = a.int + [extrap(x) for x in a.mz]
         mz = a.mz
-        if a isa MSscans
-            m = a.int + ([extrap(x) for x in a.mz] - a.int) / (length(a.num)+1 )
-            s = a.s + ([extrap(x) for x in a.mz] - m) .* ([extrap(x) for x in a.mz] - a.int)
-#            s = (a.s .* a.s) + ([extrap(x) for x in a.mz] - m) .* ([extrap(x) for x in a.mz] - a.int)
-        elseif a isa MSscan
-            m = a.int + ([extrap(x) for x in a.mz] - a.int) / 2
-            s = ([extrap(x) for x in a.mz] - m) .* ([extrap(x) for x in a.mz] - a.int)
-        end
+        bext = [extrap(x) for x in a.mz]
+        m = a.int + (bext - a.int) / (n + 1)
+        delta = (bext - m) .* (bext - a.int)
+        s = isempty(a.s) ? delta : a.s + delta
     elseif length(a.mz) < length(b.mz)
         # interpoling a.int to the b.mz values and adding the result to b.int
         extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
-#        int = [extrap(x) for x in b.mz] + b.int
         mz = b.mz
-        if a isa MSscans
+        aext = [extrap(x) for x in b.mz]
+        m = aext + (b.int - aext) / (n + 1)
+        delta = (b.int - m) .* (b.int - aext)
+        if isempty(a.s)
+            s = delta
+        else
             extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
-            m = [extrap(x) for x in b.mz]  + (b.int -[extrap(x) for x in b.mz] ) / (length(a.num)+1 )
-            s = [extrap2(x) for x in b.mz] + (b.int - m) .* (b.int - [extrap(x) for x in b.mz ])
-#            s = ([extrap2(x) for x in b.mz] .* [extrap2(x) for x in b.mz]) + (b.int - m) .* (b.int - [extrap(x) for x in b.mz ])
-        elseif a isa MSscan
-            m = [extrap(x) for x in b.mz] + (b.int - [extrap(x) for x in b.mz] ) / 2
-            s = (b.int - m) .* (b.int - [extrap(x) for x in b.mz ])
+            s = [extrap2(x) for x in b.mz] + delta
         end
     elseif length(a.mz) == length(b.mz)
-        #    else
         mz = a.mz
-#        int = a.int + b.int
-        if a isa MSscans
-            m = a.int + (b.int - a.int) / (length(a.num)+1 )
-            s = a.s  + ( (b.int - m) .* (b.int - a.int) )
-#            s = (a.s .* a.s)  + ( (b.int - m) .* (b.int - a.int) )
-        elseif a isa MSscan
-            m = a.int + (b.int - a.int) / 2
-            s = (b.int - m) .* (b.int - a.int)
-        end
+        m = a.int + (b.int - a.int) / (n + 1)
+        delta = (b.int - m) .* (b.int - a.int)
+        s = isempty(a.s) ? delta : a.s + delta
     end
 
     basePeakIntensity = maximum(m)

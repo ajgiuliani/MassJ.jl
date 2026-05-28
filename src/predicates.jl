@@ -25,53 +25,56 @@ Convert a `FilterType` to a predicate, with access to the full scan list for
 filters that need global context (e.g. RT needs the retention time array).
 Defaults to ignoring the scans argument.
 """
-to_predicate(scans::Vector{MSscan}, f::FilterType) = to_predicate(f)
+to_predicate(scans::Vector{MSscans}, f::FilterType) = to_predicate(f)
 
 """
-    compose_predicates(scans::Vector{MSscan}, filters::Tuple{Vararg{FilterType}})
+    compose_predicates(scans::Vector{MSscans}, filters::Tuple{Vararg{FilterType}})
 Build a single predicate from multiple `FilterType`s. Returns `scan -> Bool`.
 """
-function compose_predicates(scans::Vector{MSscan}, filters)
+function compose_predicates(scans::Vector{MSscans}, filters)
     isempty(filters) && return _ -> true
     preds = Tuple(to_predicate(scans, f) for f in filters)
     return scan -> all(p -> p(scan), preds)
 end
 
 
+# Each predicate inspects a single scan — an `MSscans` with length-1 provenance —
+# so the per-scan value is the first (and only) element of each provenance vector.
+
 # --- Level ---
 
-to_predicate(f::Level{<:Int}) = scan -> scan.level == f.arg
-to_predicate(f::Level{<:AbstractVector}) = scan -> scan.level ∈ f.arg
+to_predicate(f::Level{<:Int}) = scan -> scan.level[1] == f.arg
+to_predicate(f::Level{<:AbstractVector}) = scan -> scan.level[1] ∈ f.arg
 
 
 # --- Precursor ---
 
-to_predicate(f::Precursor{<:Real}) = scan -> scan.precursor == f.arg
-to_predicate(f::Precursor{<:AbstractVector}) = scan -> scan.precursor ∈ f.arg
+to_predicate(f::Precursor{<:Real}) = scan -> scan.precursor[1] == f.arg
+to_predicate(f::Precursor{<:AbstractVector}) = scan -> scan.precursor[1] ∈ f.arg
 
 
 # --- Activation_Energy ---
 
-to_predicate(f::Activation_Energy{<:Real}) = scan -> scan.collisionEnergy == f.arg
-to_predicate(f::Activation_Energy{<:AbstractVector}) = scan -> scan.collisionEnergy ∈ f.arg
+to_predicate(f::Activation_Energy{<:Real}) = scan -> scan.collisionEnergy[1] == f.arg
+to_predicate(f::Activation_Energy{<:AbstractVector}) = scan -> scan.collisionEnergy[1] ∈ f.arg
 
 
 # --- Activation_Method ---
 
-to_predicate(f::Activation_Method{<:String}) = scan -> scan.activationMethod == f.arg
-to_predicate(f::Activation_Method{<:AbstractVector}) = scan -> scan.activationMethod ∈ f.arg
+to_predicate(f::Activation_Method{<:String}) = scan -> scan.activationMethod[1] == f.arg
+to_predicate(f::Activation_Method{<:AbstractVector}) = scan -> scan.activationMethod[1] ∈ f.arg
 
 
 # --- Polarity ---
 
-to_predicate(f::Polarity{<:String}) = scan -> scan.polarity == f.arg
-to_predicate(f::Polarity{<:AbstractVector}) = scan -> scan.polarity ∈ f.arg
+to_predicate(f::Polarity{<:String}) = scan -> scan.polarity[1] == f.arg
+to_predicate(f::Polarity{<:AbstractVector}) = scan -> scan.polarity[1] ∈ f.arg
 
 
 # --- Scan ---
 
-to_predicate(f::Scan{<:Int}) = scan -> scan.num == f.arg
-to_predicate(f::Scan{<:AbstractVector}) = scan -> scan.num ∈ f.arg
+to_predicate(f::Scan{<:Int}) = scan -> scan.num[1] == f.arg
+to_predicate(f::Scan{<:AbstractVector}) = scan -> scan.num[1] ∈ f.arg
 
 
 # --- IC (ion current range) ---
@@ -81,25 +84,25 @@ to_predicate(f::IC{<:AbstractVector}) = scan -> f.arg[1] <= scan.tic <= f.arg[2]
 
 # --- DriftTime ---
 
-to_predicate(f::DriftTime{<:Real}) = scan -> scan.driftTime == f.arg
-to_predicate(f::DriftTime{<:AbstractVector}) = scan -> f.arg[1] <= scan.driftTime <= f.arg[2]
+to_predicate(f::DriftTime{<:Real}) = scan -> scan.driftTime[1] == f.arg
+to_predicate(f::DriftTime{<:AbstractVector}) = scan -> f.arg[1] <= scan.driftTime[1] <= f.arg[2]
 
 
 # --- CompensationVoltage ---
 
-to_predicate(f::CompensationVoltage{<:Real}) = scan -> scan.compensationVoltage == f.arg
-to_predicate(f::CompensationVoltage{<:AbstractVector}) = scan -> f.arg[1] <= scan.compensationVoltage <= f.arg[2]
+to_predicate(f::CompensationVoltage{<:Real}) = scan -> scan.compensationVoltage[1] == f.arg
+to_predicate(f::CompensationVoltage{<:AbstractVector}) = scan -> f.arg[1] <= scan.compensationVoltage[1] <= f.arg[2]
 
 
 # --- RT (needs global context: retention time array → index mapping) ---
 
-function to_predicate(scans::Vector{MSscan}, f::RT{<:Real})
+function to_predicate(scans::Vector{MSscans}, f::RT{<:Real})
     rt = retention_time(scans)
     target_num = num2pnt(rt, f.arg)
-    return scan -> scan.num == target_num
+    return scan -> scan.num[1] == target_num
 end
 
-function to_predicate(scans::Vector{MSscan}, f::RT{<:AbstractVector{<:Real}})
+function to_predicate(scans::Vector{MSscans}, f::RT{<:AbstractVector{<:Real}})
     rt = retention_time(scans)
     bounds = Set{Int}()
     for i in 1:2:length(f.arg)
@@ -109,10 +112,10 @@ function to_predicate(scans::Vector{MSscan}, f::RT{<:AbstractVector{<:Real}})
             push!(bounds, idx)
         end
     end
-    return scan -> scan.num ∈ bounds
+    return scan -> scan.num[1] ∈ bounds
 end
 
-function to_predicate(scans::Vector{MSscan}, f::RT{<:AbstractVector{<:AbstractVector}})
+function to_predicate(scans::Vector{MSscans}, f::RT{<:AbstractVector{<:AbstractVector}})
     rt = retention_time(scans)
     bounds = Set{Int}()
     for el in f.arg
@@ -122,5 +125,5 @@ function to_predicate(scans::Vector{MSscan}, f::RT{<:AbstractVector{<:AbstractVe
             push!(bounds, idx)
         end
     end
-    return scan -> scan.num ∈ bounds
+    return scan -> scan.num[1] ∈ bounds
 end

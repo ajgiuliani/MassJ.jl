@@ -151,7 +151,7 @@ function retention_time(filename::String)
         rt = retention_time_mzml(filename)
     elseif ext == "mgf" || ext == "msp" || ext == "imzml"
         scans = load(filename)
-        rt = [s.rt for s in scans]
+        rt = [s.rt[1] for s in scans]
     else
         ErrorException("File format not supported.")
     end
@@ -172,10 +172,10 @@ julia> retention_time("scans")
 ....
 ```
 """
-function retention_time(scans::Vector{MSscan})
+function retention_time(scans::Vector{MSscans})
     rt  = Vector{Float64}(undef,0)
     for elem in scans
-        push!(rt, elem.rt)
+        push!(rt, elem.rt[1])
     end
     return rt
 end
@@ -259,7 +259,7 @@ julia> rt, ic = chromatogram("test.mzxml", method = MassJ.MZ([200,1000]))
 ([0.1384  …  60.4793], [4.74795e6  …  17.4918])
 ```
 """
-function chromatogram(scans::Vector{MSscan}, filters::FilterType...; method::MethodType=TIC())
+function chromatogram(scans::Vector{MSscans}, filters::FilterType...; method::MethodType=TIC())
     pred = compose_predicates(scans, filters)
 
     xrt = Vector{Float64}(undef, 0)
@@ -267,7 +267,7 @@ function chromatogram(scans::Vector{MSscan}, filters::FilterType...; method::Met
 
     for scan in scans
         pred(scan) || continue
-        push!(xrt, scan.rt)
+        push!(xrt, scan.rt[1])
         if method isa BasePeak
             push!(xic, scan.basePeakIntensity)
         elseif method isa ∆MZ
@@ -287,7 +287,7 @@ function chromatogram(scans::Vector{MSscan}, filters::FilterType...; method::Met
     end
 
     if !isempty(xic)
-        return Chromatogram(xrt, xic, maximum(xic))
+        return IonCurrent(xrt, xic; axis = :rt)
     else
         ErrorException("No matching spectra.")
     end
@@ -373,7 +373,7 @@ julia> spectrum = average("test.mzxml", MassJ.Activation_Method("PQD"), MassJ.Po
 MassJ.MSscans([9, 12, 15, 18], ...
 ```
 """
-function average(scans::Vector{MSscan}, arguments::FilterType...; stats::Bool=true)
+function average(scans::Vector{MSscans}, arguments::FilterType...; stats::Bool=true)
     pred = compose_predicates(scans, arguments)
 
     result = nothing

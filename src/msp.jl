@@ -7,11 +7,11 @@ Each entry contains metadata fields followed by a peak list.
 
 """
     load_msp_all(filename::String)
-Load all spectra from an MSP file. Returns a `Vector{MSscan}`.
+Load all spectra from an MSP file. Returns a `Vector{MSscans}`.
 Each entry (Name: ... Num Peaks: ... peak data ... blank line) becomes one MSscan.
 """
 function load_msp_all(filename::String)
-    scans = Vector{MSscan}(undef, 0)
+    scans = Vector{MSscans}(undef, 0)
     scan_index = 0
 
     open(filename, "r") do io
@@ -258,7 +258,7 @@ function build_msp_scan(params::Dict{String,String}, mz::Vector{Float64},
         metadata["instrument_type"] = params["INSTRUMENT_TYPE"]
     end
 
-    return MSscan(num, rt, tic, mz_copy, int_copy, msLevel,
+    return MSscans(num, rt, tic, mz_copy, int_copy, msLevel,
                   basePeakMz, basePeakIntensity, precursorMz, polarity,
                   activationMethod, collisionEnergy,
                   chargeState, :centroid, -1.0, 0.0, :none, metadata)

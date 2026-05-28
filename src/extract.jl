@@ -1,5 +1,5 @@
 """
-Module for extracting subsets from a Vector{MSscan} according to specific conditions
+Module for extracting subsets from a Vector{MSscans} according to specific conditions
 """
 
 # User Interface.
@@ -11,7 +11,7 @@ export extract
 
 """
     extract(filename::String, arguments::FilterType...)
-Returns a `Vector{MSscan}` containing the scans that match the given [`FilterType`](@ref) conditions. Without arguments, returns all scans.
+Returns a `Vector{MSscans}` containing the scans that match the given [`FilterType`](@ref) conditions. Without arguments, returns all scans.
 
 Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 
@@ -76,7 +76,7 @@ end
 Returns a Vector of MSscan from the input file according to the scan num (indices).
 """
 function build_subset(filename::String, indices::Vector{Int})
-    sub_set = Vector{MSscan}(undef,0)   
+    sub_set = Vector{MSscans}(undef,0)   
     for i = 1:length(indices)
         push!(sub_set, load_mzxml(filename, indices[i]))
     end
@@ -85,7 +85,7 @@ end
 
 
 """
-    extract(scans::Vector{MSscan}, arguments::FilterType...)
+    extract(scans::Vector{MSscans}, arguments::FilterType...)
 Search for scans matching the argument MS level and returns an array of matching MSscans otherwise returns an ErrorException: "No matching spectra found."
 # Examples
 ```julia-repl
@@ -101,10 +101,10 @@ MassJ.MSscan(2, 0.7307, 9727.2, [345.083, 345.167, 345.25, 345.333, 345.417, 345
 ```
 
 """
-function extract(scans::Vector{MSscan}, arguments::FilterType...)
+function extract(scans::Vector{MSscans}, arguments::FilterType...)
     pred = compose_predicates(scans, arguments)
 
-    sub_set = Vector{MSscan}(undef, 0)
+    sub_set = Vector{MSscans}(undef, 0)
     for scan in scans
         pred(scan) || continue
         push!(sub_set, scan)
@@ -118,11 +118,11 @@ function extract(scans::Vector{MSscan}, arguments::FilterType...)
 end
 
 """
-    build_subset(scans::Vector{MSscan}, indices::Vector{Int})
+    build_subset(scans::Vector{MSscans}, indices::Vector{Int})
 Returns a Vector of MSscan according to the input scan num.
 """
-function build_subset(scans::Vector{MSscan}, indices::Vector{Int})
-    sub_set = Vector{MSscan}(undef,0)
+function build_subset(scans::Vector{MSscans}, indices::Vector{Int})
+    sub_set = Vector{MSscans}(undef,0)
     for i = 1:length(indices)
         push!(sub_set, scans[indices[i]])
     end
@@ -133,9 +133,9 @@ end
 
 
 # ----------------------------------------------------------------------------
-# MSrun adapter methods — unwrap to the underlying Vector{MSscan} and delegate
+# MSrun adapter methods — unwrap to the underlying Vector{MSscans} and delegate
 # to the existing implementations. This avoids widening every internal
-# signature from `Vector{MSscan}` to `AbstractVector{MSscan}`.
+# signature from `Vector{MSscans}` to `AbstractVector{MSscans}`.
 # ----------------------------------------------------------------------------
 
 extract(run::MSrun, arguments::FilterType...) = extract(run.scans, arguments...)

@@ -105,7 +105,7 @@ function simulate(I::Array{Union{Float64, Int, String}}, ∆mz::Real; model::Sym
     p /= maximum(p)
     p *= 100.0
     basePeakMz = mz[num2pnt(p, 100.0)]
-    MSscan(1, 0.0, sum(p), mz, p, 0, basePeakMz, 100.0, 0.0, "", "", 0.0)
+    MSscans(1, 0.0, sum(p), mz, p, 0, basePeakMz, 100.0, 0.0, "", "", 0.0)
 end
 
 """

@@ -34,9 +34,9 @@ julia> smoothed_data = MassJ.smooth(scans)
  MassJ.MSscan(1, 0.1384, 5.08195e6 .....
 ```
 """
-function smooth(scans::Vector{MSscan}; method::MethodType=SG(5, 9, 0))
+function smooth(scans::Vector{MSscans}; method::MethodType=SG(5, 9, 0))
     if method isa MassJ.SG
-        sm_scans = Vector{MSscan}(undef, 0)
+        sm_scans = Vector{MSscans}(undef, 0)
         for el in scans
             push!(sm_scans, savitzky_golay_filtering(el, method.order, method.window, method.derivative))
         end
@@ -57,11 +57,7 @@ function savitzky_golay_filtering(scan::MScontainer, order::Int, window::Int, de
     basePeakIndex = num2pnt(y, basePeakIntensity)
     basePeakMz = scan.mz[basePeakIndex]
     
-    if scan isa MSscan
-        return MSscan(scan.num, scan.rt, scan.tic, scan.mz, y, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
-    elseif scan isa MSscans
-        return MSscans(scan.num, scan.rt, scan.tic, scan.mz, y, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
-    end
+    return MSscans(scan.num, scan.rt, scan.tic, scan.mz, y, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
 end
  
 
@@ -108,8 +104,8 @@ julia> reduced_data = centroid(scans)
 MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
 ```
 """
-function centroid(scans::Vector{MSscan}; method::MethodType=SNRA(1., 100) )
-    cent_scans = Vector{MSscan}(undef,0)
+function centroid(scans::Vector{MSscans}; method::MethodType=SNRA(1., 100) )
+    cent_scans = Vector{MSscans}(undef,0)
     if method isa TBPD
         for el in scans
             ∆mz = 500.0 / method.resolution       # according to ∆mz / mz  = R, we take the value @ m/z 500
@@ -159,7 +155,7 @@ function snra(scan::MScontainer, thres::Real, region::Int)
             if SNR[i] > SNR[i-1] && SNR[i] > SNR[i+1]
                 push!(peaks_int, (scan.int[i] - noise[i]))
                 push!(peaks_mz, scan.mz[i])
-                if scan isa MSscans
+                if !isempty(scan.s)
                     push!(peaks_s, scan.s[i])
                 end
             end
@@ -173,12 +169,7 @@ function snra(scan::MScontainer, thres::Real, region::Int)
         basePeakMz = peaks_mz[ num2pnt(peaks_int, basePeakIntensity) ]
     end
     
-    if scan isa MSscans
-        return MSscans(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, peaks_s)
-    elseif scan isa MSscan
-        return MSscan(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
-    end
-
+    return MSscans(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, peaks_s)
 end
 
     
@@ -221,19 +212,15 @@ function tbpd(scan::MScontainer, model::Function,  ∆mz::Real, thres::Real)   #
             max_index = num2pnt(scan.int, max_value)
             push!(peaks_mz, scan.mz[max_index])
             push!(peaks_int, scan.int[max_index])
-            if scan isa MSscans
+            if !isempty(scan.s)
                 push!(peaks_s, scan.s[max_index])
             end
         end
-    end    
+    end
     basePeakIntensity = maximum(peaks_int)
     basePeakMz = peaks_mz[ num2pnt(peaks_int, basePeakIntensity) ]
-    
-    if scan isa MSscans
-        return MSscans(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, peaks_s)
-    elseif scan isa MSscan
-        return MSscan(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
-    end
+
+    return MSscans(scan.num, scan.rt, sum(peaks_int), peaks_mz, peaks_int, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, peaks_s)
 end
 
 
@@ -286,8 +273,8 @@ julia> reduced_data = baseline_correction(scans, method = MassJ.IPSA(51,100))
 MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
 ```
 """
-function baseline_correction(scans::Vector{MSscan}; method::MethodType=TopHat(100) )
-    bl_scans = Vector{MSscan}(undef,0)
+function baseline_correction(scans::Vector{MSscans}; method::MethodType=TopHat(100) )
+    bl_scans = Vector{MSscans}(undef,0)
     for el in scans
         if method isa TopHat
             push!(bl_scans, tophat_filter(el, method.region))            
@@ -334,11 +321,7 @@ function loess(scan::MScontainer, iter::Int )
     TIC = sum(res)
     basePeakIntensity = maximum(res)
     basePeakMz = scan.mz[num2pnt(scan.int,basePeakIntensity)]
-    if scan isa MSscans
-        return MSscans(scan.num, scan.rt, TIC, scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, peaks_s)
-    elseif scan isa MSscan
-        return MSscan(scan.num, scan.rt, TIC, scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
-    end
+    return MSscans(scan.num, scan.rt, TIC, scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
 end
 
 
@@ -389,13 +372,7 @@ function ipsa(scan::MScontainer, width::Real, maxiter::Int)
     basePeakIndex = num2pnt(res, basePeakIntensity)
     basePeakMz = scan.mz[basePeakIndex]
 
-    if scan isa MSscan
-        return MSscan(scan.num, scan.rt, scan.tic, scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
-    elseif scan isa MSscans
-
-        return MSscans(scan.num, scan.rt, scan.tic, scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
-    end
-
+    return MSscans(scan.num, scan.rt, scan.tic, scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
 end
 
 
@@ -409,12 +386,7 @@ function tophat_filter(scan::MScontainer, region::Int )
     TIC = sum( tophat(scan.int, region) )
     basePeakIntensity = maximum(tophat(scan.int, region))
     basePeakMz = scan.mz[num2pnt(scan.int,basePeakIntensity)]
-    if scan isa MSscans
-        return MSscans(scan.num, scan.rt, TIC, scan.mz, tophat(scan.int, region), scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
-    elseif scan isa MSscan
-        return MSscan(scan.num, scan.rt, TIC, scan.mz, tophat(scan.int, region), scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy)
-    end
-    return 
+    return MSscans(scan.num, scan.rt, TIC, scan.mz, tophat(scan.int, region), scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
 end
 
 

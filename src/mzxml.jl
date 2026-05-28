@@ -109,7 +109,7 @@ function load_mzxml_all(filename::String)
     scanCount = attribute(msRun, "scanCount")
 
     n = parse(Int, scanCount)
-    buf       = Vector{MScontainer}(undef, n)
+    buf       = Vector{MSscans}(undef, n)
     scalar_of = Vector{Bool}(undef, n)
     index = 1
     for c1 in child_elements(msRun)
@@ -127,20 +127,12 @@ function load_mzxml_all(filename::String)
     raw        = buf[1:index-1]
     scalar_vec = scalar_of[1:index-1]
 
-    # Bit-symmetric scalar round-trip
+    # Bit-symmetric scalar round-trip: a single spectrum saved as a scalar comes
+    # back bare rather than wrapped in a length-1 vector.
     if length(raw) == 1 && scalar_vec[1]
         return raw[1]
     end
-
-    if isempty(raw)
-        return Vector{MSscan}()
-    elseif all(x -> x isa MSscans, raw)
-        return convert(Vector{MSscans}, raw)
-    elseif all(x -> x isa MSscan, raw)
-        return convert(Vector{MSscan}, raw)
-    else
-        return raw
-    end
+    return raw
 end
 
 """
@@ -224,7 +216,7 @@ function load_mzxml_spectrum(c::XMLElement)
         pairOrder = attribute(peaks, "contentType")
     end
     if pairOrder != "m/z-int"
-        return MSscan(0 , 0.0, 0.0, [], [], 0, 0.0, 0.0 , 0.0, "", "", 0.0 )
+        return MSscans(0 , 0.0, 0.0, Float64[], Float64[], 0, 0.0, 0.0 , 0.0, "", "", 0.0 )
     end
 
     
@@ -247,12 +239,12 @@ function load_mzxml_spectrum(c::XMLElement)
     if byteOrder == "network"
         A = ntoh.(A)
     else
-        return MSscan(0 , 0.0, 0.0, [], [], 0, 0.0, 0.0 , 0.0, "", "", 0.0 )
+        return MSscans(0 , 0.0, 0.0, Float64[], Float64[], 0, 0.0, 0.0 , 0.0, "", "", 0.0 )
     end
     int = convert(Array{Float64,1}, A[2:2:end])
     mz  = convert(Array{Float64,1}, A[1:2:end])
 
-    scan = MSscan(parse(Int,num) , parse(Float64, retentionTime[3:end-1]), parse(Float64,totIonCurrent), mz, int, parse(Int, msLevel), parse(Float64, basePeakMz), parse(Float64, basePeakIntensity), parse(Float64, precursor), polarity, activationMethod, parse(Float64, collisionEnergy) )
+    scan = MSscans(parse(Int,num) , parse(Float64, retentionTime[3:end-1]), parse(Float64,totIonCurrent), mz, int, parse(Int, msLevel), parse(Float64, basePeakMz), parse(Float64, basePeakIntensity), parse(Float64, precursor), polarity, activationMethod, parse(Float64, collisionEnergy) )
 
     # Promote to MSscans if the MassJ marker is present.
     if attribute(c, MASSJ_MZXML_CONTAINER_ATTR) == "MSscans"
@@ -269,7 +261,7 @@ Build an `MSscans` from the vector-valued provenance fields stored as MassJ
 custom attributes on `scan_elem`. Missing attributes fall back to the scalar
 from `scan` wrapped in a 1-element vector.
 """
-function _msscans_from_mzxml_attrs(scan_elem::XMLElement, scan::MSscan,
+function _msscans_from_mzxml_attrs(scan_elem::XMLElement, scan::MSscans,
                                    variance::Vector{Float64})
     num     = _get_vec_attr(scan_elem, "MassJNum",                 Int)
     rtvec   = _get_vec_attr(scan_elem, "MassJRt",                  Float64)
@@ -282,21 +274,23 @@ function _msscans_from_mzxml_attrs(scan_elem::XMLElement, scan::MSscan,
     dt      = _get_vec_attr(scan_elem, "MassJDriftTime",           Float64)
     cv      = _get_vec_attr(scan_elem, "MassJCompensationVoltage", Float64)
 
+    # `scan` is the single-scan base spectrum; its provenance fields are already
+    # length-1 vectors, used as fallback when a custom attribute is absent.
     return MSscans(
-        something(num,     [scan.num]),
-        something(rtvec,   [scan.rt]),
+        something(num,     scan.num),
+        something(rtvec,   scan.rt),
         scan.tic, scan.mz, scan.int,
-        something(level,   [scan.level]),
+        something(level,   scan.level),
         scan.basePeakMz, scan.basePeakIntensity,
-        something(precvec, [scan.precursor]),
-        something(pol,     [scan.polarity]),
-        something(am,      [scan.activationMethod]),
-        something(ce,      [scan.collisionEnergy]),
+        something(precvec, scan.precursor),
+        something(pol,     scan.polarity),
+        something(am,      scan.activationMethod),
+        something(ce,      scan.collisionEnergy),
         variance,
-        something(chg,     [scan.chargeState]),
+        something(chg,     scan.chargeState),
         scan.spectrumType,
-        something(dt,      [scan.driftTime]),
-        something(cv,      [scan.compensationVoltage]),
+        something(dt,      scan.driftTime),
+        something(cv,      scan.compensationVoltage),
         scan.mobilityType,
         scan.metadata,
     )
@@ -721,7 +715,7 @@ function extracted_chromatogram(filename::String, indices::Vector{Int},method::M
     xic = Vector{Float64}(undef,0)
     if method isa BasePeak
         for i = 1:length(indices)
-            push!(xrt, load_mzxml(filename, indices[i]).rt)
+            push!(xrt, load_mzxml(filename, indices[i]).rt[1])
             push!(xic, load_mzxml(filename, indices[i]).basePeakIntensity)
         end
     elseif method isa ∆MZ
@@ -732,7 +726,7 @@ function extracted_chromatogram(filename::String, indices::Vector{Int},method::M
         mz2 = convert(Float64, method.arg[1] + method.arg[2] ) # mz + ∆mz
         for i = 1:length(indices)
             value = add_ion_current(load_mzxml(filename, indices[i]).mz, load_mzxml(filename, indices[i]).int, mz1, mz2)
-            push!(xrt, load_mzxml(filename, indices[i]).rt)
+            push!(xrt, load_mzxml(filename, indices[i]).rt[1])
             push!(xic, value)
         end
         
@@ -741,17 +735,17 @@ function extracted_chromatogram(filename::String, indices::Vector{Int},method::M
         mz2 = convert(Float64,method.arg[2])
         for i = 1:length(indices)
             value = add_ion_current(load_mzxml(filename, indices[i]).mz, load_mzxml(filename, indices[i]).int, mz1, mz2)
-            push!(xrt, load_mzxml(filename, indices[i]).rt)
+            push!(xrt, load_mzxml(filename, indices[i]).rt[1])
             push!(xic, value)
         end
     else
         for i = 1:length(indices)
-            push!(xrt, load_mzxml(filename, indices[i]).rt)
+            push!(xrt, load_mzxml(filename, indices[i]).rt[1])
             push!(xic, load_mzxml(filename, indices[i]).tic)
         end
 
     end
-    return Chromatogram(xrt, xic, maximum(xic))
+    return IonCurrent(xrt, xic; axis = :rt)
 end
 
 """

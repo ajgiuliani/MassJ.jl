@@ -91,7 +91,7 @@ end
 
 """
     load_imzml_all(filename::String)
-Load all spectra from an imzML file. Returns a `Vector{MSscan}`.
+Load all spectra from an imzML file. Returns a `Vector{MSscans}`.
 The spatial coordinates (x, y) are stored in the `metadata` dict of each scan.
 Requires the companion `.ibd` file in the same directory.
 """
@@ -148,7 +148,7 @@ function load_imzml_all(filename::String)
     countStr = attribute(specList, "count")
     scanCount = countStr !== nothing ? parse(Int, countStr) : 0
 
-    scans = Vector{MSscan}(undef, scanCount)
+    scans = Vector{MSscans}(undef, scanCount)
 
     # Open .ibd and parse spectra
     open(ibd_path, "r") do ibd_io
@@ -397,7 +397,7 @@ function load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
         metadata["position_z"] = pos_z
     end
 
-    return MSscan(scan_index, rt, tic, mz, int_arr, msLevel,
+    return MSscans(scan_index, rt, tic, mz, int_arr, msLevel,
                   basePeakMz, basePeakIntensity, precursorMz, polarity,
                   activationMethod, collisionEnergy,
                   chargeState, spectrumType, -1.0, 0.0, :none, metadata)
