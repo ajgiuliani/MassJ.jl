@@ -423,11 +423,27 @@ end
 
 
 """
-struct CWT{argT <: Real}  <: MethodType
-    threshold::argT
-    CWT(threshold::argT) where{argT} = new{argT}(threshold)
-end
+    struct CWT{S <: AbstractVector{<:Real}, T <: Real} <: MethodType
+Continuous Wavelet Transform peak detection (Ricker / "Mexican hat" wavelet),
+after Du, Kibbe & Lin, *Bioinformatics* **2006**, 22, 2059. The intensity is
+transformed at a range of wavelet `scales` (in points); peaks are ridge lines
+that persist across scales with a sufficient signal-to-noise ratio.
+
+    CWT(; scales = 1.0:1.0:32.0, threshold = 3.0, min_length = 0)
+
+* `scales`     — wavelet widths, in points (the larger the scale, the broader the
+  feature it responds to).
+* `threshold`  — minimum signal-to-noise ratio a ridge must reach.
+* `min_length` — minimum number of scales a ridge must span; `0` (default) uses
+  one third of the number of scales.
 """
+struct CWT{S <: AbstractVector{<:Real}, T <: Real} <: MethodType
+    scales::S
+    threshold::T
+    min_length::Int
+    CWT(; scales::S = 1.0:1.0:32.0, threshold::T = 3.0, min_length::Integer = 0) where {S, T} =
+        new{S, T}(scales, threshold, Int(min_length))
+end
 
 
 
