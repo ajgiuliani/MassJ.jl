@@ -1,7 +1,8 @@
 using MassJ, Test
 using Plots
 using DataStructures
-using SHA  # used for indexed-mzML fileChecksum verification
+using SHA   # used for indexed-mzML fileChecksum verification
+using Aqua  # package-quality checks
 
 function tests()
     @testset "Subset of tests"  begin
@@ -1704,6 +1705,19 @@ function test_yields_errors()
 end
 
 
+function test_aqua()
+    @testset "Aqua — package-quality checks" begin
+        # Lighter check set than test_all to start; we'll enable the rest
+        # once incremental fixes have landed.
+        Aqua.test_unbound_args(MassJ)
+        Aqua.test_undefined_exports(MassJ)
+        Aqua.test_project_extras(MassJ)
+        Aqua.test_stale_deps(MassJ)
+        Aqua.test_deps_compat(MassJ; check_extras = false)
+    end
+end
+
+
 tests()
 test_isotopes()
 test_deconvolution()
@@ -1717,3 +1731,4 @@ test_export()
 test_yields()
 test_yields_targetpeak()
 test_yields_errors()
+test_aqua()
