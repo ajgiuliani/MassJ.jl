@@ -92,6 +92,7 @@ MassJ.save_mzxml
 MassJ.save_mgf
 MassJ.save_msp
 MassJ.save_txt
+MassJ.save_imzml
 ```
 
 ## Filtering on loaded scans
