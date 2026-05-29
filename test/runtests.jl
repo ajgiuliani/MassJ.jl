@@ -942,6 +942,57 @@ function test_chrom_processing()
 end
 
 
+function test_chrom_peaks()
+    @testset "ChromPeak detection + metrics" begin
+        t = collect(0.0:0.02:10.0)
+        g(mu, s, a) = a .* exp.(-(t .- mu) .^ 2 ./ (2s^2))
+
+        # one symmetric Gaussian: metrics match analytic values
+        ic = MassJ.IonCurrent(t, g(5.0, 0.3, 100.0); axis = :rt)
+        ps = MassJ.chrom_peaks(ic; snr = 3.0)
+        @test length(ps) == 1
+        p = ps[1]
+        @test p.axis == :rt
+        @test p.apex      ≈ 5.0 atol = 0.02
+        @test p.height    ≈ 100.0 atol = 0.5
+        @test p.fwhm      ≈ 2.35482 * 0.3 atol = 0.01           # 0.7064
+        @test p.area      ≈ 100 * 0.3 * sqrt(2π) atol = 0.5      # 75.2
+        @test p.asymmetry ≈ 1.0 atol = 0.05
+        @test p.tailing   ≈ 1.0 atol = 0.05
+        @test p.plates    ≈ 5.54 * (5.0 / p.fwhm)^2 atol = 1.0
+        @test p.centroid  ≈ 5.0 atol = 0.02
+        @test p.variance  ≈ 0.09 atol = 0.01
+        @test abs(p.skewness) < 0.05
+        @test p.snr > 10
+
+        # two well-separated peaks → split at the valley
+        ic2 = MassJ.IonCurrent(t, g(3.0, 0.2, 80.0) .+ g(7.0, 0.25, 50.0); axis = :rt)
+        @test length(MassJ.chrom_peaks(ic2; snr = 3.0)) == 2
+
+        # asymmetric peak (wider right tail) → Aₛ > 1 and positive skew
+        yR = [tt < 5 ? exp(-(tt - 5)^2 / (2 * 0.2^2)) : exp(-(tt - 5)^2 / (2 * 0.6^2)) for tt in t] .* 100
+        pa = MassJ.chrom_peaks(MassJ.IonCurrent(t, yR; axis = :rt); snr = 3.0)[1]
+        @test pa.asymmetry > 1.5
+        @test pa.skewness > 0.0
+
+        # targeted single-window analysis
+        pw = MassJ.chrom_peak(ic, 4.0, 6.0)
+        @test pw isa MassJ.ChromPeak
+        @test pw.apex ≈ 5.0 atol = 0.02
+        @test pw.area > 70.0
+
+        # rel_height gate drops a tiny peak beside a large one
+        ic3 = MassJ.IonCurrent(t, g(3.0, 0.2, 100.0) .+ g(7.0, 0.2, 1.0); axis = :rt)
+        @test length(MassJ.chrom_peaks(ic3; snr = 0.0, rel_height = 0.1)) == 1
+
+        # degenerate window errors; axis carried through
+        @test_throws ErrorException MassJ.chrom_peak(ic, 5.0, 5.0)
+        icd = MassJ.IonCurrent(t, g(5.0, 0.3, 100.0); axis = :drift, mobilityType = :TIMS)
+        @test MassJ.chrom_peaks(icd; snr = 3.0)[1].axis == :drift
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2524,6 +2575,7 @@ test_tables()
 test_measurements()
 test_unitful()
 test_chrom_processing()
+test_chrom_peaks()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()

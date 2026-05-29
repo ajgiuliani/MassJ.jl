@@ -9,6 +9,8 @@ The functions below are exported:
 - [`extract`](@ref)
 - [`centroid`](@ref)
 - [`smooth`](@ref)
+- [`chrom_peaks`](@ref)
+- [`chrom_peak`](@ref)
 - [`isotopic_distribution`](@ref)
 - [`isotope_table`](@ref)
 - [`masses`](@ref)
@@ -31,4 +33,5 @@ The following types are exported:
 - [`MassJ.Peak`](@ref)
 - [`MassJ.TargetPeak`](@ref)
 - [`MassJ.YieldCurve`](@ref)
+- [`MassJ.ChromPeak`](@ref)
 

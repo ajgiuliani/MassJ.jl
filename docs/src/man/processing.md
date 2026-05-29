@@ -89,3 +89,44 @@ deconv_data = deconv(scans, Charges(adduct="H", range=(5,15), width=2), R=5000)
 deconv_data = deconv(scans, Charges(adduct="H", range=(1,10)), FWHM=0.5, shape=:gauss)
 ```
 
+
+## Chromatographic peak analysis
+
+Ion-current traces ([`IonCurrent`](@ref) — chromatograms, mobilograms, or
+ionograms produced by [`chromatogram`](@ref) / `mobilogram` / `ionogram`) can be
+smoothed, background-corrected, and analysed for peaks.
+
+`smooth` and `baseline_correction` accept an `IonCurrent` directly, returning a
+new trace on the same axis:
+
+```julia
+chr = chromatogram(load("run.mzML"))
+chr = smooth(chr; method = MassJ.SG(2, 9, 0))            # Savitzky-Golay
+chr = baseline_correction(chr; method = MassJ.TopHat(40)) # background removal (TopHat/LOESS/IPSA)
+```
+
+[`chrom_peaks`](@ref) then detects peaks and returns a `Vector{`[`ChromPeak`](@ref)`}`
+carrying the standard chromatography metrics. Local maxima are found, boundaries
+are placed valley-to-valley (splitting adjacent peaks), and a candidate is kept
+when its baseline-subtracted `height/noise ≥ snr`:
+
+```julia
+peaks = chrom_peaks(chr; snr = 3.0)        # noise estimated from the trace
+for p in peaks
+    @show p.apex p.area p.height p.fwhm p.asymmetry p.tailing p.plates p.snr
+end
+```
+
+Each [`ChromPeak`](@ref) reports the apex position, baseline-subtracted **area**
+and **height**, **FWHM**, **asymmetry factor** (Aₛ = B/A at 10 % height), **USP
+tailing factor** (T at 5 %), **theoretical plates** (N = 5.54·(apex/FWHM)²), the
+statistical moments (centroid, variance, skewness), and the **signal-to-noise**
+ratio. For a known window, [`chrom_peak`](@ref) analyses a single peak directly:
+
+```julia
+p = chrom_peak(chr, 4.5, 5.5)              # targeted integration over [4.5, 5.5]
+```
+
+Detection works best on a smoothed, baseline-corrected trace. The metrics are
+axis-agnostic, so they apply equally to drift-time (mobilogram) and
+compensation-voltage (ionogram) peaks.

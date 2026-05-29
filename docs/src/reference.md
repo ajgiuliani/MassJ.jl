@@ -137,6 +137,15 @@ MassJ.baseline_correction(scan::MScontainer; method::MethodType=TopHat(100) )
 MassJ.baseline_correction(scans::AbstractVector{MSscans}; method::MethodType=TopHat(100) )
 ```
 
+### Ion-current trace (chromatogram / mobilogram / ionogram)
+```@docs
+MassJ.smooth(ic::IonCurrent; method::MethodType=SG(5, 9, 0))
+MassJ.baseline_correction(ic::IonCurrent; method::MethodType=TopHat(100))
+MassJ.ChromPeak
+MassJ.chrom_peaks
+MassJ.chrom_peak
+```
+
 ## Deconvolution
 ----------------
 ```@docs
