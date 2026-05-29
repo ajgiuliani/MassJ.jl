@@ -900,6 +900,48 @@ function test_unitful()
 end
 
 
+function test_chrom_processing()
+    @testset "IonCurrent smoothing + baseline" begin
+        t = collect(0.0:0.05:10.0)
+        peak = 100.0 .* exp.(-(t .- 5.0).^2 ./ (2 * 0.3^2))
+        ic = MassJ.IonCurrent(t, peak .+ (2.0 .+ 0.5 .* t); axis = :rt)
+
+        sm = MassJ.smooth(ic; method = MassJ.SG(2, 9, 0))
+        @test sm isa MassJ.IonCurrent
+        @test sm.axis == :rt
+        @test sm.x == ic.x
+        @test length(sm.ic) == length(ic.ic)
+
+        # baseline removal: sloped baseline gone (min ≈ 0), peak preserved (~100)
+        for m in (MassJ.TopHat(40), MassJ.IPSA(31, 50))
+            bc = MassJ.baseline_correction(ic; method = m)
+            @test bc isa MassJ.IonCurrent
+            @test bc.axis == :rt
+            @test minimum(bc.ic) < 5.0
+            @test maximum(bc.ic) > 80.0
+        end
+        @test MassJ.baseline_correction(ic; method = MassJ.LOESS(2)) isa MassJ.IonCurrent
+
+        # axis / mobilityType preserved for non-rt traces
+        xcv = collect(-5.0:0.1:5.0)
+        cv = MassJ.IonCurrent(xcv, 50 .* exp.(-xcv .^ 2) .+ 1.0; axis = :cv, mobilityType = :FAIMS)
+        bc = MassJ.baseline_correction(cv; method = MassJ.TopHat(20))
+        @test bc.axis == :cv && bc.mobilityType == :FAIMS
+
+        # unsupported smoothing method errors
+        @test_throws ErrorException MassJ.smooth(ic; method = MassJ.TopHat(10))
+
+        # MSscans regression: refactored loess/ipsa (+ tophat) still return MSscans
+        mzv  = collect(100.0:0.5:200.0)
+        intv = 50 .* exp.(-(mzv .- 150.0) .^ 2 ./ 8.0) .+ 2.0
+        sp = MassJ.MSscans(1, 0.0, sum(intv), mzv, intv, 1, 150.0, 52.0, 0.0, "+", "", 0.0)
+        @test MassJ.baseline_correction(sp; method = MassJ.LOESS(1))    isa MassJ.MSscans
+        @test MassJ.baseline_correction(sp; method = MassJ.IPSA(31, 20)) isa MassJ.MSscans
+        @test MassJ.baseline_correction(sp; method = MassJ.TopHat(20))   isa MassJ.MSscans
+    end
+end
+
+
 function test_deconvolution()
     @testset "Deconvolution - helpers and integration" begin
 
@@ -2481,6 +2523,7 @@ test_uncertainty()
 test_tables()
 test_measurements()
 test_unitful()
+test_chrom_processing()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()

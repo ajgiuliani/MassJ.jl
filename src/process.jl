@@ -482,34 +482,40 @@ end
     loess(scan::MScontainer, iter::Int )
 Method  taking a MSscan or MSscans object as input and returning an object of the same type with the mass spectra without their base line, using the LOESS (Locally Weighted Error Sum of Squares regression).
 """
-function loess(scan::MScontainer, iter::Int )
-    n = length(scan.mz) 
-    r = Int(ceil( n / 2 ))
-    h = [sort(abs.(scan.mz .- scan.mz[i]))[r] for i=1:n ]
-    w = clamp.(abs.( ( scan.mz .- transpose(scan.mz)) ./ h), 0.0, 1.0)
+# Numeric LOESS-baseline kernel on plain (x, y) vectors — shared by the MSscans
+# and IonCurrent `baseline_correction` methods. Returns the baseline-subtracted
+# signal `res = y - baseline`.
+function _loess(x::AbstractVector{<:Real}, y::AbstractVector{<:Real}, iter::Int)
+    n = length(x)
+    r = Int(ceil(n / 2))
+    h = [sort(abs.(x .- x[i]))[r] for i = 1:n]
+    w = clamp.(abs.((x .- transpose(x)) ./ h), 0.0, 1.0)
     w = (1 .- w.^3).^3
     baseline = zeros(n)
-    res = zeros(n)
+    res   = zeros(n)
     delta = ones(n)
-    for j=1:iter 
-        for i=1:n
-            weight = delta .* w[:,i]
-            b = [sum(weight .* scan.int), sum(weight .* (scan.int .* scan.mz))]
-            A = [sum(weight), sum(weight .* scan.mz), 
-                 sum(weight .* scan.mz), sum(weight .* scan.mz.^2) ]
-            A = reshape(A, 2, 2)
+    for _ = 1:iter
+        for i = 1:n
+            weight = delta .* w[:, i]
+            b = [sum(weight .* y), sum(weight .* (y .* x))]
+            A = reshape([sum(weight), sum(weight .* x),
+                         sum(weight .* x), sum(weight .* x.^2)], 2, 2)
             beta = LinearAlgebra.pinv(A) * b
-            baseline[i] = beta[1] + beta[2] * scan.mz[i]
+            baseline[i] = beta[1] + beta[2] * x[i]
         end
-        res = scan.int - baseline
+        res = y - baseline
         s = Statistics.median(abs.(res))
         delta = clamp.(res ./ (6.0 .* s), -1, 1)
         delta = (1 .- delta.^2).^2
-    end 
-    TIC = sum(res)
+    end
+    return res
+end
+
+function loess(scan::MScontainer, iter::Int )
+    res = _loess(scan.mz, scan.int, iter)
     basePeakIntensity = maximum(res)
-    basePeakMz = scan.mz[num2pnt(scan.int,basePeakIntensity)]
-    return MSscans(scan.num, scan.rt, TIC, scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
+    basePeakMz = scan.mz[num2pnt(scan.int, basePeakIntensity)]
+    return MSscans(scan.num, scan.rt, sum(res), scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
 end
 
 
@@ -517,36 +523,25 @@ end
     ipsa(scan::MScontainer, width::Real, maxiter::Int)
 Method  taking a MSscan or MSscans object as input and returning an object of the same type with the mass spectra without their base line, using the iterative polynomial smoothing algorithm (IPSA) baseline correction.
 """
-function ipsa(scan::MScontainer, width::Real, maxiter::Int)
-    if iseven(width) 
-        width -= 1
-    end
-    #step 1
+# Numeric IPSA-baseline kernel on a plain signal vector `y` — shared by the
+# MSscans and IonCurrent `baseline_correction` methods. Returns `res = y - bkg`.
+function _ipsa(y::AbstractVector{<:Real}, width::Integer, maxiter::Integer)
+    iseven(width) && (width -= 1)
     eps = 1e-07
-    input = zeros( length(scan.int) )
-    res = zeros( length(scan.int) )
-    #step 2
-    bkg = savitzky_golay(scan.int, 0, width,0)
-    bkg_old = zeros(length(scan.int))
-    res = scan.int - bkg
-    # step 3
+    input   = zeros(length(y))
+    bkg     = savitzky_golay(y, 0, width, 0)
+    bkg_old = zeros(length(y))
+    res     = y - bkg
     eratio_old = 0.0
-    # step 4
     counter = 1
     while true
-
         for i = 1:length(input)
-            if scan.int[i] < bkg[i]
-                input[i] = scan.int[i]
-            else
-                input[i] = bkg[i]
-            end
+            input[i] = y[i] < bkg[i] ? y[i] : bkg[i]
         end
-        bkg = savitzky_golay(input, 0, width,0)
-        res = scan.int - bkg ;
+        bkg = savitzky_golay(input, 0, width, 0)
+        res = y - bkg
         eratio = norm(bkg - bkg_old) / norm(bkg)
-
-        if (abs(eratio - eratio_old)) < eps
+        if abs(eratio - eratio_old) < eps
             break
         elseif counter > maxiter
             break
@@ -555,11 +550,13 @@ function ipsa(scan::MScontainer, width::Real, maxiter::Int)
         eratio_old = eratio
         bkg_old = bkg
     end
-    
-    basePeakIntensity = ceil(maximum(res))
-    basePeakIndex = num2pnt(res, basePeakIntensity)
-    basePeakMz = scan.mz[basePeakIndex]
+    return res
+end
 
+function ipsa(scan::MScontainer, width::Real, maxiter::Int)
+    res = _ipsa(scan.int, Int(width), maxiter)
+    basePeakIntensity = ceil(maximum(res))
+    basePeakMz = scan.mz[num2pnt(res, basePeakIntensity)]
     return MSscans(scan.num, scan.rt, scan.tic, scan.mz, res, scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
 end
 
@@ -575,6 +572,37 @@ function tophat_filter(scan::MScontainer, region::Int )
     basePeakIntensity = maximum(tophat(scan.int, region))
     basePeakMz = scan.mz[num2pnt(scan.int,basePeakIntensity)]
     return MSscans(scan.num, scan.rt, TIC, scan.mz, tophat(scan.int, region), scan.level, basePeakMz, basePeakIntensity, scan.precursor, scan.polarity, scan.activationMethod, scan.collisionEnergy, scan.s)
+end
+
+
+# --- Ion-current trace (chromatogram / mobilogram / ionogram) processing -----
+# These reuse the same numeric kernels as the MSscans methods, applied to the
+# trace's intensity `ic` (and abscissa `x` for LOESS), returning a new IonCurrent
+# on the same axis.
+
+"""
+    smooth(ic::IonCurrent; method::MethodType = SG(5, 9, 0))
+Savitzky-Golay smoothing of an ion-current trace (chromatogram, mobilogram, or
+ionogram), returning a new [`IonCurrent`](@ref) on the same axis.
+"""
+function smooth(ic::IonCurrent; method::MethodType = SG(5, 9, 0))
+    method isa SG || error("smooth(::IonCurrent): only SG smoothing is supported.")
+    y = savitzky_golay(ic.ic, method.order, method.window, method.derivative)
+    return IonCurrent(ic.x, y; axis = ic.axis, mobilityType = ic.mobilityType)
+end
+
+"""
+    baseline_correction(ic::IonCurrent; method::MethodType = TopHat(100))
+Baseline / background removal on an ion-current trace, returning a new
+[`IonCurrent`](@ref) on the same axis. Methods: [`MassJ.TopHat`](@ref) (default),
+[`MassJ.LOESS`](@ref), [`MassJ.IPSA`](@ref).
+"""
+function baseline_correction(ic::IonCurrent; method::MethodType = TopHat(100))
+    y = method isa TopHat ? tophat(ic.ic, method.region) :
+        method isa LOESS  ? _loess(ic.x, ic.ic, method.iter) :
+        method isa IPSA   ? _ipsa(ic.ic, method.width, method.maxiter) :
+        error("baseline_correction(::IonCurrent): use TopHat, LOESS, or IPSA.")
+    return IonCurrent(ic.x, y; axis = ic.axis, mobilityType = ic.mobilityType)
 end
 
 
