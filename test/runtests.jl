@@ -645,6 +645,53 @@ function test_yield_transforms()
 end
 
 
+function test_yield_trim()
+    @testset "YieldCurve row trim / restrict" begin
+        YC = MassJ.YieldCurve
+        yc = YC([1.0, 2.0, 3.0, 4.0, 5.0], "E",
+                [10.0 1.0; 20.0 2.0; 30.0 3.0; 40.0 4.0; 50.0 5.0],
+                fill(NaN, 5, 2),
+                [11.0, 22.0, 33.0, 44.0, 55.0], fill(NaN, 5),
+                fill(NaN, 5, 2), ["a", "b"],
+                [(0.0, 1.0), (2.0, 3.0)],
+                ["f1", "f2", "f3", "f4", "f5"], Dict{String,Any}())
+
+        # 1) count from edges
+        t = MassJ.trim_yields(yc; first = 1, last = 2)
+        @test t.x == [2.0, 3.0]
+        @test t.yields[:, 1] == [20.0, 30.0]
+        @test t.files == ["f2", "f3"]
+        @test t.labels == yc.labels                 # columns untouched
+        @test t.metadata["trimmed_edges"] == (1, 2)
+
+        # 2) restrict by x range (inclusive; swapped order tolerated)
+        r = MassJ.restrict_x(yc, 2.0, 4.0)
+        @test r.x == [2.0, 3.0, 4.0]
+        @test r.yields[:, 2] == [2.0, 3.0, 4.0]
+        @test MassJ.restrict_x(yc, 4.0, 2.0).x == [2.0, 3.0, 4.0]
+        @test r.metadata["x_restricted"] == (2.0, 4.0)
+
+        # 3) drop explicit row indices
+        d = MassJ.trim_yields(yc, [2, 4])
+        @test d.x == [1.0, 3.0, 5.0]
+        @test d.files == ["f1", "f3", "f5"]
+        @test d.metadata["trimmed_rows"] == [2, 4]
+
+        # composes with the other transforms (shift_x after trim)
+        @test MassJ.shift_x(MassJ.trim_yields(yc; first = 1), 0.5).x == [2.5, 3.5, 4.5, 5.5]
+
+        # empty result is allowed (no rows match / over-trim)
+        @test length(MassJ.trim_yields(yc; first = 10).x) == 0
+        @test length(MassJ.restrict_x(yc, 100.0, 200.0).x) == 0
+
+        # error paths
+        @test_throws ErrorException MassJ.trim_yields(yc; first = -1)
+        @test_throws ErrorException MassJ.trim_yields(yc, [0])
+        @test_throws ErrorException MassJ.trim_yields(yc, [6])
+    end
+end
+
+
 function test_peptides()
     @testset "Peptide fragment ions" begin
         # neutral monoisotopic peptide mass
@@ -2567,6 +2614,7 @@ test_centroid_metrics()
 test_assignment()
 test_multifolder()
 test_yield_transforms()
+test_yield_trim()
 test_peptides()
 test_fragment_peaks()
 test_mobility()
