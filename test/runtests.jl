@@ -2190,6 +2190,15 @@ function test_yields()
         # length mismatch
         @test_throws ErrorException MassJ.yields(["test.mzXML"], peaks; x = [1.0, 2.0])
 
+        # file-list form also accepts x0/step (parity with the dir form)
+        yc_x   = MassJ.yields(["test.mzXML", "test.mzXML"], peaks; x = [1.0, 2.5])
+        yc_x0  = MassJ.yields(["test.mzXML", "test.mzXML"], peaks; x0 = 1.0, step = 1.5)
+        @test yc_x0.x == [1.0, 2.5]
+        @test yc_x.yields ≈ yc_x0.yields
+        # ambiguous (both x and x0/step) and missing-both both error
+        @test_throws ErrorException MassJ.yields(["test.mzXML"], peaks; x = [1.0], x0 = 1.0, step = 0.5)
+        @test_throws ErrorException MassJ.yields(["test.mzXML"], peaks)
+
         # read_peaklist — round-trip through a temp CSV (with header)
         tmp = tempname() * ".csv"
         open(tmp, "w") do io
