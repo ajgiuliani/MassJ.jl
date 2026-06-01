@@ -14,6 +14,7 @@ export AbstractPeak, Peak, TargetPeak, YieldCurve,
        yields, integrate_window, normalize_tic, normalize_flux,
        read_peaklist, drop_peaks,
        combine_yields, shift_x, scale_yields, recalibrate_x,
+       trim_yields, restrict_x,
        fragment_peaks
 
 
@@ -79,7 +80,7 @@ function _resolve_peak(spec::MScontainer, centroided, p::TargetPeak)
     hi = p.mz + p.tol
     idx = findall(x -> lo <= x <= hi, spec.mz)
     if isempty(idx)
-        @warn "TargetPeak: no samples in [$lo, $hi] for target $(p.mz) ($(p.label))"
+        @debug "TargetPeak: no samples in [$lo, $hi] for target $(p.mz) ($(p.label))"
         return (lo, hi, NaN)
     end
     k_rel = argmax(@view spec.int[idx])
@@ -110,7 +111,7 @@ function _resolve_centroid(centroided, p::TargetPeak)
     cit = centroided.int
     idx = findall(x -> lo <= x <= hi, cmz)
     if isempty(idx)
-        @warn "TargetPeak :centroid: no centroid in [$lo, $hi] for $(p.mz) ($(p.label))"
+        @debug "TargetPeak :centroid: no centroid in [$lo, $hi] for $(p.mz) ($(p.label))"
         return (lo, hi, NaN)
     end
     k_rel = argmax(@view cit[idx])
@@ -705,6 +706,66 @@ end
 recalibrate_x(yc::YieldCurve, obs_x::AbstractVector{<:Real}, ref_x::AbstractVector{<:Real};
               model::Symbol = :linear, degree::Integer = 0) =
     recalibrate_x(yc, calibrate(obs_x, ref_x; model = model, degree = degree))
+
+
+# --- Row-wise trimming / restriction of a YieldCurve -------------------------
+# (`trim_yields` and `restrict_x` are the row analogue of `drop_peaks`.)
+
+# Build a new YieldCurve keeping the rows whose indices are in `keep` (in order).
+function _take_rows(yc::YieldCurve, keep::AbstractVector{<:Integer}, md_note::Pair)
+    md = copy(yc.metadata); push!(md, md_note)
+    return YieldCurve(yc.x[keep], yc.xlabel,
+                      yc.yields[keep, :], yc.yields_err[keep, :],
+                      yc.tic[keep], yc.tic_err[keep],
+                      yc.found_mz[keep, :], yc.labels, yc.windows,
+                      yc.files[keep], md)
+end
+
+"""
+    trim_yields(yc::YieldCurve; first = 0, last = 0) -> YieldCurve
+Drop the first `first` rows and the last `last` rows of a [`YieldCurve`](@ref) —
+useful for snipping a startup transient or end-of-scan ringing.
+
+    trim_yields(yc::YieldCurve, drop::AbstractVector{<:Integer}) -> YieldCurve
+Drop a list of explicit row indices (1-based into `yc.x`). Out-of-range indices
+raise an error; the order of `drop` does not matter.
+
+# Examples
+```julia-repl
+julia> trim_yields(yc; first = 1, last = 2);    # snip 1 from the start, 2 from the end
+julia> trim_yields(yc, [4, 17]);                 # drop two known outliers
+```
+"""
+function trim_yields(yc::YieldCurve; first::Integer = 0, last::Integer = 0)
+    first >= 0 && last >= 0 ||
+        error("trim_yields: `first` and `last` must be non-negative (got first=$first, last=$last).")
+    n = length(yc.x)
+    lo = Int(first) + 1
+    hi = n - Int(last)
+    keep = lo <= hi ? (lo:hi) : (1:0)
+    return _take_rows(yc, collect(keep), "trimmed_edges" => (Int(first), Int(last)))
+end
+
+function trim_yields(yc::YieldCurve, drop::AbstractVector{<:Integer})
+    n = length(yc.x)
+    for i in drop
+        1 <= i <= n ||
+            error("trim_yields: drop index $i is out of range (1:$n).")
+    end
+    keep = setdiff(1:n, drop)
+    return _take_rows(yc, keep, "trimmed_rows" => sort(unique(Int.(drop))))
+end
+
+"""
+    restrict_x(yc::YieldCurve, xmin::Real, xmax::Real) -> YieldCurve
+Keep only the rows whose abscissa `x` lies in `[xmin, xmax]` (inclusive). The
+order of `xmin`/`xmax` does not matter; the smaller is used as the lower bound.
+"""
+function restrict_x(yc::YieldCurve, xmin::Real, xmax::Real)
+    lo, hi = xmin <= xmax ? (xmin, xmax) : (xmax, xmin)
+    keep = findall(x -> lo <= x <= hi, yc.x)
+    return _take_rows(yc, keep, "x_restricted" => (Float64(lo), Float64(hi)))
+end
 
 
 # --- Peptide fragment ions → peak list (bridge to the yields machinery) ------
