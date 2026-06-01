@@ -160,7 +160,12 @@ loaded and reduced to a single spectrum with `average(f)`; each
 [`AbstractPeak`](@ref) is then resolved against that spectrum (fixed window for
 [`Peak`](@ref), located per-file for [`TargetPeak`](@ref)) and integrated.
 
-`x` (one value per file) carries the external parameter (energy, wavelength, CE…).
+The external parameter (energy, wavelength, CE…) is supplied either as an
+explicit vector `x` (one value per file) **or** as a regular grid
+`x = x0 + step*(i-1)` via the `x0` / `step` keywords — matching the convenience
+form of [`yields(::AbstractString, ...)`](@ref). Exactly one of the two
+conventions must be given.
+
 `centroid_method` is required only when at least one [`TargetPeak`](@ref) uses
 `method = :centroid`; it is forwarded to [`MassJ.centroid`](@ref). Defaults to
 `MassJ.SNRA(1.0, 100)` in that case.
@@ -174,14 +179,28 @@ julia> peaks = [Peak(100.5, "A"; tol = 0.5),
 
 julia> yc = yields(["e0.mzML", "e1.mzML"], peaks;
                    x = [3.5, 4.0], xlabel = "photon energy (eV)");
+
+julia> yc = yields(["e0.mzML", "e1.mzML"], peaks;
+                   x0 = 3.5, step = 0.5, xlabel = "photon energy (eV)");
 ```
 """
 function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
-                x::AbstractVector{<:Real},
+                x::Union{AbstractVector{<:Real},Nothing} = nothing,
+                x0::Union{Real,Nothing} = nothing,
+                step::Union{Real,Nothing} = nothing,
                 xlabel::AbstractString = "energy",
                 centroid_method::Union{MethodType,Nothing} = nothing)
-    length(x) == length(files) ||
-        error("yields: length(x) ($(length(x))) != length(files) ($(length(files)))")
+    if x !== nothing
+        (x0 === nothing && step === nothing) ||
+            error("yields: pass either `x` or both `x0` and `step`, not both.")
+        length(x) == length(files) ||
+            error("yields: length(x) ($(length(x))) != length(files) ($(length(files)))")
+        xv = collect(Float64, x)
+    elseif x0 !== nothing && step !== nothing
+        xv = [Float64(x0) + Float64(step) * (i - 1) for i in 1:length(files)]
+    else
+        error("yields: provide either `x = [...]` (one value per file) or both `x0` and `step`.")
+    end
     nfiles    = length(files)
     npeaks    = length(peaks)
     Y         = Array{Float64}(undef, nfiles, npeaks)
@@ -231,7 +250,7 @@ function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
     end
     windows = [_window_of(peak) for peak in peaks]
     labels  = [peak.label        for peak in peaks]
-    return YieldCurve(collect(Float64, x), String(xlabel),
+    return YieldCurve(xv, String(xlabel),
                       Y, Y_err, tic, tic_err, found_mz,
                       labels, windows, String.(files), Dict{String,Any}())
 end
