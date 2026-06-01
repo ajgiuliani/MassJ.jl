@@ -1122,7 +1122,7 @@ function _read_mzml_chromatograms(run_elem::XMLElement)
         name(chrom) == "chromatogram" || continue
 
         if !has_cv_param(chrom, CV_TIC_CHROMATOGRAM)
-            @warn "skipping non-TIC chromatogram (MassJ only round-trips TIC chromatograms)" id=attribute(chrom, "id")
+            @debug "skipping non-TIC chromatogram (MassJ only round-trips TIC chromatograms)" id=attribute(chrom, "id")
             continue
         end
 
