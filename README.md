@@ -95,9 +95,7 @@ and the reference API.
 
 ## Citing
 
-If you use MassJ in published work, please cite it via the [CITATION.cff](CITATION.cff)
-metadata at the repository root (GitHub provides a "Cite this repository"
-widget that turns this into BibTeX/APA).
+If you use MassJ in published work, please cite it via the [CITATION.cff](CITATION.cff) metadata at the repository root.
 
 The deconvolution and isotopic-distribution routines are independent
 re-implementations of published algorithms — please also cite the original
