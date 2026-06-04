@@ -115,6 +115,7 @@ work:
 ## Related Julia packages
 
 * [MzXML.jl](https://github.com/timholy/MzXML.jl) — older mzXML loader
+* [julia_mzML_imzML](https://codeberg.org/LabABI/julia_mzML_imzML) — mzML files loader
 * [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl) — assorted MS utilities
 
 ## Contributing
