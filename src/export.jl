@@ -39,18 +39,31 @@ Keyword arguments relevant to the binary formats (mzML / mzXML):
 * `compress::Bool = true` — zlib-compress the binary arrays
 * `progress::Bool = true` — show a [`ProgressMeter`](https://github.com/timholy/ProgressMeter.jl)
   progress bar while writing (set `false` in scripts / CI)
+* `warn::Bool = true`     — warn when writing a bare scan vector to mzML (see below)
+
+!!! warning "Save the `MSrun`, not a bare vector"
+    [`load`](@ref) returns an [`MSrun`](@ref), which carries the file-level
+    metadata (instrument, software, source file, data processing) and any
+    pre-computed chromatograms. **Slicing or `collect`-ing an `MSrun` yields a
+    plain `Vector` and drops that information.** Saving such a bare vector to
+    mzML writes only the spectra and emits a warning. Keep (and save) the
+    `MSrun` itself to round-trip everything; pass `warn = false` to silence the
+    warning when writing bare vectors on purpose.
 
 The text formats (mgf / msp / txt) ignore these keywords. `.txt` holds a single
 spectrum, so a multi-spectrum input is an error there.
 
 # Examples
 ```julia
-scans = load("input.mzML")
-save(scans, "output.mzML")                          # round-trip
-save(scans, "output.mzXML"; precision = 32)         # smaller file, lossy
-save(scans, "peaklist.mgf")                         # MS/MS peak lists
-save(scans, "library.msp")                          # spectral library
-save(scans[1], "single_scan.txt")                   # one spectrum, two columns
+run = load("input.mzML")                            # an MSrun
+save(run, "output.mzML")                            # full round-trip (metadata + chromatograms)
+save(run, "output.mzXML"; precision = 32)           # smaller file, lossy
+save(run, "peaklist.mgf")                           # MS/MS peak lists
+save(run, "library.msp")                            # spectral library
+save(run[1], "single_scan.txt")                     # one spectrum, two columns
+save(run, "quiet.mzML"; progress = false)           # no progress bar
+save(collect(run), "spectra.mzML")                  # bare vector → warns (metadata dropped)
+save(collect(run), "spectra.mzML"; warn = false)    # …silenced
 ```
 """
 function save(data, filename::AbstractString; kwargs...)
@@ -555,23 +568,53 @@ end
 
 # -- save_mzml dispatch ------------------------------------------------------
 
+# Warn when a bare scan vector (rather than the `MSrun` returned by `load`) is
+# written to mzML. Run-level metadata and pre-computed chromatograms live on the
+# `MSrun` wrapper, not on a scan vector, so they are silently absent from the
+# output; slicing or `collect`-ing an `MSrun` produces such a bare vector. Fires
+# on every lossy save (deterministic, easy to test); silence with `warn = false`.
+function _warn_dropped_run_metadata(n::Integer; warn::Bool)
+    warn || return nothing
+    @warn "save: writing a bare vector of $n spectra to mzML. Run-level " *
+          "metadata (instrument, software, source file, data processing) and " *
+          "any pre-computed chromatograms are NOT written: they live on the " *
+          "`MSrun` returned by `load`, not on a scan vector, and are dropped " *
+          "when an `MSrun` is sliced or `collect`-ed. To preserve them, save " *
+          "the original `MSrun`, or — after processing its scans — wrap them " *
+          "in an `MSrun` that carries the original's metadata: " *
+          "`save(MSrun(scans, run), file)` (equivalently " *
+          "`MSrun(scans, run.metadata, run.chromatograms)`). Pass " *
+          "`warn = false` to silence this message."
+    return nothing
+end
+
 """
     save_mzml(filename::AbstractString, data;
               precision::Int = 64, compress::Bool = true,
-              progress::Bool = true) -> filename
-Write a [`MSscan`](@ref), [`MSscans`](@ref), or `Vector{MSscan}` /
-`Vector{MSscans}` to an mzML file. The file is written one spectrum at a time;
-peak RAM is bounded by the largest single spectrum, not the total file size.
+              progress::Bool = true, warn::Bool = true) -> filename
+Write a [`MSscans`](@ref), a `Vector{MSscans}`, or an [`MSrun`](@ref) to an mzML
+file. The file is written one spectrum at a time; peak RAM is bounded by the
+largest single spectrum, not the total file size.
 
 When `progress = true` (default) a `ProgressMeter` bar is shown while writing.
 
+!!! warning "Run-level metadata"
+    File-level metadata (instrument, software, source file, data processing) and
+    pre-computed chromatograms are carried by the [`MSrun`](@ref) that [`load`](@ref)
+    returns, **not** by a plain scan vector. Saving a bare `Vector{MSscans}`
+    therefore drops that information and emits a warning; save the `MSrun` itself
+    to preserve it. Set `warn = false` to silence the warning (e.g. in batch
+    scripts that intentionally write bare vectors).
+
 Round-trips through [`load`](@ref): the loaded value has the same type as the
-saved one (scalar `MSscan` / `MSscans` come back bare; vectors come back as
-vectors).
+saved one (a scalar `MSscans` comes back bare; vectors come back as vectors; an
+`MSrun` comes back as an `MSrun`).
 """
 function save_mzml(filename::AbstractString, scans::Vector{MSscans};
                    precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true, indexed::Bool = true)
+                   progress::Bool = true, indexed::Bool = true,
+                   warn::Bool = true)
+    _warn_dropped_run_metadata(length(scans); warn = warn)
     return _save_mzml_vector(filename, scans;
                              precision = precision, compress = compress,
                              scalar = false, progress = progress,
@@ -582,7 +625,8 @@ end
 # MSrun preserves file-level metadata + chromatograms across the round-trip.
 function save_mzml(filename::AbstractString, run::MSrun;
                    precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true, indexed::Bool = true)
+                   progress::Bool = true, indexed::Bool = true,
+                   warn::Bool = true)
     return _save_mzml_vector(filename, run.scans;
                              precision = precision, compress = compress,
                              scalar = false, progress = progress,
@@ -593,7 +637,8 @@ end
 
 function save_mzml(filename::AbstractString, scan::MSscans;
                    precision::Int = 64, compress::Bool = true,
-                   progress::Bool = true, indexed::Bool = true)
+                   progress::Bool = true, indexed::Bool = true,
+                   warn::Bool = true)
     return _save_mzml_vector(filename, [scan];
                              precision = precision, compress = compress,
                              scalar = true, progress = progress,
@@ -791,22 +836,32 @@ end
     save_mzxml(filename::AbstractString, data;
                precision::Int = 64, compress::Bool = true,
                progress::Bool = true) -> filename
-Write a [`MSscan`](@ref), [`MSscans`](@ref), or `Vector{MSscan}` /
-`Vector{MSscans}` to an mzXML file. Streams one spectrum at a time; peak RAM is
-bounded by the largest single spectrum. mzXML interleaves m/z and intensity in
-a single `<peaks>` blob and uses big-endian (network) byte order.
+Write a [`MSscans`](@ref), a `Vector{MSscans}`, or an [`MSrun`](@ref) to an mzXML
+file. Streams one spectrum at a time; peak RAM is bounded by the largest single
+spectrum. mzXML interleaves m/z and intensity in a single `<peaks>` blob and uses
+big-endian (network) byte order.
+
+!!! note
+    The mzXML writer emits spectra only; file-level metadata and chromatograms
+    are not part of the output regardless of the input type. An [`MSrun`](@ref)
+    is accepted (its scans are written) so that code keeping the `MSrun` from
+    [`load`](@ref) — the recommended pattern for mzML — also works here. The
+    `warn` keyword is accepted for signature parity with [`save_mzml`](@ref) but
+    has no effect.
 """
 function save_mzxml(filename::AbstractString, scans::Vector{MSscans};
                     precision::Int = 64, compress::Bool = true,
-                    progress::Bool = true)
+                    progress::Bool = true, warn::Bool = true)
     return _save_mzxml_vector(filename, scans;
                               precision = precision, compress = compress,
                               scalar = false, progress = progress)
 end
 
+# Accepted so the MSrun returned by `load` can be saved as mzXML without a
+# MethodError; only its scans are written (mzXML carries no run-level metadata).
 function save_mzxml(filename::AbstractString, run::MSrun;
                     precision::Int = 64, compress::Bool = true,
-                    progress::Bool = true)
+                    progress::Bool = true, warn::Bool = true)
     return _save_mzxml_vector(filename, run.scans;
                               precision = precision, compress = compress,
                               scalar = false, progress = progress)
@@ -814,7 +869,7 @@ end
 
 function save_mzxml(filename::AbstractString, scan::MSscans;
                     precision::Int = 64, compress::Bool = true,
-                    progress::Bool = true)
+                    progress::Bool = true, warn::Bool = true)
     return _save_mzxml_vector(filename, [scan];
                               precision = precision, compress = compress,
                               scalar = true, progress = progress)

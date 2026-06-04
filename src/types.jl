@@ -199,6 +199,24 @@ end
 
 MSrun(scans::Vector{MSscans}) = MSrun(scans, Dict{String,Any}(), IonCurrent[])
 
+"""
+    MSrun(scans::Vector{MSscans}, template::MSrun) -> MSrun
+Wrap `scans` in an `MSrun` that carries the file-level `metadata` and
+pre-computed `chromatograms` of `template`. Use this after processing the scans
+of a loaded run when you want the output of [`save`](@ref) to keep the original
+instrument / software / source-file metadata and chromatograms:
+
+```julia
+run       = load("input.mzML")          # an MSrun
+processed = map(centroid, run.scans)    # a bare Vector{MSscans} — metadata lost
+save(MSrun(processed, run), "out.mzML") # …carried forward again
+```
+
+The `metadata` and `chromatograms` are shared (not copied) with `template`.
+"""
+MSrun(scans::Vector{MSscans}, template::MSrun) =
+    MSrun(scans, template.metadata, template.chromatograms)
+
 # AbstractVector interface — delegate to the underlying scans vector.
 Base.size(run::MSrun)            = size(run.scans)
 Base.getindex(run::MSrun, i::Int)= run.scans[i]
@@ -493,7 +511,7 @@ end
     struct Charges <: MethodType
 Structure for multiple dispatching to UniDec charge deconvolution algorithm.
 """
-@with_kw struct Charges <: MethodType
+Base.@kwdef struct Charges <: MethodType
     adduct::String
     range::Tuple{Int,Int}
     width::Int = 1
@@ -505,7 +523,7 @@ end
     struct Masses <: MethodType
 Structure for multiple dispatching to UniDec mass deconvolution algorithm.
 """
-@with_kw struct Masses <: MethodType
+Base.@kwdef struct Masses <: MethodType
     adduct::String
     range::Tuple{Int,Int}
     width::Int = 1

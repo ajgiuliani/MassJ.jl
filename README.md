@@ -96,9 +96,7 @@ and the reference API.
 
 ## Citing
 
-If you use MassJ in published work, please cite it via the [CITATION.cff](CITATION.cff)
-metadata at the repository root (GitHub provides a "Cite this repository"
-widget that turns this into BibTeX/APA).
+If you use MassJ in published work, please cite it via the [CITATION.cff](CITATION.cff) metadata at the repository root.
 
 The deconvolution, isotopic-distribution, and wavelet peak-detection routines
 are independent re-implementations of published algorithms — please also cite
@@ -123,6 +121,7 @@ the original work:
 ## Related Julia packages
 
 * [MzXML.jl](https://github.com/timholy/MzXML.jl) — older mzXML loader
+* [julia_mzML_imzML](https://codeberg.org/LabABI/julia_mzML_imzML) — mzML files loader
 * [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl) — assorted MS utilities
 
 ## Contributing

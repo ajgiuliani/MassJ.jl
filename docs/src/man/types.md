@@ -161,7 +161,7 @@ The deconvolution functions use dedicated method types to dispatch to the approp
 
 [`MassJ.Charges`](@ref) specifies charge deconvolution parameters:
 ```julia
-@with_kw struct Charges <: MethodType
+Base.@kwdef struct Charges <: MethodType
     adduct::String                # adduct ion formula (e.g. "H", "Na")
     range::Tuple{Int,Int}         # charge state range (min, max)
     width::Int = 1                # charge state filter width
@@ -170,7 +170,7 @@ end
 
 [`MassJ.Masses`](@ref) specifies mass deconvolution parameters:
 ```julia
-@with_kw struct Masses <: MethodType
+Base.@kwdef struct Masses <: MethodType
     adduct::String                # adduct ion formula
     range::Tuple{Int,Int}         # mass range
     width::Int = 1                # mass filter width

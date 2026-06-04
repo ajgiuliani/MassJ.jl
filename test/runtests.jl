@@ -4,6 +4,7 @@ using DataStructures
 using SHA   # used for indexed-mzML fileChecksum verification
 using Aqua  # package-quality checks
 using Random
+using Logging  # @test_logs min_level for the bare-vector save warning
 # Loading these weak dependencies activates the package extensions
 # (cmi_matrix via EntropyInvariant, cluster_ions via Clustering, and the
 # YieldCurve Tables.jl source via Tables).
@@ -1603,7 +1604,7 @@ function test_export()
         @test vec_ms isa Vector{MassJ.MSscans}
 
         tmpvm = tempname() * ".mzML"
-        MassJ.save(vec_ms, tmpvm)
+        MassJ.save(vec_ms, tmpvm; warn = false)
         bvm = MassJ.load(tmpvm)
         # mzML load returns an MSrun (AbstractVector{MSscans}); the composite
         # spectra round-trip element-for-element.
@@ -1639,7 +1640,7 @@ function test_export()
                           1, 200.0, 20.0, 0.0, "+", "", 0.0,
                           0, :centroid, -1.0, 0.0, :none, meta)
         tmp_md = tempname() * ".mzML"
-        MassJ.save([s0], tmp_md; progress = false)
+        MassJ.save([s0], tmp_md; progress = false, warn = false)
         back_md = MassJ.load(tmp_md)
         @test back_md[1].metadata["spectrum_title"]       == "synthetic test scan"
         @test back_md[1].metadata["lowest_observed_mz"]   ≈ 110.123
@@ -1655,7 +1656,7 @@ function test_export()
         s_empty = MassJ.MSscans(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
                                1, 200.0, 20.0, 0.0, "+", "", 0.0)
         tmp_empty = tempname() * ".mzML"
-        MassJ.save([s_empty], tmp_empty; progress = false)
+        MassJ.save([s_empty], tmp_empty; progress = false, warn = false)
         back_empty = MassJ.load(tmp_empty)
         for k in ("spectrum_title", "lowest_observed_mz", "highest_observed_mz",
                   "mass_resolving_power", "ion_injection_time",
@@ -1684,7 +1685,7 @@ function test_export()
                              2, 200.0, 20.0, 500.5, "+", "HCD", 30.0,
                              2, :centroid, -1.0, 0.0, :none, meta_phase1)
         tmp_p1 = tempname() * ".mzML"
-        MassJ.save([s_ms2], tmp_p1; progress = false)
+        MassJ.save([s_ms2], tmp_p1; progress = false, warn = false)
         back_p1 = MassJ.load(tmp_p1)
         for k in keys(meta_phase1)
             @test back_p1[1].metadata[k] == meta_phase1[k]
@@ -1860,6 +1861,50 @@ function test_export()
         end
 
         rm(tmp_idx_check)
+
+        # -- Bare-vector save warning (run-level metadata loss) -------------
+        # Saving a plain Vector (rather than the MSrun returned by `load`) to
+        # mzML drops file-level metadata + chromatograms; the user is warned,
+        # silenceable with `warn = false`. MSrun and single-scan saves stay
+        # quiet, and mzXML accepts an MSrun without a MethodError.
+        run_w  = MassJ.load("test.mzML")          # an MSrun
+        bare_v = collect(run_w)                    # Vector{MSscans} (wrapper dropped)
+        @test bare_v isa Vector{MassJ.MSscans}
+        tmp_w  = tempname() * ".mzML"
+
+        # bare Vector{MSscans} → mzML warns …
+        @test_logs (:warn,) min_level = Logging.Warn MassJ.save(bare_v, tmp_w; progress = false)
+        # … and is silenced by warn = false
+        @test_logs min_level = Logging.Warn MassJ.save(bare_v, tmp_w; progress = false, warn = false)
+        # saving the MSrun itself never warns
+        @test_logs min_level = Logging.Warn MassJ.save(run_w, tmp_w; progress = false)
+        # a single scan (scalar) never warns
+        @test_logs min_level = Logging.Warn MassJ.save(run_w[1], tmp_w; progress = false)
+        rm(tmp_w)
+
+        # bare Vector{MSscans} → mzML warns too
+        vms = MassJ.MSscans[MassJ.average(run_w), MassJ.average(run_w)]
+        tmp_wms = tempname() * ".mzML"
+        @test_logs (:warn,) min_level = Logging.Warn MassJ.save(vms, tmp_wms; progress = false)
+        rm(tmp_wms)
+
+        # mzXML accepts an MSrun (no MethodError) and does not warn
+        tmp_wx = tempname() * ".mzXML"
+        @test_logs min_level = Logging.Warn MassJ.save(run_w, tmp_wx; progress = false)
+        @test isfile(tmp_wx)
+        rm(tmp_wx)
+
+        # MSrun(scans, template) re-wraps processed scans with the original
+        # run's metadata + chromatograms, so save() preserves them and no
+        # longer warns. This is the recovery path named in the warning message.
+        rewrapped = MassJ.MSrun(bare_v, run_w)
+        @test rewrapped isa MassJ.MSrun
+        @test rewrapped.metadata === run_w.metadata
+        @test rewrapped.chromatograms === run_w.chromatograms
+        tmp_rw = tempname() * ".mzML"
+        @test_logs min_level = Logging.Warn MassJ.save(rewrapped, tmp_rw; progress = false)
+        @test MassJ.load(tmp_rw) isa MassJ.MSrun
+        rm(tmp_rw)
     end
 end
 

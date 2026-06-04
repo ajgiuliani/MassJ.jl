@@ -18,7 +18,6 @@ using Printf               # used for @sprintf
 using Libz                 # used for zlib compression (mzxml import)
 using ProgressMeter        # used in deconvolution
 using DelimitedFiles       # used in txt file import
-using Parameters           # used to construct Charge and Mass struct
 using SHA                  # used for fileChecksum in indexed mzML export
 
 import Base: +, -, *, /
