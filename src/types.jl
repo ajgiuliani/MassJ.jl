@@ -206,6 +206,24 @@ end
 
 MSrun(scans::Vector{MSscan}) = MSrun(scans, Dict{String,Any}(), Chromatogram[])
 
+"""
+    MSrun(scans::Vector{MSscan}, template::MSrun) -> MSrun
+Wrap `scans` in an `MSrun` that carries the file-level `metadata` and
+pre-computed `chromatograms` of `template`. Use this after processing the scans
+of a loaded run when you want the output of [`save`](@ref) to keep the original
+instrument / software / source-file metadata and chromatograms:
+
+```julia
+run       = load("input.mzML")          # an MSrun
+processed = map(centroid, run.scans)    # a bare Vector{MSscan} — metadata lost
+save(MSrun(processed, run), "out.mzML") # …carried forward again
+```
+
+The `metadata` and `chromatograms` are shared (not copied) with `template`.
+"""
+MSrun(scans::Vector{MSscan}, template::MSrun) =
+    MSrun(scans, template.metadata, template.chromatograms)
+
 # AbstractVector interface — delegate to the underlying scans vector.
 Base.size(run::MSrun)            = size(run.scans)
 Base.getindex(run::MSrun, i::Int)= run.scans[i]
