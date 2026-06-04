@@ -540,7 +540,7 @@ end
     struct Charges <: MethodType
 Structure for multiple dispatching to UniDec charge deconvolution algorithm.
 """
-@with_kw struct Charges <: MethodType
+Base.@kwdef struct Charges <: MethodType
     adduct::String
     range::Tuple{Int,Int}
     width::Int = 1
@@ -552,7 +552,7 @@ end
     struct Masses <: MethodType
 Structure for multiple dispatching to UniDec mass deconvolution algorithm.
 """
-@with_kw struct Masses <: MethodType
+Base.@kwdef struct Masses <: MethodType
     adduct::String
     range::Tuple{Int,Int}
     width::Int = 1
