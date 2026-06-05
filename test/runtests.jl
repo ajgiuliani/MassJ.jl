@@ -1477,6 +1477,54 @@ function test_imzml()
         avg = MassJ.average("test.imzML")
         @test avg isa MassJ.MSscans
     end
+
+    @testset "imzML streaming reader" begin
+        # The fast streaming reader and the DOM reader must agree exactly.
+        s = MassJ.load_imzml_stream("test.imzML"; progress=false)
+        d = MassJ.load_imzml_all_dom("test.imzML")
+        @test length(s) == length(d)
+        for k in 1:length(s)
+            @test s[k].mz == d[k].mz
+            @test s[k].int == d[k].int
+            @test s[k].tic == d[k].tic
+            @test s[k].level == d[k].level
+            @test s[k].polarity == d[k].polarity
+            @test s[k].spectrumType == d[k].spectrumType
+            @test s[k].metadata["position_x"] == d[k].metadata["position_x"]
+            @test s[k].metadata["position_y"] == d[k].metadata["position_y"]
+        end
+    end
+
+    @testset "imzML fallback to DOM on irregular layout" begin
+        # Build a copy of test.imzML with a <precursorList> injected into the
+        # first spectrum: the streamer bails out, load() must fall back to DOM.
+        dir = mktempdir()
+        src = read("test.imzML", String)
+        prec = """
+        <precursorList count="1">
+          <precursor>
+            <selectedIonList count="1">
+              <selectedIon>
+                <cvParam cvRef="MS" accession="MS:1000744" name="selected ion m/z" value="500.0"/>
+              </selectedIon>
+            </selectedIonList>
+          </precursor>
+        </precursorList>
+        """
+        # insert right after the first spectrum's opening tag
+        m = match(r"(<spectrum\b[^>]*>)", src)
+        injected = replace(src, m.captures[1] => m.captures[1] * "\n" * prec; count=1)
+        f = joinpath(dir, "irregular.imzML")
+        write(f, injected)
+        cp("test.ibd", joinpath(dir, "irregular.ibd"))
+
+        # streamer rejects it
+        @test_throws MassJ.ImzmlStreamFallback MassJ.load_imzml_stream(f; progress=false)
+        # load() warns and falls back, still returning the 4 scans
+        run = @test_logs (:warn,) match_mode=:any MassJ.load_imzml_all(f; progress=false)
+        @test length(run) == 4
+        @test run[1].mz ≈ [100.0, 200.0, 300.0]
+    end
 end
 
 
