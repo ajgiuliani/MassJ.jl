@@ -124,6 +124,18 @@ the original work:
 * [julia_mzML_imzML](https://codeberg.org/LabABI/julia_mzML_imzML) — mzML files loader
 * [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl) — assorted MS utilities
 
+## Acknowledgements
+
+MassJ's fast DOM-free imzML reader (`src/imzml_stream.jl`) adapts the streaming
+parse strategy of [julia_mzML_imzML](https://codeberg.org/LabABI/julia_mzML_imzML)
+by Dr Robert Winkler (MIT-licensed — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+If you use the imzML functionality, please also cite:
+
+* I. Rosas-Román, H. Guillén-Alonso, A. Moreno-Pedraza, R. Winkler.
+  *Open-source data processing for imaging mass spectrometry.*
+  Anal. Chem. **2024**.
+  DOI: [10.1021/acs.analchem.3c05853](https://doi.org/10.1021/acs.analchem.3c05853)
+
 ## Contributing
 
 Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)
