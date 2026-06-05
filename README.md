@@ -20,7 +20,7 @@
 ## What MassJ does
 
 MassJ.jl is a general-purpose Julia package for loading, processing, and
-analysing mass spectromet8ry data. It is designed to slot into the rest of the
+analysing mass spectrometry data. It is designed to slot into the rest of the
 Julia ecosystem (Plots.jl, Statistics, DataFrames) rather than to replicate
 the feature surface of pipelines like OpenMS or pyteomics.
 
@@ -120,7 +120,7 @@ work (license notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)):
   [Project](https://github.com/michaelmarty/UniDec)
 * **julia_mzML_imzML** (imzML streaming reader): the DOM-free imzML reader in
   `src/imzml_stream.jl` adapts the streaming-parse strategy of julia_mzML_imzML
-  by R. Winkler (MIT-licensed). Rosas-Román, I.; Guillén-Alonso, H.;'
+  by R. Winkler (MIT-licensed). Rosas-Román, I.; Guillén-Alonso, H.;
   Moreno-Pedraza, A.; Winkler, R. *Open-source data processing for imaging mass
   spectrometry.* Anal. Chem. **2024**.
   DOI: [10.1021/acs.analchem.3c05853](https://doi.org/10.1021/acs.analchem.3c05853).
@@ -129,7 +129,7 @@ work (license notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)):
 ## Related Julia packages
 
 * [MzXML.jl](https://github.com/timholy/MzXML.jl) — older mzXML loader
-* [julia_mzML_imzML](https://codeberg.org/LabABI/julia_mzML_imzML) — mzML files loader
+* [julia_mzML_imzML](https://codeberg.org/LabABI/julia_mzML_imzML) — fast mzML & imzML reader / imaging MS
 * [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl) — assorted MS utilities
 
 ## Contributing
