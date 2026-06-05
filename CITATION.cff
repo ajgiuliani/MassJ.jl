@@ -8,6 +8,7 @@ authors:
     family-names: Giuliani
     email: giuliani@synchrotron-soleil.fr
     affiliation: Synchrotron SOLEIL
+    orcid: "https://orcid.org/0000-0003-1710-4933"
 repository-code: "https://github.com/ajgiuliani/MassJ.jl"
 url: "https://ajgiuliani.github.io/MassJ.jl/stable"
 abstract: >-

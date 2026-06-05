@@ -1,0 +1,73 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "@type": "SoftwareSourceCode",
+  "identifier": "MassJ",
+  "name": "MassJ.jl",
+  "description": "MassJ.jl is a Julia package for loading, processing, and analysing mass spectrometry data. It supports the common open file formats (mzML, mzXML, MGF, MSP, imzML), provides signal-processing tools (Savitzky-Golay smoothing, centroiding, baseline correction), isotopic distribution calculations, UniDec-style charge-state deconvolution, energy-resolved peak yields with per-scan error propagation, and Plots.jl recipes for native plotting.",
+  "codeRepository": "https://github.com/ajgiuliani/MassJ.jl",
+  "url": "https://ajgiuliani.github.io/MassJ.jl/stable",
+  "issueTracker": "https://github.com/ajgiuliani/MassJ.jl/issues",
+  "version": "1.0.0",
+  "softwareVersion": "1.0.0",
+  "license": "https://spdx.org/licenses/GPL-3.0-or-later",
+  "programmingLanguage": {
+    "@type": "ComputerLanguage",
+    "name": "Julia",
+    "url": "https://julialang.org"
+  },
+  "runtimePlatform": "Julia 1.10",
+  "applicationCategory": "Mass spectrometry",
+  "developmentStatus": "active",
+  "keywords": [
+    "mass spectrometry",
+    "mzML",
+    "mzXML",
+    "proteomics",
+    "isotopic distribution",
+    "charge deconvolution",
+    "julia"
+  ],
+  "author": [
+    {
+      "@type": "Person",
+      "@id": "https://orcid.org/0000-0003-1710-4933",
+      "givenName": "Alexandre",
+      "familyName": "Giuliani",
+      "email": "giuliani@synchrotron-soleil.fr",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "Synchrotron SOLEIL"
+      }
+    }
+  ],
+  "maintainer": [
+    {
+      "@type": "Person",
+      "@id": "https://orcid.org/0000-0003-1710-4933",
+      "givenName": "Alexandre",
+      "familyName": "Giuliani",
+      "email": "giuliani@synchrotron-soleil.fr",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "Synchrotron SOLEIL"
+      }
+    }
+  ],
+  "referencePublication": [
+    {
+      "@type": "ScholarlyArticle",
+      "name": "IsoSpec: Hyperfast Fine Structure Calculator",
+      "author": "Łącki, M. K.; Startek, M.; Valkenborg, D.; Gambin, A.",
+      "datePublished": "2017",
+      "isPartOf": "Analytical Chemistry, 89, 3272"
+    },
+    {
+      "@type": "ScholarlyArticle",
+      "name": "Bayesian Deconvolution of Mass and Ion Mobility Spectra: From Binary Interactions to Polydisperse Ensembles",
+      "author": "Marty, M. T.; Baldwin, A. J.; Marklund, E. G.; Hochberg, G. K. A.; Benesch, J. L. P.; Robinson, C. V.",
+      "datePublished": "2015",
+      "isPartOf": "Analytical Chemistry, 87, 4370",
+      "identifier": "https://doi.org/10.1021/acs.analchem.5b00140"
+    }
+  ]
+}
