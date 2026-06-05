@@ -164,12 +164,84 @@ end
 
 
 """
-    load_imzml_all(filename::String)
-Load all spectra from an imzML file. Returns a `Vector{MSscans}`.
-The spatial coordinates (x, y) are stored in the `metadata` dict of each scan.
-Requires the companion `.ibd` file in the same directory.
+    ImzmlStreamFallback(reason)
+Raised internally by the fast streaming imzML reader ([`load_imzml_stream`](@ref))
+when it meets a layout it does not handle (irregular structure, inline binary,
+precursor data, …). [`load_imzml_all`](@ref) catches it, warns, and retries with
+the slower but fully general DOM parser.
 """
-function load_imzml_all(filename::String)
+struct ImzmlStreamFallback <: Exception
+    reason::String
+end
+Base.showerror(io::IO, e::ImzmlStreamFallback) = print(io, "ImzmlStreamFallback: ", e.reason)
+
+
+"""
+    read_ibd_array!(ibd_io, offset, enc_len, arr_len, is_64bit, is_zlib, bytebuf) -> Vector{Float64}
+Read one binary array from the open `.ibd` stream and return it as `Float64`.
+Shared by both the DOM and streaming imzML readers so they are byte-for-byte
+identical. Skips the seek when already positioned (sequential `.ibd` layout),
+reads uncompressed data with `read!` into the reusable `bytebuf` (no per-array
+allocation), and converts to `Float64` in a single pass (no `ltoh.`/`convert`).
+"""
+function read_ibd_array!(ibd_io::IO, offset::Int, enc_len::Int, arr_len::Int,
+                         is_64bit::Bool, is_zlib::Bool, bytebuf::Vector{UInt8})
+    if position(ibd_io) != offset
+        seek(ibd_io, offset)
+    end
+    if is_zlib
+        # compressed: decompressed size is unknown, must allocate
+        raw_data = Libz.inflate(read(ibd_io, enc_len))
+    else
+        # uncompressed: read! into the reusable buffer (no per-array alloc)
+        resize!(bytebuf, enc_len)
+        read!(ibd_io, bytebuf)
+        raw_data = bytebuf
+    end
+    out = Vector{Float64}(undef, arr_len)
+    if is_64bit
+        src = reinterpret(Float64, raw_data)
+        @inbounds @simd for j in 1:arr_len
+            out[j] = src[j]
+        end
+    else
+        src = reinterpret(Float32, raw_data)
+        @inbounds @simd for j in 1:arr_len
+            out[j] = Float64(src[j])
+        end
+    end
+    return out
+end
+
+
+"""
+    load_imzml_all(filename::String; progress::Bool=true)
+Load all spectra from an imzML file. Returns an `MSrun`. The spatial coordinates
+(x, y) are stored in the `metadata` dict of each scan. Requires the companion
+`.ibd` file in the same directory.
+
+Uses the fast DOM-free streaming reader ([`load_imzml_stream`](@ref)) and
+transparently falls back to the general DOM reader ([`load_imzml_all_dom`](@ref))
+— with a warning — for files whose layout the streamer does not handle.
+"""
+function load_imzml_all(filename::String; progress::Bool=true)
+    try
+        return load_imzml_stream(filename; progress=progress)
+    catch err
+        reason = err isa ImzmlStreamFallback ? err.reason : sprint(showerror, err)
+        @warn "imzML: fast streaming reader could not parse this file; falling back to the slower DOM parser." reason
+        return load_imzml_all_dom(filename)
+    end
+end
+
+
+"""
+    load_imzml_all_dom(filename::String)
+General-purpose DOM-based imzML reader (LightXML). Slower than
+[`load_imzml_stream`](@ref) but handles arbitrary imzML layouts; used as the
+fallback path. Returns an `MSrun`.
+"""
+function load_imzml_all_dom(filename::String)
     xdoc = parse_file(filename)
     mzml = find_mzml_root(xdoc)
 
@@ -418,36 +490,8 @@ function load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
                 continue
             end
 
-            # Read from .ibd file. The .ibd is laid out sequentially in continuous
-            # mode, so skip the seek when we are already at the right offset.
-            if position(ibd_io) != f.offset
-                seek(ibd_io, f.offset)
-            end
-            if f.is_zlib
-                # compressed: decompressed size is unknown, must allocate
-                raw_data = Libz.inflate(read(ibd_io, f.enc_len))
-            else
-                # uncompressed: read! into the reusable buffer (no per-array alloc)
-                resize!(bytebuf, f.enc_len)
-                read!(ibd_io, bytebuf)
-                raw_data = bytebuf
-            end
-
-            # imzML binary is little-endian. Single allocation + single-pass copy
-            # into Float64 (no ltoh. broadcast, no intermediate convert/copy).
-            out = Vector{Float64}(undef, f.arr_len)
-            if f.is_64bit
-                src = reinterpret(Float64, raw_data)
-                @inbounds @simd for j in 1:f.arr_len
-                    out[j] = src[j]
-                end
-            else
-                src = reinterpret(Float32, raw_data)
-                @inbounds @simd for j in 1:f.arr_len
-                    out[j] = Float64(src[j])
-                end
-            end
-
+            out = read_ibd_array!(ibd_io, f.offset, f.enc_len, f.arr_len,
+                                  f.is_64bit, f.is_zlib, bytebuf)
             if f.is_mz
                 mz = out
             elseif f.is_int
