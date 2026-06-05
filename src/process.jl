@@ -13,8 +13,10 @@ export smooth, centroid, baseline_correction
 Smooth the intensity of the input data and returns a similar structure.
 # Examples
 ```julia-repl
-julia> smoothed_data = MassJ.smooth(scans)
-MassJ.MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
+julia> scan = load("test.mzXML")[1];
+
+julia> smoothed_data = smooth(scan)
+MSscans(num=1, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=0.1384 min, tic=5.08195e6)
 ```
 """
 function smooth(scan::MScontainer; method::MethodType=SG(5, 9, 0))
@@ -24,14 +26,20 @@ function smooth(scan::MScontainer; method::MethodType=SG(5, 9, 0))
 end
 
 """
-    smooth(scans::Vector{MSscan}; method::MethodType=SG(5, 9, 0))
+    smooth(scans::AbstractVector{MSscans}; method::MethodType=SG(5, 9, 0))
 Smooth the intensity of the input data and returns a similar structure.
 # Examples
 ```julia-repl
-julia> scans = load("filename")
-julia> smoothed_data = MassJ.smooth(scans)
-6-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.1384, 5.08195e6 .....
+julia> scans = load("test.mzXML");
+
+julia> smoothed_data = smooth(scans)
+6-element Vector{MassJ.MSscans}:
+ MSscans(num=1, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=0.1384 min, tic=5.08195e6)
+ MSscans(num=2, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=0.7307 min, tic=9727.2  precursor=1255.5)
+ MSscans(num=3, MS3+ PQD@35.0eV, 23400 pts m/z=[50.083, 2000.0], rt=2.1379 min, tic=11.3032  precursor=902.33)
+ MSscans(num=4, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=3.7578 min, tic=4.8084e6)
+ MSscans(num=5, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=4.3442 min, tic=12203.5  precursor=1255.5)
+ MSscans(num=6, MS3+ PQD@35.0eV, 23400 pts m/z=[50.083, 2000.0], rt=5.7689 min, tic=4.84455  precursor=902.33)
 ```
 """
 function smooth(scans::AbstractVector{MSscans}; method::MethodType=SG(5, 9, 0))
@@ -48,7 +56,7 @@ end
 
 """
     savitzky_golay_filtering(scan::MassJ.MScontainer, order::Int, window::Int, deriv::Int)
-Savitzky-Golay filtering to remove the high frequency noise of int data within the MSscan(s) container.
+Savitzky-Golay filtering to remove the high frequency noise of int data within the `MSscans` container.
 """
 function savitzky_golay_filtering(scan::MScontainer, order::Int, window::Int, deriv::Int)
     y = savitzky_golay(scan.int, order, window, deriv)
@@ -100,13 +108,18 @@ function centroid(scan::MScontainer; method::MethodType=SNRA(1., 100),
 end
 
 """
-    centroid(scans::Vector{MSscan}; method::MethodType=SNRA(1., 100) )
-Peak picking algorithm taking an array of MSscan as input and returning an object of the same type containing the detected peaks. Available algorithm are : Signal to Noise Ratio (SNR) and Template Based Peak Detection (TBPD). Default method is Signal to Noise Ratio Analysis (SNRA), with default threshold = 1.0 and region = 100.
+    centroid(scans::AbstractVector{MSscans}; method::MethodType=SNRA(1., 100) )
+Peak picking algorithm taking an array of `MSscans` as input and returning an object of the same type containing the detected peaks. Available algorithm are : Signal to Noise Ratio (SNR) and Template Based Peak Detection (TBPD). Default method is Signal to Noise Ratio Analysis (SNRA), with default threshold = 1.0 and region = 100.
 # Examples
 ```julia-repl
 julia> reduced_data = centroid(scans)
-6-element Array{MassJ.MSscan,1}:
-MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
+6-element Vector{MassJ.MSscans}:
+ MSscans(num=1, MS1+, 109 pts m/z=[226.083, 857.333], rt=0.1384 min, tic=521841.4007076025)
+ MSscans(num=2, MS2+ CID@18.0eV, 0 pts m/z=[—, —], rt=0.7307 min, tic=0.0  precursor=1255.5)
+ MSscans(num=3, MS3+ PQD@35.0eV, 0 pts m/z=[—, —], rt=2.1379 min, tic=0.0  precursor=902.33)
+ MSscans(num=4, MS1+, 116 pts m/z=[235.917, 741.083], rt=3.7578 min, tic=468178.80593264103)
+ MSscans(num=5, MS2+ CID@18.0eV, 0 pts m/z=[—, —], rt=4.3442 min, tic=0.0  precursor=1255.5)
+ MSscans(num=6, MS3+ PQD@35.0eV, 0 pts m/z=[—, —], rt=5.7689 min, tic=0.0  precursor=902.33)
 ```
 """
 function centroid(scans::AbstractVector{MSscans}; method::MethodType=SNRA(1., 100),
@@ -422,16 +435,17 @@ end
 
 """
     baseline_correction(scan::MScontainer; method::MethodType=TopHat(100) )
-Baseline correction takes a MSscan or MSscans object as input and returns an object of the same type as the input with the mass spectra corrected for their base line. Available algorithms are Top Hat, Locally Weighted Error Sum of Squares regression (LOESS) and Iterative Polynomial Smoothing Algorithm (IPSA). The default method is TopHat with a structuring element width of 100 points.
+Baseline correction takes an `MSscans` object as input and returns an object of the same type with the mass spectra corrected for their base line. Available algorithms are Top Hat, Locally Weighted Error Sum of Squares regression (LOESS) and Iterative Polynomial Smoothing Algorithm (IPSA). The default method is TopHat with a structuring element width of 100 points.
 # Examples
 ```julia-repl
+julia> scan = load("test.mzXML")[1];
+
 julia> reduced_data = baseline_correction(scan)
-MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-julia> reduced_data = baseline_correction(scans, method = MassJ.LOESS(1))
-MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-julia> reduced_data = baseline_correction(scans, method = MassJ.IPSA(51,100))
-6-element Array{MassJ.MSscan,1}:
-MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
+MSscans(num=1, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=0.1384 min, tic=4.596695088878757e6)
+
+julia> baseline_correction(scan, method = MassJ.LOESS(1));      # locally-weighted regression
+
+julia> baseline_correction(scan, method = MassJ.IPSA(51, 100)); # iterative polynomial smoothing
 ```
 """
 function baseline_correction(scan::MScontainer; method::MethodType=TopHat(100) )
@@ -446,19 +460,22 @@ end
 
 
 """
-    baseline_correction(scans::Vector{MSscan}; method::MethodType=TopHat(100) )
-Baseline correction takes a Vector of MSscan as input and returns a Vector of MSscan with the mass spectra corrected for their base line. Available algorithms are Top Hat, Locally Weighted Error Sum of Squares regression (LOESS) and Iterative Polynomial Smoothing Algorithm (IPSA). The default method is TopHat with a structuring element width of 100 points.
+    baseline_correction(scans::AbstractVector{MSscans}; method::MethodType=TopHat(100) )
+Baseline correction takes a Vector of `MSscans` as input and returns a Vector of `MSscans` with the mass spectra corrected for their base line. Available algorithms are Top Hat, Locally Weighted Error Sum of Squares regression (LOESS) and Iterative Polynomial Smoothing Algorithm (IPSA). The default method is TopHat with a structuring element width of 100 points.
 # Examples
 ```julia-repl
 julia> reduced_data = baseline_correction(scans)
-6-element Array{MassJ.MSscan,1}:
-MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-julia> reduced_data = baseline_correction(scans, method = MassJ.LOESS(1))
-6-element Array{MassJ.MSscan,1}:
-MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-julia> reduced_data = baseline_correction(scans, method = MassJ.IPSA(51,100))
-6-element Array{MassJ.MSscan,1}:
-MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
+6-element Vector{MassJ.MSscans}:
+ MSscans(num=1, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=0.1384 min, tic=4.596695088878757e6)
+ MSscans(num=2, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=0.7307 min, tic=9727.209462129576  precursor=1255.5)
+ MSscans(num=3, MS3+ PQD@35.0eV, 23400 pts m/z=[50.083, 2000.0], rt=2.1379 min, tic=11.303162056790438  precursor=902.33)
+ MSscans(num=4, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=3.7578 min, tic=4.346634123935582e6)
+ MSscans(num=5, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=4.3442 min, tic=12203.47988298906  precursor=1255.5)
+ MSscans(num=6, MS3+ PQD@35.0eV, 23400 pts m/z=[50.083, 2000.0], rt=5.7689 min, tic=4.844552205043209  precursor=902.33)
+
+julia> baseline_correction(scans, method = MassJ.LOESS(1));     # locally-weighted regression
+
+julia> baseline_correction(scans, method = MassJ.IPSA(51, 100)); # iterative polynomial smoothing
 ```
 """
 function baseline_correction(scans::AbstractVector{MSscans}; method::MethodType=TopHat(100) )
@@ -480,7 +497,7 @@ end
 
 """
     loess(scan::MScontainer, iter::Int )
-Method  taking a MSscan or MSscans object as input and returning an object of the same type with the mass spectra without their base line, using the LOESS (Locally Weighted Error Sum of Squares regression).
+Method  taking an `MSscans` object as input and returning an object of the same type with the mass spectra without their base line, using the LOESS (Locally Weighted Error Sum of Squares regression).
 """
 # Numeric LOESS-baseline kernel on plain (x, y) vectors — shared by the MSscans
 # and IonCurrent `baseline_correction` methods. Returns the baseline-subtracted
@@ -521,7 +538,7 @@ end
 
 """
     ipsa(scan::MScontainer, width::Real, maxiter::Int)
-Method  taking a MSscan or MSscans object as input and returning an object of the same type with the mass spectra without their base line, using the iterative polynomial smoothing algorithm (IPSA) baseline correction.
+Method  taking an `MSscans` object as input and returning an object of the same type with the mass spectra without their base line, using the iterative polynomial smoothing algorithm (IPSA) baseline correction.
 """
 # Numeric IPSA-baseline kernel on a plain signal vector `y` — shared by the
 # MSscans and IonCurrent `baseline_correction` methods. Returns `res = y - bkg`.

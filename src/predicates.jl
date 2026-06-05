@@ -1,7 +1,7 @@
 """
 Single-pass filtering via composed predicates.
 
-Each `FilterType` is converted to a predicate function `scan::MSscan -> Bool` via
+Each `FilterType` is converted to a predicate function `scan::MSscans -> Bool` via
 `to_predicate`. Multiple predicates are composed into a single function that
 short-circuits on the first `false`, enabling single-pass filter + accumulate.
 
@@ -14,13 +14,13 @@ RT-based filters that need access to the full retention time array are handled b
 
 """
     to_predicate(f::FilterType)
-Convert a `FilterType` to a predicate `scan::MSscan -> Bool`.
+Convert a `FilterType` to a predicate `scan::MSscans -> Bool`.
 Falls back to the two-argument form when the filter needs context from the full scan list.
 """
 function to_predicate end
 
 """
-    to_predicate(scans::Vector{MSscan}, f::FilterType)
+    to_predicate(scans::AbstractVector{MSscans}, f::FilterType)
 Convert a `FilterType` to a predicate, with access to the full scan list for
 filters that need global context (e.g. RT needs the retention time array).
 Defaults to ignoring the scans argument.

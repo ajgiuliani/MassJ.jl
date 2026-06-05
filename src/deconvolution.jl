@@ -17,7 +17,7 @@ export deconv
 
 """
     deconv(scan::MScontainer, method::Charges; FWHM::Real=-1, R::Real=-1, shape::Symbol=:autoguess, maxiter::Int=250, tol::Real=1e-06)
-Returns the result of the deconvolution of an MSscan(s) object using the UniDec algorithm. The output is an object of the same type as the input.  The deconv function takes an MSscan or MSscans object and a Charges method as mandatory inputs. Optional keyword arguments are:
+Returns the result of the deconvolution of an `MSscans` object using the UniDec algorithm. The output is an object of the same type as the input.  The deconv function takes an `MSscans` object and a Charges method as mandatory inputs. Optional keyword arguments are:
     - FWHM: full width at half maximum of the peaks.
     - R: mass resolving power at m/z 500.
     - if neither R nor FWHM are provided, the peak width is obtained from the base peak FWHM of the mass spectrum.
@@ -27,12 +27,13 @@ Returns the result of the deconvolution of an MSscan(s) object using the UniDec 
 
 # Examples
 ```julia-repl
-julia> deconv_data = deconv(scans, Charges(adduct="H", range=(1,10)))
-MassJ.MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-```
-```julia-repl
-julia> deconv_data = deconv(scans, Charges(adduct="H", range=(5,15), width=2), R=5000)
-MassJ.MSscans(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
+julia> scan = load("test.mzXML")[1];
+
+julia> deconv_data = deconv(scan, MassJ.Charges(adduct="H", range=(1,10)))
+MSscans(num=1, MS1+, 223200 pts m/z=[139.076, 19989.922], rt=0.1384 min, tic=740984.5415066513)
+
+julia> deconv_data = deconv(scan, MassJ.Charges(adduct="H", range=(5,15), width=2), R=5000)
+MSscans(num=1, MS1+, 223200 pts m/z=[695.378, 29984.883], rt=0.1384 min, tic=2.8056286953703044e6)
 ```
 """
 function deconv(scan::MScontainer, method::Charges; FWHM::Real = -1, R::Real = -1, shape::Symbol =:autoguess, maxiter::Int = 250, tol::Real = 1e-06)

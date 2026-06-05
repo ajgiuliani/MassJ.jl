@@ -228,7 +228,7 @@ function _stream_vec_userParam(io::IO, pname::AbstractString, v::AbstractVector)
 end
 
 
-# -- Optional cvParams from MSscan.metadata (mzML round-trip) ----------------
+# -- Optional cvParams from MSscans.metadata (mzML round-trip) ---------------
 #
 # Locations match those parsed by `_read_mzml_extra_metadata` in src/mzml.jl.
 # Each emission is gated by `haskey(md, key)` so that absent fields stay
@@ -1356,7 +1356,7 @@ function _stream_mzml_file_metadata(io::IO, md::Dict{String,Any})
     end
 end
 
-# Minimal placeholder block used when no metadata is supplied (Vector{MSscan}
+# Minimal placeholder block used when no metadata is supplied (Vector{MSscans}
 # save without an MSrun). Identical to the pre-MSrun output.
 function _stream_mzml_minimal_stub(io::IO)
     write(io, "<fileDescription>\n<fileContent>\n")
@@ -1386,7 +1386,7 @@ end
 # ----------------------------------------------------------------------------
 
 # Emit a <chromatogramList> after </spectrumList> when run.chromatograms is
-# non-empty. Each Chromatogram is written as a TIC chromatogram with two
+# non-empty. Each `IonCurrent` trace is written as a TIC chromatogram with two
 # binary arrays: time (UO:0000031, minutes) and intensity.
 function _stream_mzml_chromatogramList(io::IO, chroms::Vector{IonCurrent};
                                        precision::Int = 64, compress::Bool = true)

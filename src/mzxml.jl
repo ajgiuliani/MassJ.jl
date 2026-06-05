@@ -167,7 +167,7 @@ end
 
 """
     load_mzxml_spectrum(c::XMLElement)
-From an XMLElement, returns the data into an MSscan. 
+From an XMLElement, returns the data into an `MSscans`. 
 """
 function load_mzxml_spectrum(c::XMLElement)
     num = attribute(c, "num")

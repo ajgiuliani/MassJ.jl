@@ -55,11 +55,11 @@ end
 
 """
     load_txt_all(filename::String)
-Load the content of an ascii file into a Vector of MSscan.
+Load the content of an ascii file into an `MSscans`.
 # Examples
 ```julia-repl
-julia> scan = msJ.load("test1.txt")
-MSscans(10, 11.0422, 5.37656e6, [140.083  …  2000.0], [91.044 … 29.5873])
+julia> scan = load("spectrum.txt")
+MSscans(num=1, MS0, 4 pts m/z=[140.0, 2000.0], rt=0.0 min, tic=1850.6)
 ```
 """
 function load_txt_all(filename::String)

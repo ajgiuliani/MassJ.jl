@@ -331,7 +331,7 @@ external parameter `x` (e.g. photon energy, wavelength, collision energy). Built
 trapezoidal integration from the per-m/z standard error of the averaged
 spectrum (SEM = `sqrt(s / (N*(N-1)))` where `N = length(spec.num)` and `s` is
 the Welford accumulator stored in `MSscans`). It is `NaN` when no error
-information is available (single scan, `MSscan` input). `tic_err[i]` is the
+information is available (single scan, `MSscans` input). `tic_err[i]` is the
 combined 1-σ on `tic[i]`. [`normalize_tic`](@ref) and [`normalize_flux`](@ref)
 propagate these uncertainties through their respective transformations.
 

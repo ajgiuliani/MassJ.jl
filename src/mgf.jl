@@ -7,7 +7,7 @@ MGF is a text-based peak list format that stores centroided MS/MS data.
 """
     load_mgf_all(filename::String)
 Load all spectra from an MGF file. Returns a Vector{MSscans}.
-Each BEGIN IONS...END IONS block becomes one MSscan.
+Each BEGIN IONS...END IONS block becomes one `MSscans`.
 """
 function load_mgf_all(filename::String)
     scans = Vector{MSscans}(undef, 0)
@@ -75,7 +75,7 @@ end
 
 """
     build_mgf_scan(params::Dict{String,String}, mz::Vector{Float64}, int::Vector{Float64}, index::Int)
-Build an MSscan from parsed MGF ion block parameters and peak data.
+Build an `MSscans` from parsed MGF ion block parameters and peak data.
 """
 function build_mgf_scan(params::Dict{String,String}, mz::Vector{Float64},
                         int::Vector{Float64}, index::Int)

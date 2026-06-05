@@ -33,7 +33,7 @@ const CV_INV_K0            = "MS:1002815"
 const CV_FAIMS_CV          = "MS:1001581"
 const CV_SELEXION_CV       = "MS:1003371"
 
-# Optional cvParams populated into MSscan.metadata when present in the source
+# Optional cvParams populated into `MSscans`.metadata when present in the source
 # mzML. Locations: see _read_mzml_extra_metadata.
 const CV_SPECTRUM_TITLE       = "MS:1000796"   # in <spectrum>
 const CV_LOWEST_OBSERVED_MZ   = "MS:1000528"   # in <spectrum>
@@ -300,7 +300,7 @@ end
 
 """
     load_mzml_all(filename::String)
-Load all spectra from an mzML file. Returns a Vector{MSscan}.
+Load all spectra from an mzML file. Returns an `MSrun`.
 """
 function load_mzml_all(filename::String)
     xdoc = parse_file(filename)
@@ -802,7 +802,7 @@ Keys populated (when present in the source mzML):
 | `"scan_window_lower"`  | MS:1000501 scan window lower limit | `<scanWindow>` inside `<scan>` |
 | `"scan_window_upper"`  | MS:1000500 scan window upper limit | `<scanWindow>` inside `<scan>` |
 
-Used by [`load_mzml_spectrum`](@ref) to populate `MSscan.metadata`.
+Used by [`load_mzml_spectrum`](@ref) to populate `MSscans.metadata`.
 """
 function _read_mzml_extra_metadata(spec::XMLElement)
     md = Dict{String,Any}()

@@ -263,7 +263,7 @@ end
 
 """
     extracted_chromatogram(scans::AbstractVector{MSscans}, indices::Vector{Int},method::MethodType)
-Returns the extracted chromatogram for input Array of MSscan according to the selected method and for set of scan num as input
+Returns the extracted chromatogram for input Array of `MSscans` according to the selected method and for set of scan num as input
 """
 function extracted_chromatogram(scans::AbstractVector{MSscans}, indices::Vector{Int},method::MethodType)
     xrt = Vector{Float64}(undef,0)
@@ -312,7 +312,7 @@ end
 
 """
     composite_spectra(scans::AbstractVector{MSscans}, indices::Vector{Int}, stats::Bool)
-Returns the average MSscans for input Array of MSscan and according to the input scan num. Calculation of variance is controlled by the stats Boolean variable.
+Returns the average MSscans for input Array of `MSscans` and according to the input scan num. Calculation of variance is controlled by the stats Boolean variable.
 """
 function composite_spectra(scans::AbstractVector{MSscans}, indices::Vector{Int}, stats::Bool)
     if stats == false

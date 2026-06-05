@@ -64,31 +64,41 @@ end
 
 """
     load(filename::String)
-Loads the mass spectra from a file and returns a `Vector{MSscan}` where each element contains one scan. The function dispatches to the appropriate reader based on the file extension.
+Loads the mass spectra from a file and returns an [`MSrun`](@ref) — a vector-like container holding one [`MSscans`](@ref) per scan, plus the file-level metadata and any pre-computed ion-current traces. The function dispatches to the appropriate reader based on the file extension.
 
 Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
 # Examples
 ```julia-repl
-julia> scans = load("test.mzXML")
-6-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.1384, 5.08195e6, ...)
+julia> run = load("test.mzXML")
+MSrun(6 scans, 0 chromatograms)
+  file_metadata keys: —
+  first scan: MSscans(num=1, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=0.1384 min, tic=5.08195e6)
+  last  scan: MSscans(num=6, MS3+ PQD@35.0eV, 23400 pts m/z=[50.083, 2000.0], rt=5.7689 min, tic=4.84455  precursor=902.33)
 
-julia> scans = load("test.mzML")
-3-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.5, 19000.0, ...)
+julia> run = load("test.mzML")
+MSrun(3 scans, 0 chromatograms)
+  file_metadata keys: data_processing, file_content, instruments, software, source_files
+  first scan: MSscans(num=1, MS1+, 5 pts m/z=[100.0, 500.0], rt=0.5 min, tic=19000.0)
+  last  scan: MSscans(num=3, MS2+ HCD@30.0eV, 3 pts m/z=[120.0, 220.0], rt=1.5 min, tic=2100.0  precursor=500.0)
 
-julia> scans = load("test.mgf")
-3-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.5, 4800.0, ...)
+julia> run = load("test.mgf")
+MSrun(3 scans, 0 chromatograms)
+  file_metadata keys: —
+  first scan: MSscans(num=1, MS2+, 4 pts m/z=[110.0, 250.0], rt=0.5 min, tic=4800.0  precursor=400.0)
+  last  scan: MSscans(num=3, MS2+, 4 pts m/z=[130.0, 310.0], rt=1.5 min, tic=2600.0  precursor=600.0)
 
-julia> scans = load("library.msp")
-3-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.0, 178600.0, ...)
+julia> run = load("test.msp")
+MSrun(3 scans, 0 chromatograms)
+  file_metadata keys: —
+  first scan: MSscans(num=1, MS2+@20.0eV, 5 pts m/z=[42.034, 195.088], rt=0.0 min, tic=178600.0  precursor=195.0877)
+  last  scan: MSscans(num=3, MS1+, 4 pts m/z=[180.063, 183.074], rt=0.0 min, tic=8955.0)
 
-julia> scans = load("sample.imzML")
-10000-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.0, 8000.0, ...)
+julia> run = load("test.imzML")
+MSrun(4 scans, 0 chromatograms)
+  file_metadata keys: —
+  first scan: MSscans(num=1, MS1+, 3 pts m/z=[100.0, 300.0], rt=0.0 min, tic=8000.0)
+  last  scan: MSscans(num=4, MS1+, 3 pts m/z=[150.0, 350.0], rt=0.0 min, tic=8500.0)
 ```
 """
 function load(filename::String)
@@ -218,8 +228,8 @@ end
 
 
 """
-    retention_time(scans::Vector{MSscan})
-Returns an array composed of the retention times of the individual mass spectra. 
+    retention_time(scans::AbstractVector{MSscans})
+Returns an array composed of the retention times of the individual mass spectra.
 # Examples
 ```julia-repl
 julia> retention_time("scans")
@@ -242,7 +252,7 @@ end
 
 """
     chromatogram(filename::String, filters::FilterType...; method::MethodType=TIC())
-Returns a [`Chromatogram`](@ref) holding the retention time (rt), the ion current (ic) and the maximum value (maxic) for all the mass spectra within the file. The `method` keyword controls how the ion current is computed: `TIC()` (default) for total ion current, `BasePeak()` for base peak intensity, `∆MZ([mz, Δ])` for extracted ion current around mz ± Δ, or `MZ([mz1, mz2])` for a m/z range.
+Returns an [`IonCurrent`](@ref) holding the retention time (its `x` axis) and the ion current (`ic`) for all the mass spectra within the file; the maximum value is available on demand via [`maxic`](@ref). The `method` keyword controls how the ion current is computed: `TIC()` (default) for total ion current, `BasePeak()` for base peak intensity, `∆MZ([mz, Δ])` for extracted ion current around mz ± Δ, or `MZ([mz1, mz2])` for a m/z range.
 
 The data may be filtered using [`FilterType`](@ref) arguments: `Level(N)`, `Precursor(mz)`, `Activation_Method("method")`, `Activation_Energy(ce)`, `Polarity("+")`, `Scan(n)`, `RT([t1,t2])`, `IC([min,max])`, `DriftTime(dt)`, `CompensationVoltage(cv)`, `ChargeState(z)`, `SpectrumType(:centroid)`, `MobilityType(:TIMS)`, `MetaData(key[, value])`, `InstrumentConfig("id")`. Filters compose (AND) in a single pass — see [Combining and filtering data](@ref).
 
@@ -251,10 +261,10 @@ Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 # Examples
 ```julia-repl
 julia> chrom = chromatogram("test.mzXML")
-MassJ.Chromatogram([0.1384, ...], [5.08195e6, ...], 5.08195e6)
+IonCurrent(rt, 6 pts x=[0.138, 5.769] min, max ic=5.08195e6)
 
 julia> chrom = chromatogram("test.mzML", method = MassJ.BasePeak())
-MassJ.Chromatogram([0.5, 1.0, 1.5], [8000.0, 2000.0, 1200.0], 8000.0)
+IonCurrent(rt, 3 pts x=[0.5, 1.5] min, max ic=8000.0)
 
 julia> chrom = chromatogram("test.mzXML", MassJ.Level(1), method = MassJ.∆MZ([500,5]))
 ```
@@ -293,7 +303,7 @@ function chromatogram(filename::String, filters::FilterType...; method::MethodTy
         end
 
     elseif ext in ("mzml", "mgf", "msp", "imzml")
-        # Load all scans and delegate to the Vector{MSscan} method
+        # Load all scans and delegate to the AbstractVector{MSscans} method
         scans = load(filename)
         return chromatogram(scans, filters...; method=method)
 
@@ -303,8 +313,8 @@ function chromatogram(filename::String, filters::FilterType...; method::MethodTy
 end
 
 """
-    chromatogram(scans::Vector{MSscan}, filters::FilterType...; method::MethodType=TIC())
-Returns the retention time and the total ion current by default for all the mass spectra within the Array of mass spectrum container MSscan. Alternatively, other options may be supplied such as method = MassJ.BasePeak, which returs the base peak intensity, method = MassJ.∆MZ([500,5]), which returns the ion current for the range mz = 500 ± 5, or method = MassJ.MZ([200,1000]) which return the ion current in the range from m/z 200 to m/z 1000.  The data may be filtered by ms level, precursor mass, activation methods, etc, using the arguments MassJ.Level(N), MassJ.Precursor(mz), MassJ.Activation_Method("method")...
+    chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+Returns the retention time and the total ion current by default for all the mass spectra within the Array of mass spectrum container `MSscans`. Alternatively, other options may be supplied such as method = MassJ.BasePeak, which returs the base peak intensity, method = MassJ.∆MZ([500,5]), which returns the ion current for the range mz = 500 ± 5, or method = MassJ.MZ([200,1000]) which return the ion current in the range from m/z 200 to m/z 1000.  The data may be filtered by ms level, precursor mass, activation methods, etc, using the arguments MassJ.Level(N), MassJ.Precursor(mz), MassJ.Activation_Method("method")...
 # Examples
 ```julia-repl
 julia> rt, ic = chromatogram("test.mzxml")
@@ -488,8 +498,8 @@ end
 
 
 """
-    average(scans::Vector{MSscan}, arguments::FilterType...; stats::Bool=true)
-Returns the average mass spectrum container (MSscans) along with the sample standard deviation of the intensities with stats=true (default) for all the mass spectra within the Array of mass spectrum container MSscan.. The data may be filtered by level, precursor mass, activation methods, etc, using the arguments MassJ.Level(N), MassJ.Precursor(mz), MassJ.Activation_Method("method"), or any combination of these arguments.
+    average(scans::AbstractVector{MSscans}, arguments::FilterType...; stats::Bool=true)
+Returns the average mass spectrum container (`MSscans`) along with the sample standard deviation of the intensities with stats=true (default) for all the mass spectra within the Array of mass spectrum container `MSscans`. The data may be filtered by level, precursor mass, activation methods, etc, using the arguments MassJ.Level(N), MassJ.Precursor(mz), MassJ.Activation_Method("method"), or any combination of these arguments.
 # Examples
 ```julia-repl
 julia> spectrum = average("test.mzxml")

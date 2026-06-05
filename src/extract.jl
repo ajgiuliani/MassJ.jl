@@ -18,17 +18,18 @@ Supported file formats: mzXML, mzML, MGF, MSP, imzML.
 # Examples
 ```julia-repl
 julia> sub_set = extract("test.mzXML", MassJ.Level(2))
-2-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(2, 0.7307, 9727.2, ...)
- MassJ.MSscan(5, 4.3442, 12203.5, ...)
+2-element Vector{MassJ.MSscans}:
+ MSscans(num=2, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=0.7307 min, tic=9727.2  precursor=1255.5)
+ MSscans(num=5, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=4.3442 min, tic=12203.5  precursor=1255.5)
 
 julia> sub_set = extract("test.mzML", MassJ.Level(1))
-1-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.5, 19000.0, ...)
+1-element Vector{MassJ.MSscans}:
+ MSscans(num=1, MS1+, 5 pts m/z=[100.0, 500.0], rt=0.5 min, tic=19000.0)
 
-julia> sub_set = extract("library.msp", MassJ.Polarity("+"))
-1-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.0, 178600.0, ...)
+julia> sub_set = extract("test.msp", MassJ.Polarity("+"))
+2-element Vector{MassJ.MSscans}:
+ MSscans(num=1, MS2+@20.0eV, 5 pts m/z=[42.034, 195.088], rt=0.0 min, tic=178600.0  precursor=195.0877)
+ MSscans(num=3, MS1+, 4 pts m/z=[180.063, 183.074], rt=0.0 min, tic=8955.0)
 ```
 """
 function extract(filename::String, arguments::FilterType...)
@@ -73,7 +74,7 @@ end
 
 """
     build_subset(filename::String, indices::Vector{Int})
-Returns a Vector of MSscan from the input file according to the scan num (indices).
+Returns a Vector of `MSscans` from the input file according to the scan num (indices).
 """
 function build_subset(filename::String, indices::Vector{Int})
     sub_set = Vector{MSscans}(undef,0)   
@@ -89,15 +90,21 @@ end
 Search for scans matching the argument MS level and returns an array of matching MSscans; throws an error ("No matching spectra found.") when nothing matches.
 # Examples
 ```julia-repl
-julia> scans = load("test.mzxml")                          # load mass spectra
-6-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ...
-julia> sub_set = extract(scans)                            # extract a sub_set without conditions returns the original data
-6-element Array{MassJ.MSscan,1}:
- MassJ.MSscan(1, 0.1384, 5.08195e6, [140.083, 140.167, 140.25, 140.333, 140.417, 140.5, 140.583, 140.667, 140.75, 140.833  …  1999.25, 1999.33, 1999.42, ....
-julia> sub_set = extract(scans, MassJ.Level(2) )      # extract MS/MS spectra
-MassJ.MSscan(2, 0.7307, 9727.2, [345.083, 345.167, 345.25, 345.333, 345.417, 345.5, 345.583, 345.667, 345.75, 345.833  …  1999.25, 1999.33, 1999.42, 1999.5, 1999.58 ....
- MassJ.MSscan(5, 4.3442, 12203.5, [345.083, 345.167, 345.25, 345.333, 345.417, 345.5, 345.583, 345.667, 345.75, 345.833  …  1999.25, 1999.33, 1999.42, 1999.5, 1999.58, ....
+julia> scans = load("test.mzXML");                         # load mass spectra
+
+julia> sub_set = extract(scans)                            # no conditions → original data
+6-element Vector{MassJ.MSscans}:
+ MSscans(num=1, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=0.1384 min, tic=5.08195e6)
+ MSscans(num=2, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=0.7307 min, tic=9727.2  precursor=1255.5)
+ MSscans(num=3, MS3+ PQD@35.0eV, 23400 pts m/z=[50.083, 2000.0], rt=2.1379 min, tic=11.3032  precursor=902.33)
+ MSscans(num=4, MS1+, 22320 pts m/z=[140.083, 2000.0], rt=3.7578 min, tic=4.8084e6)
+ MSscans(num=5, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=4.3442 min, tic=12203.5  precursor=1255.5)
+ MSscans(num=6, MS3+ PQD@35.0eV, 23400 pts m/z=[50.083, 2000.0], rt=5.7689 min, tic=4.84455  precursor=902.33)
+
+julia> sub_set = extract(scans, MassJ.Level(2))            # extract MS/MS spectra
+2-element Vector{MassJ.MSscans}:
+ MSscans(num=2, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=0.7307 min, tic=9727.2  precursor=1255.5)
+ MSscans(num=5, MS2+ CID@18.0eV, 19860 pts m/z=[345.083, 2000.0], rt=4.3442 min, tic=12203.5  precursor=1255.5)
 ```
 
 """
@@ -119,7 +126,7 @@ end
 
 """
     build_subset(scans::AbstractVector{MSscans}, indices::Vector{Int})
-Returns a Vector of MSscan according to the input scan num.
+Returns a Vector of `MSscans` according to the input scan num.
 """
 function build_subset(scans::AbstractVector{MSscans}, indices::Vector{Int})
     sub_set = Vector{MSscans}(undef,0)
