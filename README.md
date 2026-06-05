@@ -85,22 +85,23 @@ and the reference API.
 
 ## Supported file formats
 
-| Format | Read | Write          |
-|--------|:----:|:--------------:|
-| mzML   | ✅   | ✅ (indexed)   |
-| mzXML  | ✅   | ✅              |
-| MGF    | ✅   | ✅              |
-| MSP    | ✅   | ✅              |
-| imzML  | ✅   | ✅              |
-| TXT    | ✅   | ✅              |
+| Format | Read |    Write     |
+|--------|:----:|:------------:|
+| mzML   |  ✅  | ✅ (indexed) |
+| mzXML  |  ✅  |      ✅      |
+| MGF    |  ✅  |      ✅      |
+| MSP    |  ✅  |      ✅      |
+| imzML  |  ✅  |      ✅      |
+| TXT    |  ✅  |      ✅      |
 
 ## Citing
 
 If you use MassJ in published work, please cite it via the [CITATION.cff](CITATION.cff) metadata at the repository root.
 
 The deconvolution, isotopic-distribution, and wavelet peak-detection routines
-are independent re-implementations of published algorithms — please also cite
-the original work:
+are independent re-implementations of published algorithms, and the imzML
+reader adapts third-party MIT-licensed code — please also cite the original
+work (license notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)):
 
 * **IsoSpec** (isotopic distributions): Łącki, M. K.; Startek, M.;
   Valkenborg, D.; Gambin, A. *IsoSpec: Hyperfast Fine Structure Calculator.*
@@ -117,24 +118,19 @@ the original work:
   Interactions to Polydisperse Ensembles.* Anal. Chem. **2015**, 87, 4370.
   DOI: [10.1021/acs.analchem.5b00140](https://doi.org/10.1021/acs.analchem.5b00140).
   [Project](https://github.com/michaelmarty/UniDec)
+* **julia_mzML_imzML** (imzML streaming reader): the DOM-free imzML reader in
+  `src/imzml_stream.jl` adapts the streaming-parse strategy of julia_mzML_imzML
+  by R. Winkler (MIT-licensed). Rosas-Román, I.; Guillén-Alonso, H.;'
+  Moreno-Pedraza, A.; Winkler, R. *Open-source data processing for imaging mass
+  spectrometry.* Anal. Chem. **2024**.
+  DOI: [10.1021/acs.analchem.3c05853](https://doi.org/10.1021/acs.analchem.3c05853).
+  [Project](https://codeberg.org/LabABI/julia_mzML_imzML)
 
 ## Related Julia packages
 
 * [MzXML.jl](https://github.com/timholy/MzXML.jl) — older mzXML loader
 * [julia_mzML_imzML](https://codeberg.org/LabABI/julia_mzML_imzML) — mzML files loader
 * [MassSpec.jl](https://gitlab.com/odurif/MassSpec.jl) — assorted MS utilities
-
-## Acknowledgements
-
-MassJ's fast DOM-free imzML reader (`src/imzml_stream.jl`) adapts the streaming
-parse strategy of [julia_mzML_imzML](https://codeberg.org/LabABI/julia_mzML_imzML)
-by Dr Robert Winkler (MIT-licensed — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
-If you use the imzML functionality, please also cite:
-
-* I. Rosas-Román, H. Guillén-Alonso, A. Moreno-Pedraza, R. Winkler.
-  *Open-source data processing for imaging mass spectrometry.*
-  Anal. Chem. **2024**.
-  DOI: [10.1021/acs.analchem.3c05853](https://doi.org/10.1021/acs.analchem.3c05853)
 
 ## Contributing
 
