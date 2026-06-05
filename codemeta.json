@@ -52,22 +52,5 @@
         "name": "Synchrotron SOLEIL"
       }
     }
-  ],
-  "referencePublication": [
-    {
-      "@type": "ScholarlyArticle",
-      "name": "IsoSpec: Hyperfast Fine Structure Calculator",
-      "author": "Łącki, M. K.; Startek, M.; Valkenborg, D.; Gambin, A.",
-      "datePublished": "2017",
-      "isPartOf": "Analytical Chemistry, 89, 3272"
-    },
-    {
-      "@type": "ScholarlyArticle",
-      "name": "Bayesian Deconvolution of Mass and Ion Mobility Spectra: From Binary Interactions to Polydisperse Ensembles",
-      "author": "Marty, M. T.; Baldwin, A. J.; Marklund, E. G.; Hochberg, G. K. A.; Benesch, J. L. P.; Robinson, C. V.",
-      "datePublished": "2015",
-      "isPartOf": "Analytical Chemistry, 87, 4370",
-      "identifier": "https://doi.org/10.1021/acs.analchem.5b00140"
-    }
   ]
 }
