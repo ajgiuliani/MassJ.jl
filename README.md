@@ -140,3 +140,8 @@ for the workflow.
 ## License
 
 GPL-3.0-or-later, see [LICENSE](LICENSE).
+
+**License history.** MassJ.jl was released under CeCILL-C from its first public
+version through v0.3.1 (2019). From v1.0.0 (2026-04-10) onward it is licensed
+under GPL-3.0-or-later. Earlier tagged releases remain available under CeCILL-C
+through the git history.
