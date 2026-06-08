@@ -348,6 +348,23 @@ function test_isotopes()
         @test sum(alpha["H"]) == 22     # conservation
         @test alpha["C"][1] >= alpha["C"][2]  # 12C more abundant than 13C
 
+        # most_probable_isotopologue - single atom of an element whose most
+        # abundant isotope is < 50 % (rounding seeds an all-zero guess). The
+        # largest-remainder repair must still conserve the atom count and place
+        # it on the most abundant isotope. Regression for Nd(NO3)4 crash
+        # ("Distribution does not match chemical formula").
+        for el in ("Nd", "Eu", "Sn", "Dy")
+            d = MassJ.most_probable_isotopologue(Dict(el => 1), MassJ.Elements)
+            @test sum(d[el]) == 1
+            abund = [iso.f for iso in MassJ.Elements[el]]
+            @test d[el][argmax(abund)] == 1   # the atom sits on the most abundant isotope
+        end
+        # the originally reported formula now builds a full distribution
+        Ind = MassJ.isotopic_distribution("Nd(NO3)4", 0.9, charge = +1)
+        @test size(Ind, 1) > 2
+        @test Ind[1, 1] == "Masses"
+        @test all(p -> p > 0, (Ind[i, 2] for i in 2:size(Ind, 1)))
+
         # hill_climbing finds optimum
         f_obj(x) = -(x[1] - 3)^2 - (x[2] - 2)^2
         P = MassJ.hill_climbing([1, 4], f_obj)
@@ -852,6 +869,95 @@ function test_uncertainty()
         @test plot(avg; band = :std, method = :absolute) isa Plots.Plot
         @test plot(avg) isa Plots.Plot
         @test plot(s1; band = :sem) isa Plots.Plot
+    end
+end
+
+
+function test_annotated_plotting()
+    @testset "Annotated plotting (round 4, phase 1)" begin
+        P = MassJ.plots
+
+        # synthetic centroid-like spectrum with well-separated peaks
+        mz  = [100.0, 100.5, 200.0, 300.0, 400.0]
+        int = [10.0,   8.0,  50.0,  30.0,  90.0]
+        ms  = MassJ.MSscans(1, 0.0, sum(int), mz, int, 1, 400.0, 90.0,
+                            0.0, "+", "", 0.0)
+
+        # --- adapters / helpers (pure) ---------------------------------------
+        fi   = MassJ.fragment_ions("PEPTIDE"; ions = (:b, :y), charges = 1:2)
+        b3   = first(f for f in fi if f.series == :b && f.position == 3 && f.charge == 1)
+        b3z2 = first(f for f in fi if f.series == :b && f.position == 3 && f.charge == 2)
+        @test P._frag_base(b3) == "b3"
+        @test P._frag_base(b3z2) == "b3"          # charge is NOT baked into base text
+
+        # display string rules
+        pm   = (x = 200.0, mz = 200.0, y = 50.0, text = "",   charge = 0, group = :peak)
+        pz2  = (x = 200.0, mz = 200.0, y = 50.0, text = "b3", charge = 2, group = :b)
+        pz1  = (x = 200.0, mz = 200.0, y = 50.0, text = "b3", charge = 1, group = :b)
+        @test P._disp(pm;  show_mz = false, show_charge = true,  fmt = "%.2f") == "200.00"
+        @test P._disp(pz2; show_mz = false, show_charge = true,  fmt = "%.1f") == "b3 2+"
+        @test P._disp(pz1; show_mz = false, show_charge = true,  fmt = "%.1f") == "b3"
+        @test P._disp(pz2; show_mz = true,  show_charge = false, fmt = "%.1f") == "b3 200.0"
+
+        # placement: sorted by intensity, nlabels cap
+        placed = P._place_spectrum(ms, P._spectrum_candidates(:auto, ms), 1.0;
+                                   tol = 0.5, ppm = nothing, declutter = :none, nlabels = 3)
+        @test length(placed) == 3
+        @test [p.mz for p in placed] == [400.0, 200.0, 300.0]
+
+        # de-clutter suppresses the close neighbour, keeps the stronger of the pair
+        placed2 = P._place_spectrum(ms, P._spectrum_candidates(:auto, ms), 1.0;
+                                    tol = 0.5, ppm = nothing, declutter = 1.0, nlabels = 10)
+        m2 = [p.mz for p in placed2]
+        @test 100.0 in m2
+        @test !(100.5 in m2)
+
+        # apex matching tolerance
+        @test isempty(P._place_spectrum(ms, P._spectrum_candidates([250.0], ms), 1.0;
+                                        tol = 0.5, ppm = nothing, declutter = :none, nlabels = 10))
+        near = P._place_spectrum(ms, P._spectrum_candidates([200.2], ms), 1.0;
+                                 tol = 0.5, ppm = nothing, declutter = :none, nlabels = 10)
+        @test length(near) == 1 && near[1].mz == 200.0
+
+        # relative scaling: base peak maps to 100 %
+        relp = P._place_spectrum(ms, P._spectrum_candidates(:auto, ms), 100.0 / 90.0;
+                                 tol = 0.5, ppm = nothing, declutter = :none, nlabels = 1)
+        @test isapprox(relp[1].y, 100.0; atol = 1e-9)
+
+        # colours: :none -> all black; :group -> one colour per distinct group
+        @test all(==(:black), P._label_colors(placed2, :none))
+        twogroups = [(x = 1.0, mz = 1.0, y = 1.0, text = "b1", charge = 1, group = :b),
+                     (x = 2.0, mz = 2.0, y = 1.0, text = "y1", charge = 1, group = :y)]
+        @test length(unique(P._label_colors(twogroups, :group))) == 2
+        @test all(==(:black), P._label_colors(twogroups, :none))
+
+        # Peak / TargetPeak adapters
+        pk = [MassJ.Peak(199.0, 201.0, "win"), MassJ.TargetPeak(300.0, "tgt"; tol = 0.5)]
+        pc = P._spectrum_candidates(pk, ms)
+        @test pc[1].mz == 200.0 && pc[1].text == "win"   # window centre
+        @test pc[2].mz == 300.0 && pc[2].text == "tgt"
+
+        # unknown symbol errors
+        @test_throws ErrorException P._spectrum_candidates(:nope, ms)
+
+        # --- recipe smoke tests (both backends build a Plot) -----------------
+        scans = MassJ.load("test.mzXML")
+        s = scans[1]
+        cr = MassJ.chromatogram(scans)
+        for backend in (gr, plotly)
+            backend()
+            @test plot(s) isa Plots.Plot                                   # no regression
+            @test plot(s, annot = :auto) isa Plots.Plot
+            @test plot(s, annot = :auto, nlabels = 5, method = :absolute) isa Plots.Plot
+            @test plot(s, annot = [s.mz[100], s.mz[200]]) isa Plots.Plot
+            @test plot(s, annot = [s.mz[100] => "A", s.mz[200] => "B"]) isa Plots.Plot
+            @test plot(s, annot = fi, show_mz = true, color_by = :group) isa Plots.Plot
+            @test plot(s, sequence = "PEPTIDE", ions = (:b, :y)) isa Plots.Plot
+            @test plot(s, annot = pk) isa Plots.Plot
+            @test plot(cr, annot = :auto) isa Plots.Plot
+            @test plot(cr, annot = [cr.x[2] => "P1"]) isa Plots.Plot
+        end
+        gr()
     end
 end
 
@@ -2721,6 +2827,7 @@ test_peptides()
 test_fragment_peaks()
 test_mobility()
 test_uncertainty()
+test_annotated_plotting()
 test_tables()
 test_measurements()
 test_unitful()
