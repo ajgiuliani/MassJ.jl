@@ -484,21 +484,21 @@ function most_probable_isotopologue(formula::Dict{String,Int}, Elements::Dict{St
         if length(E) > 1
             # # start with the mean of the multimodal distribution
             P0 = Int.(map(round, val .* [el.f for el in E]))
-            counts = 1
-            while sum(P0) != val               # checking for mismatch between distri & formula
-                for i=length(P0):-1:1
-                    if P0[i] > 0               # found a non negative element                 
-                        if sum(P0) > val       
-                            P0[i] -= 1
-                        elseif sum(P0) < val   
-                            P0[i] +=1
-                        end
-                    end
+            # Largest-remainder repair so that sum(P0) == val exactly. Independent
+            # rounding of each term can leave a deficit or surplus; in particular a
+            # single atom of an element whose most abundant isotope is below 50 %
+            # (e.g. Nd, Eu, Sn) rounds every term to zero. Add the missing atoms to
+            # (or remove the surplus from) the most abundant isotopes in turn.
+            order = sortperm([el.f for el in E], rev = true)
+            k = 1
+            while sum(P0) != val
+                i = order[mod1(k, length(order))]
+                if sum(P0) < val
+                    P0[i] += 1
+                elseif P0[i] > 0
+                    P0[i] -= 1
                 end
-                if counts < 10
-                    break
-                end
-                counts += 1
+                k += 1
             end
             # Objective function isotopologue_probability(Dict(key => val), x::AbstractArray)
             f(x) = isotopologue_probability(Dict(key => val), Dict(key => x), Elements)
