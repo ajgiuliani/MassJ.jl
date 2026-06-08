@@ -15,6 +15,41 @@ plot(avg; band = :sem)                     # ±1-σ (standard error of the mean)
 plot(avg; band = :std, method = :absolute) # ±1-σ (sample standard deviation)
 ```
 
+## Peak annotation
+
+Spectra and ion-current traces can be annotated directly from the analytical
+engines. Pass `annot` to label peaks; the labels are drawn vertically just above
+the matched apex, and overlapping labels are removed greedily so the figure stays
+readable. `annot = nothing` (the default) reproduces the plain plot.
+
+```julia
+plot(scan, annot = :auto)                        # the most intense peaks (m/z labels)
+plot(scan, annot = [195.09 => "M+H", 217.07 => "M+Na"])  # explicit mz => text
+plot(scan, annot = fragment_ions("PEPTIDE"; ions = (:b, :y), charges = 1:2))
+plot(scan, sequence = "PEPTIDE", ions = (:b, :y))        # shortcut for the line above
+plot(scan, annot = peaks)                         # a Vector of Peak / TargetPeak
+plot(chrom, annot = :auto)                        # chromatographic peaks (chrom_peaks)
+```
+
+`annot` accepts `:auto` (top peaks of the spectrum, or [`chrom_peaks`](@ref) for a
+trace), a `Vector{FragmentIon}`, a `Vector{<:AbstractPeak}`, a bare m/z (or
+abscissa) vector, or `mz => "text"` pairs. Useful keywords:
+
+| Keyword | Effect |
+|---------|--------|
+| `nlabels` | maximum number of labels (default 10) |
+| `tol` / `ppm` | apex-match tolerance for the supplied m/z |
+| `declutter` | `:suppress` (default), `:none`, or a minimum gap in m/z |
+| `show_mz` | append the matched m/z to a text label |
+| `show_charge` | append a charge glyph (e.g. `2+`) for multiply-charged ions |
+| `annot_fmt` | `printf` format for the m/z (default `"%.2f"`) |
+| `color_by` | `:none` (default) or `:group` (colour fragment ions by series) |
+
+Under an interactive backend (`plotly()`), each labelled peak also carries a
+hover tooltip with its m/z, charge, and label. The keyword is named `annot` (not
+`annotate`) because `Plots` reserves `annotate` as an alias of its own
+`annotations` attribute.
+
 For a [`MassJ.YieldCurve`](@ref), the x-axis is taken from `yc.x` and labelled with `yc.xlabel`, and one line is drawn per peak using `yc.labels` for the legend. When `yc.yields_err` contains any finite values, 1-σ ribbons are drawn around each line with `fillalpha = 0.15`. Either default can be overridden by passing the same keyword to `plot`:
 
 ```julia
