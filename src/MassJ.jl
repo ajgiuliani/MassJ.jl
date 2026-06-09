@@ -47,6 +47,7 @@ include("txt.jl")
 include("yields.jl")
 include("export.jl")
 include("chimeric.jl")
+include("interop.jl")
 
 
 # Submodules
