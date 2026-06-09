@@ -142,8 +142,6 @@ Dict("S" => 6,"C" => 254,"N" => 65,"H" => 377,"O" => 75)
 ```
 """
 function isotopic_distribution(input::String, p_target::Real; charge::Int = +1, tau::Real = 0.1, Elements::Dict{String,Array{MassJ.Isotope,1}} = MassJ.Elements)
-    f = formula(input)
-    println(f)
     isotopic_distribution(formula(input), p_target, charge = charge, tau = tau)
 end
 

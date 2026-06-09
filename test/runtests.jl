@@ -958,6 +958,24 @@ function test_annotated_plotting()
             @test plot(cr, annot = [cr.x[2] => "P1"]) isa Plots.Plot
         end
         gr()
+
+        # peak-window overlay recipe: plot!(peak) over a spectrum
+        avg = MassJ.average(scans)
+        tp1 = MassJ.TargetPeak(avg.mz[1500], "one"; tol = 0.3)
+        tpc = MassJ.TargetPeak([avg.mz[800], avg.mz[1800]], "cluster"; tol = 0.25)
+        pkw = MassJ.Peak(avg.mz[1000], avg.mz[1100], "win")
+        @test P._peak_bounds(pkw) == [avg.mz[1000], avg.mz[1100]]
+        @test P._peak_bounds(tpc) ==
+              [avg.mz[800] - 0.25, avg.mz[800] + 0.25, avg.mz[1800] - 0.25, avg.mz[1800] + 0.25]
+        pov = plot(avg)
+        @test plot!(pov, tp1) isa Plots.Plot
+        @test plot!(pov, tpc) isa Plots.Plot
+        @test plot!(pov, pkw; seriescolor = :green) isa Plots.Plot
+
+        # vector overlay: all peak windows in one call
+        peaklist = [tp1, tpc, pkw]
+        @test plot!(plot(avg), peaklist) isa Plots.Plot
+        @test plot(peaklist) isa Plots.Plot
     end
 end
 
@@ -2623,6 +2641,110 @@ function test_yields_targetpeak()
 end
 
 
+function test_targetpeak_clusters()
+    @testset "TargetPeak isotope clusters (vector + formula)" begin
+        # --- scalar form: backward compatibility ---------------------------
+        tp = MassJ.TargetPeak(442.01, "a"; tol = 0.5)
+        @test tp.mz == 442.01 && tp.mzs == [442.01] && tp.tol == 0.5
+
+        # --- explicit cluster ----------------------------------------------
+        tc = MassJ.TargetPeak([444.0, 442.0, 443.0], "Label"; tol = 0.02)
+        @test tc.mzs == [442.0, 443.0, 444.0]      # sorted; mz = monoisotopic
+        @test tc.mz  == 442.0
+        @test MassJ._window_of(tc) == (442.0 - 0.02, 444.0 + 0.02)
+        @test_throws ErrorException MassJ.TargetPeak(Float64[], "empty"; tol = 0.1)
+        # ppm sets the half-width from the first (monoisotopic) m/z
+        tcp = MassJ.TargetPeak([200.0, 201.0], "p"; ppm = 10.0)
+        @test tcp.tol ≈ 200.0 * 10e-6
+
+        # --- window merging ------------------------------------------------
+        @test MassJ._merge_windows([(1.0, 2.0), (1.5, 3.0), (5.0, 6.0)]) ==
+              [(1.0, 3.0), (5.0, 6.0)]
+        @test isempty(MassJ._merge_windows(Tuple{Float64,Float64}[]))
+
+        # --- formula form --------------------------------------------------
+        # bare ion (adduct = ""): m/z = neutral isotopologue mass / abs(charge)
+        tf = MassJ.TargetPeak("Nd(NO3)4", "Nd nitrate";
+                              charge = -1, adduct = "", p_target = 0.999, tol = 0.2)
+        @test length(tf.mzs) > 1
+        @test issorted(tf.mzs)
+        @test tf.mz == minimum(tf.mzs)
+        # charge = 0 with no adduct is rejected
+        @test_throws ErrorException MassJ.TargetPeak("H2O", "w"; charge = 0, tol = 0.1)
+
+        # adduct form: charge comes from the adduct, m/z via adduct_mz
+        glc = MassJ.masses("C6H12O6")["Monoisotopic"]
+        tfa = MassJ.TargetPeak("C6H12O6", "glucose"; adduct = "[M+H]+", tol = 0.01)
+        @test isapprox(minimum(tfa.mzs), MassJ.adduct_mz(glc, "[M+H]+"); atol = 1e-6)
+
+        # --- integration: cluster == sum of the parts, summed per scan ------
+        scans = MassJ.load("test.mzXML")
+        s1 = scans[1]                              # MS1 scan, well covered
+        m1 = s1.mz[argmax(s1.int)]
+        m2 = m1 - 3.0
+        t  = 0.4
+        ycl = MassJ.yields(["test.mzXML"], [MassJ.TargetPeak([m1, m2], "cluster"; tol = t)];
+                           x = [1.0])
+        ref = MassJ.yields(["test.mzXML"],
+                           [MassJ.Peak(m1 - t, m1 + t, "a"), MassJ.Peak(m2 - t, m2 + t, "b")];
+                           x = [1.0])
+        @test ycl.yields[1, 1] > 0
+        @test isapprox(ycl.yields[1, 1], ref.yields[1, 1] + ref.yields[1, 2]; rtol = 1e-12)
+        @test ycl.windows[1] == (m2 - t, m1 + t)   # envelope
+        @test ycl.found_mz[1, 1] == m2             # anchor = monoisotopic (smallest m/z)
+
+        # a cluster does not trigger centroiding
+        @test !MassJ._needs_centroid([MassJ.TargetPeak([m1, m2], "c"; tol = t)])
+
+        # formula peak runs end-to-end through yields
+        yf = MassJ.yields(["test.mzXML"],
+                          [MassJ.TargetPeak("C6H12O6", "glc"; adduct = "[M+H]+", tol = 0.01)];
+                          x = [1.0])
+        @test isfinite(yf.yields[1, 1])
+
+        # --- anchored cluster resolution (method = :anchor) ----------------
+        # synthetic spectrum with a single sharp peak at m/z 110.0
+        gmz  = collect(100.0:0.01:120.0)
+        gint = zeros(length(gmz)); gint[argmin(abs.(gmz .- 110.0))] = 1000.0
+        gms  = MassJ.MSscans(1, 0.0, sum(gint), gmz, gint, 1, 110.0, 1000.0,
+                             0.0, "+", "", 0.0)
+
+        # anchor theoretical at 109.8 (0.2 below the real peak), far line at 114.8
+        pa = MassJ.TargetPeak([109.8, 114.8], "anc"; tol = 0.3, method = :anchor)
+        wa, fa = MassJ._resolve_windows(gms, nothing, pa)
+        @test fa ≈ 110.0                                   # located the anchor
+        ca = [(lo + hi) / 2 for (lo, hi) in wa]
+        @test ca ≈ [110.0, 115.0]                          # whole pattern shifted by +0.2
+
+        # fixed (default) leaves windows at the theoretical m/z
+        pf = MassJ.TargetPeak([109.8, 114.8], "fix"; tol = 0.3)
+        wf, ff = MassJ._resolve_windows(gms, nothing, pf)
+        @test ff ≈ 109.8
+        @test [(lo + hi) / 2 for (lo, hi) in wf] ≈ [109.8, 114.8]
+
+        # anchor absent → falls back to fixed windows
+        pmiss = MassJ.TargetPeak([200.0, 205.0], "miss"; tol = 0.3, method = :anchor)
+        wm, fm = MassJ._resolve_windows(gms, nothing, pmiss)
+        @test fm == 200.0
+        @test [(lo + hi) / 2 for (lo, hi) in wm] ≈ [200.0, 205.0]
+
+        # constructors accept :anchor / :fixed; reject nonsense
+        @test MassJ.TargetPeak([1.0, 2.0], "x"; tol = 0.1, method = :anchor).method === :anchor
+        @test MassJ.TargetPeak([1.0, 2.0], "x"; tol = 0.1).method === :fixed
+        @test_throws ErrorException MassJ.TargetPeak([1.0, 2.0], "x"; tol = 0.1, method = :bogus)
+        # the user's :centroid on a formula peak is accepted (treated as fixed)
+        @test MassJ.TargetPeak("H2O", "w"; charge = -1, tol = 0.2, method = :centroid).method === :centroid
+
+        # :anchor runs end-to-end through yields
+        m1 = scans[1].mz[argmax(scans[1].int)]
+        ya = MassJ.yields(["test.mzXML"],
+                          [MassJ.TargetPeak([m1, m1 - 3.0], "anc"; tol = 0.4, method = :anchor)];
+                          x = [1.0])
+        @test ya.yields[1, 1] > 0
+    end
+end
+
+
 function test_yields_errors()
     @testset "YieldCurve error propagation" begin
 
@@ -2847,5 +2969,6 @@ test_cwt()
 test_chimeric()
 test_yields()
 test_yields_targetpeak()
+test_targetpeak_clusters()
 test_yields_errors()
 test_aqua()

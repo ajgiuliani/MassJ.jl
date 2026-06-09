@@ -268,20 +268,35 @@ end
 
 """
     struct TargetPeak <: AbstractPeak
-A target m/z plus search half-width, located in each spectrum at integration time.
+A target m/z (or a *cluster* of m/z sharing one label) plus search half-width.
 Unlike [`Peak`](@ref), the integration window of a `TargetPeak` may differ from
 file to file: each spectrum is searched in `[mz - tol, mz + tol]` and a window is
 derived from the located peak according to `method`.
 
     struct TargetPeak <: AbstractPeak
-        mz::Float64        # target m/z
-        label::String      # peak label
-        tol::Float64       # search half-width (absolute Δm/z)
-        method::Symbol     # :local_max, :edges, or :centroid
-        edges::Float64     # threshold for :edges (fraction of peak max)
+        mz::Float64           # primary (monoisotopic / representative) target m/z
+        mzs::Vector{Float64}  # full target cluster (== [mz] for a single target)
+        label::String         # peak label
+        tol::Float64          # search half-width (absolute Δm/z)
+        method::Symbol        # :local_max, :edges, or :centroid
+        edges::Float64        # threshold for :edges (fraction of peak max)
     end
 
-`method` values:
+A `TargetPeak` may bundle several m/z under one label — typically the
+isotopologues of one species — so that [`yields`](@ref) reports a single column
+for the whole pattern. The per-scan integrals of the sub-windows are **summed
+inside each scan** before the across-scan error is taken, so the pattern-level
+uncertainty is correct (the isotopes co-vary). Overlapping sub-windows are merged
+so the shared region is not double-counted.
+
+For a *single* target (`length(mzs) == 1`) the peak is located per spectrum
+according to `method`. For a *multi-target* cluster `method` is either `:fixed`
+(default — windows at the theoretical `mzs[i] ± tol`) or `:anchor` (locate the
+monoisotopic peak per spectrum and shift the whole pattern by the calibration
+offset, preserving the isotope spacing; falls back to fixed when the anchor is
+absent).
+
+`method` values (single-target only):
 - `:local_max` (default) — `argmax(int)` in the search window; window is
   ±`tol` around the found m/z.
 - `:edges` — start from the local max, walk outward while
@@ -293,13 +308,15 @@ derived from the located peak according to `method`.
 
 Construct with `tol` (absolute) or `ppm` (parts per million):
 ```julia
-TargetPeak(110.5, "fragment_a"; tol = 0.5)                       # :local_max
+TargetPeak(110.5, "fragment_a"; tol = 0.5)                       # single, :local_max
 TargetPeak(500.05, "precursor"; ppm = 5.0, method = :edges)
-TargetPeak(195.09, "M+H";       tol = 0.2, method = :centroid)
+TargetPeak([442.01, 443.01, 444.01], "Nd cluster"; tol = 0.02)   # explicit cluster
+TargetPeak("Nd(NO3)4", "Nd nitrate"; charge = -1, p_target = 0.999, tol = 0.2)
 ```
 """
 struct TargetPeak <: AbstractPeak
     mz::Float64
+    mzs::Vector{Float64}
     label::String
     tol::Float64
     method::Symbol

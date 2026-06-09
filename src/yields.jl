@@ -41,9 +41,35 @@ end
     TargetPeak(mz::Real, label::AbstractString;
                tol = nothing, ppm = nothing,
                method::Symbol = :local_max, edges::Real = 0.1) -> TargetPeak
-Construct a [`TargetPeak`](@ref) with target `mz`. The search half-width is set
-from `tol` (absolute) or `ppm` (parts per million). `method` selects the
-per-file resolution algorithm — see [`TargetPeak`](@ref).
+    TargetPeak(mzs::AbstractVector{<:Real}, label::AbstractString; tol/ppm, …) -> TargetPeak
+    TargetPeak(formula::AbstractString, label::AbstractString;
+               charge = 1, adduct = "", p_target = 0.99, tol/ppm, …) -> TargetPeak
+
+Construct a [`TargetPeak`](@ref). The search half-width is set from `tol`
+(absolute) or `ppm` (parts per million).
+
+- **Single target** `TargetPeak(mz, label; …)` — located per spectrum; `method`
+  selects the resolution algorithm (see [`TargetPeak`](@ref)).
+- **Explicit cluster** `TargetPeak([mz1, mz2, …], label; …)` — several m/z under
+  one label (e.g. isotopologues). Their windows (`mzᵢ ± tol`) are integrated and
+  summed into one yield. `ppm`, when given, sets the half-width from the first
+  (monoisotopic) m/z.
+- **From a formula** `TargetPeak("Nd(NO3)4", label; charge, adduct, p_target, …)`
+  — the isotopologue m/z are generated with
+  [`isotopic_distribution`](@ref) (keeping isotopologues up to cumulative
+  probability `p_target`) and bundled as a cluster. With `adduct = ""` (default)
+  the m/z are the neutral isotopologue masses divided by `abs(charge)` (matching
+  `isotopic_distribution`); with a non-empty `adduct` (e.g. `"[M+H]+"`) the
+  charged m/z are computed with [`adduct_mz`](@ref) and `charge` is taken from the
+  adduct.
+
+For the cluster and formula forms `method` selects how the pattern is placed:
+`:fixed` (default) integrates fixed windows at the theoretical m/z, while
+`:anchor` locates the monoisotopic peak in each spectrum and shifts the whole
+pattern by the calibration offset (preserving the isotope spacing), falling back
+to fixed windows when the anchor is absent. The single-target location methods
+(`:local_max` / `:edges` / `:centroid`) are accepted on a cluster for API
+symmetry but treated as `:fixed`.
 """
 function TargetPeak(mz::Real, label::AbstractString;
                     tol::Union{Real,Nothing} = nothing,
@@ -53,7 +79,43 @@ function TargetPeak(mz::Real, label::AbstractString;
     Δ = _resolve_tol(mz, tol, ppm, "TargetPeak")
     method ∈ (:local_max, :edges, :centroid) ||
         error("TargetPeak: method must be :local_max, :edges, or :centroid (got :$method)")
-    return TargetPeak(Float64(mz), String(label), Δ, method, Float64(edges))
+    return TargetPeak(Float64(mz), [Float64(mz)], String(label), Δ, method, Float64(edges))
+end
+
+function TargetPeak(mzs::AbstractVector{<:Real}, label::AbstractString;
+                    tol::Union{Real,Nothing} = nothing,
+                    ppm::Union{Real,Nothing} = nothing,
+                    method::Symbol = :fixed,
+                    edges::Real    = 0.1)
+    isempty(mzs) && error("TargetPeak: m/z cluster must be non-empty")
+    m = sort(Float64.(mzs))                       # anchor mz = monoisotopic (smallest)
+    Δ = _resolve_tol(m[1], tol, ppm, "TargetPeak")
+    # Clusters resolve with :fixed or :anchor; the single-target location methods
+    # are accepted for API symmetry but treated as :fixed (a cluster is not located
+    # point-by-point — see `_resolve_windows`).
+    method ∈ (:fixed, :anchor, :local_max, :edges, :centroid) ||
+        error("TargetPeak: method must be :fixed, :anchor, :local_max, :edges, or :centroid (got :$method)")
+    return TargetPeak(m[1], m, String(label), Δ, method, Float64(edges))
+end
+
+function TargetPeak(formula::AbstractString, label::AbstractString;
+                    charge::Int = 1, adduct::AbstractString = "",
+                    p_target::Real = 0.99,
+                    tol::Union{Real,Nothing} = nothing,
+                    ppm::Union{Real,Nothing} = nothing,
+                    method::Symbol = :fixed,
+                    edges::Real    = 0.1)
+    f = MassJ.formula(String(formula))            # dict form avoids the println in the String method
+    if isempty(adduct)
+        charge == 0 && error("TargetPeak: charge must be non-zero for a bare formula (adduct = \"\")")
+        dist = isotopic_distribution(f, p_target; charge = charge)
+        mzs  = Float64.(@view dist[2:end, 1])     # m/z column = neutral mass / abs(charge)
+    else
+        dist    = isotopic_distribution(f, p_target; charge = 1)  # charge = 1 → neutral isotopologue masses
+        neutral = Float64.(@view dist[2:end, 1])
+        mzs     = [adduct_mz(m, adduct) for m in neutral]         # charge taken from the adduct
+    end
+    return TargetPeak(mzs, String(label); tol = tol, ppm = ppm, method = method, edges = edges)
 end
 
 
@@ -69,10 +131,47 @@ end
 
 # --- Per-file peak resolution ----------------------------------------------
 
-# Returns (mz1, mz2, found_mz). For a fixed Peak, found_mz = NaN.
-_resolve_peak(::MScontainer, ::Any, p::Peak) = (p.mz1, p.mz2, NaN)
+# Returns (windows::Vector{Tuple{Float64,Float64}}, found_mz). One peak may yield
+# several integration windows (an isotope cluster); they are summed per scan by
+# the caller. `found_mz` is the representative (located or anchor) m/z, or NaN.
 
-function _resolve_peak(spec::MScontainer, centroided, p::TargetPeak)
+_resolve_windows(::MScontainer, ::Any, p::Peak) = ([(p.mz1, p.mz2)], NaN)
+
+function _resolve_windows(spec::MScontainer, centroided, p::TargetPeak)
+    if length(p.mzs) > 1
+        # Multi-target cluster (e.g. isotopologues). `:anchor` locates the
+        # monoisotopic peak and shifts the whole pattern; anything else uses
+        # fixed windows at the theoretical m/z.
+        return p.method === :anchor ? _resolve_anchored(spec, p) : _resolve_fixed(p)
+    end
+    lo, hi, found = _resolve_single(spec, centroided, p)
+    return ([(lo, hi)], found)
+end
+
+# Fixed cluster windows at the theoretical m/z (merged so overlaps count once).
+_resolve_fixed(p::TargetPeak) =
+    (_merge_windows([(m - p.tol, m + p.tol) for m in p.mzs]), p.mz)
+
+# Anchored cluster: locate the monoisotopic anchor (`p.mz`) in this spectrum,
+# then shift every isotopologue window by the calibration offset δ = found − mz
+# (so the *theoretical spacing* is preserved while the pattern tracks drift).
+# Falls back to the fixed windows, with a debug note, when the anchor is absent.
+function _resolve_anchored(spec::MScontainer, p::TargetPeak)
+    lo = p.mz - p.tol
+    hi = p.mz + p.tol
+    idx = findall(x -> lo <= x <= hi, spec.mz)
+    if isempty(idx)
+        @debug "TargetPeak :anchor: anchor $(p.mz) not found in [$lo, $hi]; using fixed windows ($(p.label))"
+        return _resolve_fixed(p)
+    end
+    found = spec.mz[idx[argmax(@view spec.int[idx])]]
+    δ = found - p.mz
+    wins = _merge_windows([(m + δ - p.tol, m + δ + p.tol) for m in p.mzs])
+    return (wins, found)
+end
+
+# Single-target location (the original per-spectrum behaviour). Returns (lo,hi,found).
+function _resolve_single(spec::MScontainer, centroided, p::TargetPeak)
     if p.method === :centroid
         return _resolve_centroid(centroided, p)
     end
@@ -102,6 +201,22 @@ function _resolve_peak(spec::MScontainer, centroided, p::TargetPeak)
     end
 end
 
+# Merge overlapping/touching (lo,hi) windows so a shared region is counted once.
+function _merge_windows(wins::AbstractVector)
+    isempty(wins) && return Tuple{Float64,Float64}[]
+    s = sort(wins; by = first)
+    out = Tuple{Float64,Float64}[s[1]]
+    for (lo, hi) in s[2:end]
+        plo, phi = out[end]
+        if lo <= phi
+            out[end] = (plo, max(phi, hi))
+        else
+            push!(out, (lo, hi))
+        end
+    end
+    return out
+end
+
 function _resolve_centroid(centroided, p::TargetPeak)
     centroided === nothing &&
         error("TargetPeak :centroid requires `yields(...; centroid_method=...)`")
@@ -121,9 +236,13 @@ end
 
 
 _window_of(p::Peak)       = (p.mz1, p.mz2)
-_window_of(p::TargetPeak) = (p.mz - p.tol, p.mz + p.tol)
+_window_of(p::TargetPeak) = length(p.mzs) > 1 ?
+    (minimum(p.mzs) - p.tol, maximum(p.mzs) + p.tol) :
+    (p.mz - p.tol, p.mz + p.tol)
 
-_needs_centroid(peaks) = any(p -> p isa TargetPeak && p.method === :centroid, peaks)
+# Only single-target TargetPeaks locate via centroid; clusters use fixed windows.
+_needs_centroid(peaks) =
+    any(p -> p isa TargetPeak && length(p.mzs) == 1 && p.method === :centroid, peaks)
 
 
 """
@@ -227,14 +346,20 @@ function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
         rowvar_acc = 0.0
         any_err    = false
         for (p, peak) in enumerate(peaks)
-            lo, hi, found  = _resolve_peak(spec, cen, peak)
+            wins, found    = _resolve_windows(spec, cen, peak)
             found_mz[i, p] = found
 
-            # Integrate the located window in every scan, then take the
-            # standard error of the mean across those per-scan areas.
+            # Integrate every (merged) sub-window in each scan and SUM them
+            # within the scan, then take the standard error of the mean across
+            # the per-scan totals. Summing inside the scan keeps the
+            # pattern-level error correct when the windows co-vary (isotopes).
             areas = Vector{Float64}(undef, nscans)
             @inbounds for k in 1:nscans
-                areas[k] = integrate_window(scans[k], lo, hi)
+                a = 0.0
+                for (lo, hi) in wins
+                    a += integrate_window(scans[k], lo, hi)
+                end
+                areas[k] = a
             end
             Y[i, p] = sum(areas) / nscans
             σ = nscans > 1 ? std(areas; corrected = true) / sqrt(nscans) : NaN
