@@ -101,7 +101,9 @@ MSrun(4 scans, 0 chromatograms)
   last  scan: MSscans(num=4, MS1+, 3 pts m/z=[150.0, 350.0], rt=0.0 min, tic=8500.0)
 ```
 """
-function load(filename::String)
+function load(filename::String; recursive::Bool = false, type = nothing)
+    # A directory passed as a plain string is gathered like load([dir]).
+    isdir(filename) && return load([filename]; recursive = recursive, type = type)
     extension = split(filename, ".")[end]
 
     ext = Unicode.normalize(extension, casefold=true)
@@ -123,31 +125,59 @@ function load(filename::String)
 end
 
 
-# True when `path` has a supported spectrum extension.
-function _is_supported_spectrum(path::AbstractString)
-    ext = lowercase(splitext(path)[2])
-    ext = startswith(ext, ".") ? ext[2:end] : ext
-    return ext in _YIELDS_SUPPORTED_EXT
+# Lowercase extension of `path` without the leading dot.
+function _ext_of(path::AbstractString)
+    e = lowercase(splitext(path)[2])
+    return startswith(e, ".") ? e[2:end] : e
 end
 
-# Collect supported spectrum-file paths from a list of files and/or directories.
-# Directories are listed in natural-sort order (via `list_spectra`); with
-# `recursive`, sub-directories are walked too.
-function _gather_spectrum_files(paths; recursive::Bool = false)
+# True when `path` has a supported spectrum extension.
+_is_supported_spectrum(path::AbstractString) = _ext_of(path) in _YIELDS_SUPPORTED_EXT
+
+# Normalise the `type` selector to a list of allowed extensions. `nothing` means
+# all supported formats; otherwise a Symbol/String or a collection of them, each
+# validated against the supported set (so `:raw` is caught early).
+function _allowed_exts(type)
+    type === nothing && return _YIELDS_SUPPORTED_EXT
+    syms = type isa Union{Symbol,AbstractString} ? (type,) : type
+    exts = String[]
+    for s in syms
+        e = lowercase(String(s))
+        e = startswith(e, ".") ? e[2:end] : e
+        e in _YIELDS_SUPPORTED_EXT ||
+            error("load: unsupported file type :$s (supported: $(join(_YIELDS_SUPPORTED_EXT, ", ")))")
+        push!(exts, e)
+    end
+    return exts
+end
+
+# Collect spectrum-file paths from a list of files and/or directories, restricted
+# to `type` (default: every supported format). Directories are listed in
+# natural-sort order; with `recursive`, sub-directories are walked too. Explicit
+# files of a *supported but unselected* type are silently skipped (the `type`
+# selector's purpose); a genuinely unsupported explicit file is an error.
+function _gather_spectrum_files(paths; recursive::Bool = false, type = nothing)
+    allowed = _allowed_exts(type)
     files = String[]
     for p in paths
         if isdir(p)
             if recursive
                 for (base, _, fs) in walkdir(p), fn in fs
                     full = joinpath(base, fn)
-                    _is_supported_spectrum(full) && push!(files, full)
+                    _ext_of(full) in allowed && push!(files, full)
                 end
             else
-                append!(files, list_spectra(p))
+                append!(files, list_spectra(p; type = type))
             end
         elseif isfile(p)
-            _is_supported_spectrum(p) ? push!(files, String(p)) :
+            ext = _ext_of(p)
+            if ext in allowed
+                push!(files, String(p))
+            elseif ext in _YIELDS_SUPPORTED_EXT
+                # supported format, but excluded by `type` — skip quietly
+            else
                 error("load: unsupported file extension: $p")
+            end
         else
             error("load: path not found: $p")
         end
@@ -157,22 +187,33 @@ function _gather_spectrum_files(paths; recursive::Bool = false)
 end
 
 """
-    load(paths::AbstractVector{<:AbstractString}; recursive=false) -> Vector{MSscans}
-Load every supported spectrum found across `paths`, returning one combined
-`Vector{MSscans}`. Each path may be a spectrum file or a directory; directories
-are scanned in natural-sort order for supported files (mzML, mzXML, MGF, MSP,
-imzML, TXT), recursing into sub-directories when `recursive = true`. File-level
-metadata (the `MSrun` wrapper) is dropped — the result is a flat spectrum list.
+    load(paths; recursive=false, type=nothing) -> Vector{MSscans}
+Load every supported spectrum found across `paths` — a `Vector`, `Tuple`, or any
+iterable collection of strings, each a spectrum file **or a directory** — returning
+one combined `Vector{MSscans}`. (A single file or directory can also be passed as a
+plain `String`: `load("run_A/")`.) Directories are scanned in natural-sort order for
+supported files (mzML, mzXML, MGF, MSP, imzML, TXT), recursing into sub-directories
+when `recursive = true`. File-level metadata (the `MSrun` wrapper) is dropped — the
+result is a flat spectrum list.
+
+`type` restricts loading to one or more formats when a folder holds several — a
+single `Symbol`/`String` (`type = :mzml`) or a collection (`type = (:mzml, :mzxml)`);
+files of other (even supported) formats are then ignored. `nothing` (default) loads
+every supported format.
 
 # Examples
 ```julia-repl
-julia> scans = load(["run_A/", "run_B/"]);            # everything in both folders
+julia> scans = load("run_A/");                        # one folder (string)
 
+julia> scans = load(["run_A/", "run_B/"]);            # several folders
+julia> scans = load(("run_A/", "run_B/"));            # a tuple works too
+
+julia> scans = load("mixed/"; type = :mzML);          # only mzML files in the folder
 julia> scans = load(["batch/"]; recursive = true);    # walk sub-folders too
 ```
 """
-function load(paths::AbstractVector{<:AbstractString}; recursive::Bool = false)
-    files = _gather_spectrum_files(paths; recursive = recursive)
+function load(paths::AbstractVector{<:AbstractString}; recursive::Bool = false, type = nothing)
+    files = _gather_spectrum_files(paths; recursive = recursive, type = type)
     isempty(files) && error("load: no supported spectra found in $(join(paths, ", ")).")
     out = MSscans[]
     for f in files
@@ -180,6 +221,11 @@ function load(paths::AbstractVector{<:AbstractString}; recursive::Bool = false)
     end
     return out
 end
+
+# Tuples / sets / other string iterables → delegate to the vector form.
+load(paths::Union{Tuple{Vararg{AbstractString}},AbstractSet{<:AbstractString}};
+     recursive::Bool = false, type = nothing) =
+    load(collect(String, paths); recursive = recursive, type = type)
 
 
 """
@@ -456,7 +502,11 @@ julia> spectrum = average("test.mzXML", MassJ.Precursor(1255.5), MassJ.RT([1, 60
 MassJ.MSscans([2, 5, 8, 11], ...
 ```
 """
-function average(filename::String, arguments::FilterType...; stats::Bool=true)
+function average(filename::String, arguments::FilterType...;
+                 stats::Bool=true, recursive::Bool=false, type = nothing)
+    # A directory passed as a plain string is grand-averaged like average([dir]).
+    isdir(filename) && return average([filename], arguments...;
+                                      stats = stats, recursive = recursive, type = type)
     extension = split(filename, ".")[end]
     ext = Unicode.normalize(extension, casefold=true)
 
@@ -553,8 +603,14 @@ julia> spec = average(["run_A/", "run_B/"], MassJ.Level(1));
 ```
 """
 function average(paths::AbstractVector{<:AbstractString}, arguments::FilterType...;
-                 stats::Bool = true, recursive::Bool = false)
-    scans = load(paths; recursive = recursive)
+                 stats::Bool = true, recursive::Bool = false, type = nothing)
+    scans = load(paths; recursive = recursive, type = type)
     return average(scans, arguments...; stats = stats)
 end
+
+# Tuples / sets / other string iterables → delegate to the vector form.
+average(paths::Union{Tuple{Vararg{AbstractString}},AbstractSet{<:AbstractString}},
+        arguments::FilterType...; stats::Bool = true, recursive::Bool = false, type = nothing) =
+    average(collect(String, paths), arguments...;
+            stats = stats, recursive = recursive, type = type)
 
