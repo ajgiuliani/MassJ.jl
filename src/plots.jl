@@ -379,4 +379,69 @@ x-label from `yc.xlabel`. When `yc.yields_err` carries finite uncertainties,
 end
 
 
+# --- peak-window overlay ----------------------------------------------------
+
+# Flat [lo1, hi1, lo2, hi2, …] window bounds for a :vspan series.
+_peak_bounds(p::Peak) = [p.mz1, p.mz2]
+function _peak_bounds(p::TargetPeak)
+    b = Float64[]
+    for m in p.mzs
+        push!(b, m - p.tol, m + p.tol)
+    end
+    return b
+end
+
+"""
+    pk(p::MassJ.AbstractPeak)
+
+Overlay a peak's integration window(s) on an existing spectrum plot as shaded
+vertical spans, so you can see where a [`Peak`](@ref) / [`TargetPeak`](@ref)
+integrates. For a multi-target `TargetPeak` (isotope cluster) every sub-window is
+drawn. Use `plot!` after plotting a spectrum:
+
+```julia
+plot(avg)
+plot!(TargetPeak("Nd(NO3)4", "Precursor"; charge = -1, tol = 0.2))
+```
+
+The span colour/transparency/label follow the usual Plots keywords
+(`seriescolor`, `seriesalpha`, `label`).
+"""
+@recipe function pk(p::AbstractPeak)
+    seriestype  --> :vspan
+    seriesalpha --> 0.2
+    seriescolor --> :orange
+    label       --> p.label
+    _peak_bounds(p)
+end
+
+# Palette for overlaying several peak windows (avoids red — the spectrum colour).
+const _SPAN_PALETTE = [:orange, :green, :blue, :purple, :brown, :magenta, :teal, :olive, :cyan]
+
+"""
+    pkv(ps::AbstractVector{<:MassJ.AbstractPeak})
+
+Overlay a whole list of peaks at once, each window shaded with a colour cycled
+from a palette and labelled by `peak.label`:
+
+```julia
+plot(avg)
+plot!(peaks)          # all TargetPeak / Peak windows in one call
+```
+
+Equivalent to `plot!`-ing each peak in turn; see [`pk`](@ref) for a single peak.
+"""
+@recipe function pkv(ps::AbstractVector{<:AbstractPeak})
+    seriesalpha --> 0.2
+    for (i, p) in enumerate(ps)
+        @series begin
+            seriestype  := :vspan
+            seriescolor --> _SPAN_PALETTE[mod1(i, length(_SPAN_PALETTE))]
+            label       := p.label
+            _peak_bounds(p)
+        end
+    end
+end
+
+
 end # submodule
