@@ -274,7 +274,7 @@ file to file: each spectrum is searched in `[mz - tol, mz + tol]` and a window i
 derived from the located peak according to `method`.
 
     struct TargetPeak <: AbstractPeak
-        mz::Float64           # primary (monoisotopic / representative) target m/z
+        mz::Float64           # anchor m/z (the member of `mzs` that :anchor locates)
         mzs::Vector{Float64}  # full target cluster (== [mz] for a single target)
         label::String         # peak label
         tol::Float64          # search half-width (absolute Δm/z)
@@ -292,9 +292,13 @@ so the shared region is not double-counted.
 For a *single* target (`length(mzs) == 1`) the peak is located per spectrum
 according to `method`. For a *multi-target* cluster `method` is either `:fixed`
 (default — windows at the theoretical `mzs[i] ± tol`) or `:anchor` (locate the
-monoisotopic peak per spectrum and shift the whole pattern by the calibration
-offset, preserving the isotope spacing; falls back to fixed when the anchor is
-absent).
+**anchor** isotopologue per spectrum and shift the whole pattern by the
+calibration offset, preserving the isotope spacing; falls back to fixed when the
+anchor is absent). The anchor is the `mz` field — by default the most-abundant
+isotopologue for a formula cluster (reliably observable even for heavy ions whose
+monoisotopic peak is negligible) and the monoisotopic m/z for an explicit cluster.
+Isotopologues lighter than the anchor have negative offsets and are placed below
+the located anchor; the rigid shift keeps the profile intact.
 
 `method` values (single-target only):
 - `:local_max` (default) — `argmax(int)` in the search window; window is

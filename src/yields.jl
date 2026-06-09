@@ -65,11 +65,17 @@ Construct a [`TargetPeak`](@ref). The search half-width is set from `tol`
 
 For the cluster and formula forms `method` selects how the pattern is placed:
 `:fixed` (default) integrates fixed windows at the theoretical m/z, while
-`:anchor` locates the monoisotopic peak in each spectrum and shifts the whole
-pattern by the calibration offset (preserving the isotope spacing), falling back
-to fixed windows when the anchor is absent. The single-target location methods
-(`:local_max` / `:edges` / `:centroid`) are accepted on a cluster for API
+`:anchor` locates the **anchor** isotopologue in each spectrum and shifts the
+whole pattern by the calibration offset (preserving the isotope spacing), falling
+back to fixed windows when the anchor is absent. The single-target location
+methods (`:local_max` / `:edges` / `:centroid`) are accepted on a cluster for API
 symmetry but treated as `:fixed`.
+
+The anchor is chosen at construction. For a **formula** the `anchor` keyword is
+`:max` (default — the most-abundant isotopologue, the robust choice for heavy ions
+whose monoisotopic peak may be negligible), `:mono` (lowest m/z), or an explicit
+m/z. For an **explicit cluster** `anchor` is the monoisotopic m/z by default, or an
+explicit m/z that snaps to the nearest cluster member.
 """
 function TargetPeak(mz::Real, label::AbstractString;
                     tol::Union{Real,Nothing} = nothing,
@@ -86,16 +92,21 @@ function TargetPeak(mzs::AbstractVector{<:Real}, label::AbstractString;
                     tol::Union{Real,Nothing} = nothing,
                     ppm::Union{Real,Nothing} = nothing,
                     method::Symbol = :fixed,
-                    edges::Real    = 0.1)
+                    edges::Real    = 0.1,
+                    anchor::Union{Real,Nothing} = nothing)
     isempty(mzs) && error("TargetPeak: m/z cluster must be non-empty")
-    m = sort(Float64.(mzs))                       # anchor mz = monoisotopic (smallest)
-    Δ = _resolve_tol(m[1], tol, ppm, "TargetPeak")
+    m = sort(Float64.(mzs))
+    # The anchor is the m/z that `:anchor` resolution locates in each spectrum.
+    # Default = monoisotopic (smallest); an explicit `anchor` snaps to the nearest
+    # cluster member (so it is always a real isotopologue position).
+    a = anchor === nothing ? m[1] : m[argmin(abs.(m .- Float64(anchor)))]
+    Δ = _resolve_tol(a, tol, ppm, "TargetPeak")
     # Clusters resolve with :fixed or :anchor; the single-target location methods
     # are accepted for API symmetry but treated as :fixed (a cluster is not located
     # point-by-point — see `_resolve_windows`).
     method ∈ (:fixed, :anchor, :local_max, :edges, :centroid) ||
         error("TargetPeak: method must be :fixed, :anchor, :local_max, :edges, or :centroid (got :$method)")
-    return TargetPeak(m[1], m, String(label), Δ, method, Float64(edges))
+    return TargetPeak(a, m, String(label), Δ, method, Float64(edges))
 end
 
 function TargetPeak(formula::AbstractString, label::AbstractString;
@@ -104,7 +115,8 @@ function TargetPeak(formula::AbstractString, label::AbstractString;
                     tol::Union{Real,Nothing} = nothing,
                     ppm::Union{Real,Nothing} = nothing,
                     method::Symbol = :fixed,
-                    edges::Real    = 0.1)
+                    edges::Real    = 0.1,
+                    anchor::Union{Symbol,Real} = :max)
     f = MassJ.formula(String(formula))            # dict form avoids the println in the String method
     if isempty(adduct)
         charge == 0 && error("TargetPeak: charge must be non-zero for a bare formula (adduct = \"\")")
@@ -115,7 +127,16 @@ function TargetPeak(formula::AbstractString, label::AbstractString;
         neutral = Float64.(@view dist[2:end, 1])
         mzs     = [adduct_mz(m, adduct) for m in neutral]         # charge taken from the adduct
     end
-    return TargetPeak(mzs, String(label); tol = tol, ppm = ppm, method = method, edges = edges)
+    probs = Float64.(@view dist[2:end, 2])
+    # Anchor selection. `:max` (default) = most-abundant isotopologue — reliably
+    # observable even for heavy ions whose monoisotopic peak is negligible;
+    # `:mono` = lowest m/z; a Real picks the nearest isotopologue to that m/z.
+    anchor_mz = anchor === :max  ? mzs[argmax(probs)] :
+                anchor === :mono ? minimum(mzs)       :
+                anchor isa Real  ? Float64(anchor)    :
+                error("TargetPeak: anchor must be :max, :mono, or an m/z value (got $anchor)")
+    return TargetPeak(mzs, String(label);
+                      tol = tol, ppm = ppm, method = method, edges = edges, anchor = anchor_mz)
 end
 
 

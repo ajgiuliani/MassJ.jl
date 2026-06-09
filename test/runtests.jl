@@ -2649,13 +2649,16 @@ function test_targetpeak_clusters()
 
         # --- explicit cluster ----------------------------------------------
         tc = MassJ.TargetPeak([444.0, 442.0, 443.0], "Label"; tol = 0.02)
-        @test tc.mzs == [442.0, 443.0, 444.0]      # sorted; mz = monoisotopic
+        @test tc.mzs == [442.0, 443.0, 444.0]      # sorted; anchor = monoisotopic
         @test tc.mz  == 442.0
         @test MassJ._window_of(tc) == (442.0 - 0.02, 444.0 + 0.02)
         @test_throws ErrorException MassJ.TargetPeak(Float64[], "empty"; tol = 0.1)
         # ppm sets the half-width from the first (monoisotopic) m/z
         tcp = MassJ.TargetPeak([200.0, 201.0], "p"; ppm = 10.0)
         @test tcp.tol ≈ 200.0 * 10e-6
+        # explicit anchor snaps to the nearest cluster member
+        tca = MassJ.TargetPeak([442.0, 443.0, 444.0], "a"; tol = 0.02, anchor = 443.1)
+        @test tca.mz == 443.0
 
         # --- window merging ------------------------------------------------
         @test MassJ._merge_windows([(1.0, 2.0), (1.5, 3.0), (5.0, 6.0)]) ==
@@ -2668,9 +2671,18 @@ function test_targetpeak_clusters()
                               charge = -1, adduct = "", p_target = 0.999, tol = 0.2)
         @test length(tf.mzs) > 1
         @test issorted(tf.mzs)
-        @test tf.mz == minimum(tf.mzs)
+        @test tf.mz in tf.mzs                       # anchor is a real cluster member
         # charge = 0 with no adduct is rejected
         @test_throws ErrorException MassJ.TargetPeak("H2O", "w"; charge = 0, tol = 0.1)
+
+        # anchor selection: :max (default) = most-abundant isotopologue. Fe has
+        # ⁵⁶Fe most abundant but ⁵⁴Fe lightest, so :max ≠ :mono.
+        fe_max  = MassJ.TargetPeak("Fe", "fe"; charge = 1, tol = 0.1)              # default :max
+        fe_mono = MassJ.TargetPeak("Fe", "fe"; charge = 1, tol = 0.1, anchor = :mono)
+        @test fe_mono.mz == minimum(fe_mono.mzs)    # lightest
+        @test fe_max.mz  != minimum(fe_max.mzs)     # most-abundant is heavier than lightest
+        @test fe_max.mz  >  fe_mono.mz              # ⁵⁶Fe > ⁵⁴Fe
+        @test fe_max.mz  in fe_max.mzs
 
         # adduct form: charge comes from the adduct, m/z via adduct_mz
         glc = MassJ.masses("C6H12O6")["Monoisotopic"]
@@ -2715,6 +2727,16 @@ function test_targetpeak_clusters()
         @test fa ≈ 110.0                                   # located the anchor
         ca = [(lo + hi) / 2 for (lo, hi) in wa]
         @test ca ≈ [110.0, 115.0]                          # whole pattern shifted by +0.2
+
+        # mid-cluster anchor: a lighter isotopologue (107.8) sits *below* the
+        # anchor (109.8) and must reconstitute below the located anchor (negative
+        # offset). δ = +0.2 → centres [108.0, 110.0, 115.0].
+        pm = MassJ.TargetPeak([107.8, 109.8, 114.8], "mid"; tol = 0.3,
+                              method = :anchor, anchor = 109.8)
+        @test pm.mz == 109.8
+        wmid, fmid = MassJ._resolve_windows(gms, nothing, pm)
+        @test fmid ≈ 110.0
+        @test [(lo + hi) / 2 for (lo, hi) in wmid] ≈ [108.0, 110.0, 115.0]
 
         # fixed (default) leaves windows at the theoretical m/z
         pf = MassJ.TargetPeak([109.8, 114.8], "fix"; tol = 0.3)
