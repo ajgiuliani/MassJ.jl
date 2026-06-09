@@ -615,6 +615,29 @@ function test_multifolder()
         @test avg isa MassJ.MSscans
         @test !isempty(avg.mz)
 
+        # single directory as a plain String (no brackets needed)
+        @test length(MassJ.load(a)) == na + nb
+        @test MassJ.average(a) isa MassJ.MSscans
+        # a single spectrum file as a String still works (unchanged)
+        @test length(MassJ.load("test.mzML")) == na
+
+        # Tuple and Set of paths
+        @test length(MassJ.load((a, b))) == na + nb + nc
+        @test length(MassJ.load(Set([a, b]))) == na + nb + nc
+        @test MassJ.average((a, b)) isa MassJ.MSscans
+
+        # type= selector restricts which formats load (folder A has mzML + mgf)
+        @test length(MassJ.load(a; type = :mzml)) == na          # only the mzML file
+        @test length(MassJ.load(a; type = :mgf))  == nb          # only the mgf file
+        @test length(MassJ.load(a; type = (:mzml, :mgf))) == na + nb
+        @test length(MassJ.load(a; type = ".mzML")) == na        # leading-dot string ok
+        @test length(MassJ.load([a, b]; type = :mzml)) == na     # mzML across folders
+        # explicit file of a supported-but-unselected type is skipped
+        @test length(MassJ.load([joinpath(a, "e1.mzML"), joinpath(a, "e2.mgf")];
+                                type = :mgf)) == nb
+        @test MassJ.average(a, MassJ.Level(1); type = :mzml) isa MassJ.MSscans
+        @test_throws ErrorException MassJ.load(a; type = :raw)   # unsupported type
+
         @test_throws ErrorException MassJ.load(["/no/such/dir/xyz123"])
         @test_throws ErrorException MassJ.load([a, "runtests.jl"])   # unsupported ext
     end
@@ -2454,10 +2477,15 @@ function test_yields()
             write(io, "3.0  2.0\n")
             write(io, "5.0  2.0\n")
         end
-        yf = MassJ.normalize_flux(yc, fluxpath)
+        yf = MassJ.normalize_external(yc, fluxpath)
         @test yf.yields ≈ yc.yields ./ 2.0
         @test yf.tic    ≈ yc.tic    ./ 2.0
-        @test yf.metadata["normalize_flux"] == fluxpath
+        @test yf.metadata["normalize_external"] == fluxpath
+
+        # deprecated alias forwards to normalize_external (flux_err_pct → err_pct)
+        yf_dep = MassJ.normalize_flux(yc, fluxpath; flux_err_pct = 0.10)
+        @test yf_dep.yields ≈ yf.yields
+        @test yf_dep.metadata["normalize_external"] == fluxpath
         rm(fluxpath)
 
         # normalize_flux: text header (no #) auto-detected and skipped
@@ -2468,7 +2496,7 @@ function test_yields()
             write(io, "3.0  2.0\n")
             write(io, "5.0  2.0\n")
         end
-        yf_t = MassJ.normalize_flux(yc, flux_text)
+        yf_t = MassJ.normalize_external(yc, flux_text)
         @test yf_t.yields ≈ yc.yields ./ 2.0
         rm(flux_text)
 
@@ -2481,7 +2509,7 @@ function test_yields()
             write(io, "# mid-file note\n")
             write(io, "5.0  2.0  # trailing comment\n")
         end
-        yf_m = MassJ.normalize_flux(yc, flux_mixed)
+        yf_m = MassJ.normalize_external(yc, flux_mixed)
         @test yf_m.yields ≈ yc.yields ./ 2.0
         rm(flux_mixed)
 
@@ -2493,7 +2521,7 @@ function test_yields()
             write(io, "3.0  2.0\n")
             write(io, "5.0  2.0\n")
         end
-        yf_s = MassJ.normalize_flux(yc, flux_skip; skipstart = 1)
+        yf_s = MassJ.normalize_external(yc, flux_skip; skipstart = 1)
         @test yf_s.yields ≈ yc.yields ./ 2.0
         rm(flux_skip)
 
@@ -2806,8 +2834,8 @@ function test_yields_errors()
             write(io, "1.0  2.0\n")
             write(io, "3.0  2.0\n")
         end
-        yf = MassJ.normalize_flux(yc, fluxpath)
-        @test yf.metadata["normalize_flux_err_pct"] == 0.10
+        yf = MassJ.normalize_external(yc, fluxpath)
+        @test yf.metadata["normalize_external_err_pct"] == 0.10
         for i in 1:2, p in 1:2
             φ, σφ = 2.0, 0.10 * 2.0
             σ_y   = yc.yields_err[i, p]
@@ -2823,8 +2851,8 @@ function test_yields_errors()
             write(io, "1.0  2.0\n")
             write(io, "3.0  2.0\n")
         end
-        yf5 = MassJ.normalize_flux(yc, fluxpath2; flux_err_pct = 0.05)
-        @test yf5.metadata["normalize_flux_err_pct"] == 0.05
+        yf5 = MassJ.normalize_external(yc, fluxpath2; err_pct = 0.05)
+        @test yf5.metadata["normalize_external_err_pct"] == 0.05
         rm(fluxpath2)
 
         # normalize_flux: 3-col file → σ_φ from the file
@@ -2834,7 +2862,7 @@ function test_yields_errors()
             write(io, "1.0  2.0  0.1\n")
             write(io, "3.0  2.0  0.1\n")
         end
-        yf3 = MassJ.normalize_flux(yc, flux3)
+        yf3 = MassJ.normalize_external(yc, flux3)
         for i in 1:2, p in 1:2
             φ, σφ = 2.0, 0.1
             σ_y   = yc.yields_err[i, p]
@@ -2854,7 +2882,7 @@ function test_yields_errors()
             write(io, "1.0  2.0  0.1\n")   # σ present
             write(io, "2.0  2.0\n")        # σ missing → falls back to pct
         end
-        yfj = MassJ.normalize_flux(yc, flux_jag; flux_err_pct = 0.10)
+        yfj = MassJ.normalize_external(yc, flux_jag; err_pct = 0.10)
         @test all(isfinite, yfj.yields_err)
         # Row 1 (yc.x=1.0) lands on xf[1] → σφ = 0.1
         # Row 2 (yc.x=2.0) lands on xf[2] → σφ = 0.10·|2.0| = 0.2 (pct fallback)
@@ -2876,7 +2904,7 @@ function test_yields_errors()
             write(io, "1.0  2.0  Fri Apr 17 12:27:54 2026\n")
             write(io, "2.0  2.0  Fri Apr 17 12:28:02 2026\n")
         end
-        yfs = MassJ.normalize_flux(yc, flux_str; flux_err_pct = 0.10)
+        yfs = MassJ.normalize_external(yc, flux_str; err_pct = 0.10)
         @test all(isfinite, yfs.yields_err)
         rm(flux_str)
 
@@ -2891,10 +2919,10 @@ function test_yields_errors()
         # yc.x = [1.0, 2.0]; both points are below the flux range start (3.0).
         # With :line, φ(1.0) = 2.0 - 1.0·2 = 0.0 — non-positive → skip flagged.
         # With :line, φ(2.0) = 2.0 - 1.0·1 = 1.0 — valid division.
-        yc_ext = MassJ.normalize_flux(yc, flux_ext;
-                                       flux_err_pct = 0.10,
+        yc_ext = MassJ.normalize_external(yc, flux_ext;
+                                       err_pct = 0.10,
                                        extrapolate  = :line)
-        @test yc_ext.metadata["normalize_flux_extrap"] == "line"
+        @test yc_ext.metadata["normalize_external_extrap"] == "line"
         # Row 2 (yc.x = 2.0) → extrapolated φ = 1.0
         for p in 1:2
             @test yc_ext.yields[2, p] ≈ yc.yields[2, p] / 1.0
@@ -2907,8 +2935,8 @@ function test_yields_errors()
             write(io, "3.0  2.0\n")
             write(io, "5.0  4.0\n")
         end
-        yc_clamp = MassJ.normalize_flux(yc, flux_clamp)   # default :clamp
-        @test yc_clamp.metadata["normalize_flux_extrap"] == "clamp"
+        yc_clamp = MassJ.normalize_external(yc, flux_clamp)   # default :clamp
+        @test yc_clamp.metadata["normalize_external_extrap"] == "clamp"
         # Row 1 (yc.x = 1.0, < 3.0) clamped to φ = 2.0
         for p in 1:2
             @test yc_clamp.yields[1, p] ≈ yc.yields[1, p] / 2.0
@@ -2921,7 +2949,7 @@ function test_yields_errors()
             write(io, "3.0  2.0\n")
             write(io, "5.0  4.0\n")
         end
-        @test_throws ErrorException MassJ.normalize_flux(yc, flux_bad;
+        @test_throws ErrorException MassJ.normalize_external(yc, flux_bad;
                                                         extrapolate = :spline)
         rm(flux_bad)
 
@@ -2941,6 +2969,100 @@ function test_yields_errors()
         yc_cmp     = MassJ.yields(["test.mzXML"], [MassJ.TargetPeak(bp_mz, "bp"; tol = 0.5)]; x = [1.0])
         @test isfinite(yc_cmp.yields_err[1, 1])
         @test yc_cmp.yields_err[1, 1] >= 0
+    end
+end
+
+
+function test_yields_filtering()
+    @testset "yields — FilterType filtering + pre-built series" begin
+        P = [MassJ.Peak(0.0, 2000.0, "all")]      # wide window over the whole spectrum
+
+        # backward compatibility: no filters
+        yc0 = MassJ.yields(["test.mzXML"], P; x = [1.0])
+        @test size(yc0.yields) == (1, 1)
+        @test yc0.files == ["test.mzXML"]
+
+        # Option A: a FilterType changes the integrated yield (MS1-only ≠ all levels)
+        ycA = MassJ.yields(["test.mzXML"], P, MassJ.Level(1); x = [1.0])
+        @test ycA.yields[1, 1] != yc0.yields[1, 1]
+
+        # Option B: a pre-built series reproduces the file form
+        series = [MassJ.load("test.mzXML")]
+        ycB = MassJ.yields(series, P; x = [1.0], labels = ["pt0"])
+        @test ycB.yields[1, 1] ≈ yc0.yields[1, 1]
+        @test ycB.files == ["pt0"]               # custom point labels
+
+        # Option B with the same filter equals Option A
+        ycBf = MassJ.yields(series, P, MassJ.Level(1); x = [1.0])
+        @test ycBf.yields[1, 1] ≈ ycA.yields[1, 1]
+
+        # default point labels
+        ycB2 = MassJ.yields(series, P; x = [1.0])
+        @test ycB2.files == ["point_1"]
+
+        # empty after filtering → graceful zero row (no error)
+        ycE = MassJ.yields(["test.mzXML"], P, MassJ.Level(99); x = [1.0])
+        @test ycE.yields[1, 1] == 0.0
+        @test isnan(ycE.found_mz[1, 1])
+
+        # dir form threads filters; build a clean 2-file dir to avoid the mixed
+        # fixtures (bad*.mzXML etc.) in test/.
+        d = mktempdir()
+        cp("test.mzXML", joinpath(d, "e1.mzXML"))
+        cp("test.mzXML", joinpath(d, "e2.mzXML"))
+        ycD = MassJ.yields(d, P, MassJ.Level(1); x0 = 4.0, step = 0.2)
+        @test size(ycD.yields) == (2, 1)
+        @test ycD.x ≈ [4.0, 4.2]
+        @test all(ycD.yields .≈ ycA.yields[1, 1])   # both points are MS1 of the same file
+    end
+end
+
+
+function test_interop()
+    @testset "Ecosystem interop (featurize / select / from_matrix / spectra_table)" begin
+        scans = MassJ.load("test.mzXML")
+        N = length(scans)
+
+        # featurize → N×M matrix, one row per spectrum (row-aligned)
+        X, mz = MassJ.featurize(scans; binsize = 1.0)
+        @test size(X, 1) == N
+        @test size(X, 2) == length(mz)
+        @test eltype(X) == Float64
+
+        # select_spectra: boolean mask + integer indices
+        mask = [isodd(i) for i in 1:N]
+        @test length(MassJ.select_spectra(scans, mask)) == count(mask)
+        @test length(MassJ.select_spectra(scans, [1, 3])) == 2
+        @test_throws ErrorException MassJ.select_spectra(scans, [true, false])  # wrong length
+
+        # from_matrix round-trip on the binned axis
+        rebuilt = MassJ.from_matrix(X, mz; template = scans)
+        @test length(rebuilt) == N
+        @test eltype(rebuilt) == MassJ.MSscans
+        @test rebuilt[1].mz == collect(Float64, mz)         # binned axis
+        @test rebuilt[1].int == Float64.(X[1, :])           # row → intensities
+        @test rebuilt[1].rt == [first(scans[1].rt)]         # template metadata carried
+        @test rebuilt[1].tic ≈ sum(X[1, :])
+
+        # transform then rebuild without a template (neutral defaults)
+        reb2 = MassJ.from_matrix(X .* 2, mz)
+        @test reb2[1].int == Float64.(X[1, :]) .* 2
+        @test reb2[1].rt == [0.0]
+
+        # error paths
+        @test_throws ErrorException MassJ.from_matrix(X, mz[1:end-1])                    # col mismatch
+        @test_throws ErrorException MassJ.from_matrix(X, mz; template = scans[1:end-1])  # row mismatch
+        @test_throws ErrorException MassJ.featurize(scans; method = :nope)
+
+        # spectra_table is a Tables source (coarse bins → small NamedTuple)
+        nt = MassJ.spectra_table(scans; binsize = 200.0)
+        @test Tables.istable(typeof(nt))
+        @test haskey(nt, :num) && haskey(nt, :rt) && haskey(nt, :tic)
+        @test all(length(c) == N for c in nt)
+        ct = Tables.columntable(nt)
+        @test length(Tables.getcolumn(ct, :tic)) == N
+        nt2 = MassJ.spectra_table(scans; binsize = 200.0, metadata = false)
+        @test !haskey(nt2, :num)
     end
 end
 
@@ -2989,8 +3111,10 @@ test_export()
 test_text_writers()
 test_cwt()
 test_chimeric()
+test_interop()
 test_yields()
 test_yields_targetpeak()
 test_targetpeak_clusters()
 test_yields_errors()
+test_yields_filtering()
 test_aqua()
