@@ -4,14 +4,14 @@ Energy-resolved peak yields from a series of mass spectra.
 For each file in a series, the average spectrum is integrated over user-defined m/z
 windows. The result is a [`YieldCurve`](@ref) — peak intensities indexed by an
 external parameter (photon energy, wavelength, collision energy, …) — that can be
-plotted directly or post-processed with [`normalize_tic`](@ref) / [`normalize_flux`](@ref).
+plotted directly or post-processed with [`normalize_tic`](@ref) / [`normalize_external`](@ref).
 """
 
 # User Interface.
 # ---------------
 
 export AbstractPeak, Peak, TargetPeak, YieldCurve,
-       yields, integrate_window, normalize_tic, normalize_flux,
+       yields, integrate_window, normalize_tic, normalize_external, normalize_flux,
        read_peaklist, drop_peaks,
        combine_yields, shift_x, scale_yields, recalibrate_x,
        trim_yields, restrict_x,
@@ -291,24 +291,26 @@ integrate_window(scan::MScontainer, mz1::Real, mz2::Real) =
 
 
 """
-    yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
-           x::AbstractVector{<:Real},
-           xlabel::AbstractString = "energy",
-           centroid_method::Union{MethodType,Nothing} = nothing)
+    yields(files::AbstractVector{<:AbstractString}, peaks::Vector{<:AbstractPeak},
+           filters::FilterType...;
+           x | x0,step, xlabel = "energy",
+           centroid_method = nothing)
 Build a [`YieldCurve`](@ref) from an explicit list of spectrum files. Each file is
-loaded and reduced to a single spectrum with `average(f)`; each
-[`AbstractPeak`](@ref) is then resolved against that spectrum (fixed window for
-[`Peak`](@ref), located per-file for [`TargetPeak`](@ref)) and integrated.
+loaded, **filtered by any [`FilterType`](@ref) arguments** (e.g. `Level(1)`,
+`RT(10,20)`, `Activation_Method("CID")`), reduced to a single spectrum with
+`average`, and each [`AbstractPeak`](@ref) is resolved against that spectrum
+(fixed window for [`Peak`](@ref), located per-file for [`TargetPeak`](@ref)) and
+integrated. The integrated-area error is the SEM across the per-scan integrals of
+the *filtered* scans.
 
 The external parameter (energy, wavelength, CE…) is supplied either as an
 explicit vector `x` (one value per file) **or** as a regular grid
-`x = x0 + step*(i-1)` via the `x0` / `step` keywords — matching the convenience
-form of [`yields(::AbstractString, ...)`](@ref). Exactly one of the two
-conventions must be given.
+`x = x0 + step*(i-1)` via the `x0` / `step` keywords. Exactly one convention.
 
 `centroid_method` is required only when at least one [`TargetPeak`](@ref) uses
-`method = :centroid`; it is forwarded to [`MassJ.centroid`](@ref). Defaults to
-`MassJ.SNRA(1.0, 100)` in that case.
+`method = :centroid`; it is forwarded to [`MassJ.centroid`](@ref) (default
+`MassJ.SNRA(1.0, 100)`). For full control over per-point preprocessing, pass a
+pre-built series instead — see [`yields(::AbstractVector{<:AbstractVector{MSscans}}, ...)`](@ref).
 
 Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
@@ -320,48 +322,58 @@ julia> peaks = [Peak(100.5, "A"; tol = 0.5),
 julia> yc = yields(["e0.mzML", "e1.mzML"], peaks;
                    x = [3.5, 4.0], xlabel = "photon energy (eV)");
 
-julia> yc = yields(["e0.mzML", "e1.mzML"], peaks;
-                   x0 = 3.5, step = 0.5, xlabel = "photon energy (eV)");
+julia> yc = yields(["e0.mzML", "e1.mzML"], peaks, Level(1), RT(5.0, 15.0);
+                   x0 = 3.5, step = 0.5);          # only MS1 scans in 5–15 min
 ```
 """
-function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
-                x::Union{AbstractVector{<:Real},Nothing} = nothing,
-                x0::Union{Real,Nothing} = nothing,
-                step::Union{Real,Nothing} = nothing,
-                xlabel::AbstractString = "energy",
-                centroid_method::Union{MethodType,Nothing} = nothing)
+# Resolve the external-parameter vector from either `x` or `x0`/`step` for `n` points.
+function _resolve_x(x, x0, step, n::Integer)
     if x !== nothing
         (x0 === nothing && step === nothing) ||
             error("yields: pass either `x` or both `x0` and `step`, not both.")
-        length(x) == length(files) ||
-            error("yields: length(x) ($(length(x))) != length(files) ($(length(files)))")
-        xv = collect(Float64, x)
+        length(x) == n ||
+            error("yields: length(x) ($(length(x))) != number of points ($n)")
+        return collect(Float64, x)
     elseif x0 !== nothing && step !== nothing
-        xv = [Float64(x0) + Float64(step) * (i - 1) for i in 1:length(files)]
+        return [Float64(x0) + Float64(step) * (i - 1) for i in 1:n]
     else
-        error("yields: provide either `x = [...]` (one value per file) or both `x0` and `step`.")
+        error("yields: provide either `x = [...]` (one value per point) or both `x0` and `step`.")
     end
-    nfiles    = length(files)
-    npeaks    = length(peaks)
-    Y         = Array{Float64}(undef, nfiles, npeaks)
-    Y_err     = fill(NaN, nfiles, npeaks)
-    found_mz  = fill(NaN, nfiles, npeaks)
-    tic       = Vector{Float64}(undef, nfiles)
-    tic_err   = fill(NaN, nfiles)
+end
+
+# Apply composed FilterType predicates to a scan list (identity when no filters).
+function _filter_scans(scans::AbstractVector{MSscans}, filters)
+    isempty(filters) && return scans
+    pred = compose_predicates(scans, filters)
+    return [s for s in scans if pred(s)]
+end
+
+# Core: integrate the peaks over a *series of scan-lists* (one list per point).
+# The averaged spectrum locates each window; the area error is the SEM across the
+# per-scan integrals, which accounts for inter-bin correlation within a peak.
+function _yields_core(series::AbstractVector{<:AbstractVector{MSscans}},
+                      peaks::Vector{<:AbstractPeak}, xv::Vector{Float64},
+                      xlabel::AbstractString, point_labels::Vector{String},
+                      centroid_method)
+    npts     = length(series)
+    npeaks   = length(peaks)
+    Y        = zeros(Float64, npts, npeaks)
+    Y_err    = fill(NaN, npts, npeaks)
+    found_mz = fill(NaN, npts, npeaks)
+    tic      = zeros(Float64, npts)
+    tic_err  = fill(NaN, npts)
 
     do_centroid = _needs_centroid(peaks)
     cmethod = do_centroid && centroid_method === nothing ? SNRA(1.0, 100) : centroid_method
 
-    for (i, f) in enumerate(files)
-        # Load each file as a vector of scans. The averaged spectrum is used
-        # only for *locating* the peak window (stable position); the error on
-        # each integrated area is computed from the variance across per-scan
-        # integrals, which correctly accounts for inter-bin correlation
-        # within a peak.
-        scans    = load(f)
-        spec     = average(scans)
-        cen      = do_centroid ? centroid(spec; method = cmethod) : nothing
-        nscans   = length(scans)
+    for (i, scans) in enumerate(series)
+        if isempty(scans)
+            @debug "yields: no scans for point $i ($(point_labels[i])); row left at zero."
+            continue
+        end
+        spec   = average(scans)
+        cen    = do_centroid ? centroid(spec; method = cmethod) : nothing
+        nscans = length(scans)
 
         rowtic     = 0.0
         rowvar_acc = 0.0
@@ -370,9 +382,8 @@ function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
             wins, found    = _resolve_windows(spec, cen, peak)
             found_mz[i, p] = found
 
-            # Integrate every (merged) sub-window in each scan and SUM them
-            # within the scan, then take the standard error of the mean across
-            # the per-scan totals. Summing inside the scan keeps the
+            # Integrate every (merged) sub-window in each scan and SUM them within
+            # the scan, then take the SEM across the per-scan totals — keeping the
             # pattern-level error correct when the windows co-vary (isotopes).
             areas = Vector{Float64}(undef, nscans)
             @inbounds for k in 1:nscans
@@ -398,29 +409,74 @@ function yields(files::Vector{<:AbstractString}, peaks::Vector{<:AbstractPeak};
     labels  = [peak.label        for peak in peaks]
     return YieldCurve(xv, String(xlabel),
                       Y, Y_err, tic, tic_err, found_mz,
-                      labels, windows, String.(files), Dict{String,Any}())
+                      labels, windows, point_labels, Dict{String,Any}())
 end
 
-
-"""
-    yields(dir::AbstractString, peaks::Vector{<:AbstractPeak};
-           x0::Real, step::Real,
-           xlabel::AbstractString = "energy",
-           centroid_method::Union{MethodType,Nothing} = nothing)
-Convenience method: list supported spectrum files in `dir` (natural-sort order) and
-assign `x = x0 + step*(i-1)` to file `i`.
-"""
-function yields(dir::AbstractString, peaks::Vector{<:AbstractPeak};
-                x0::Real, step::Real,
+function yields(files::AbstractVector{<:AbstractString}, peaks::Vector{<:AbstractPeak},
+                filters::FilterType...;
+                x::Union{AbstractVector{<:Real},Nothing} = nothing,
+                x0::Union{Real,Nothing} = nothing,
+                step::Union{Real,Nothing} = nothing,
                 xlabel::AbstractString = "energy",
                 centroid_method::Union{MethodType,Nothing} = nothing)
-    files = list_spectra(dir)
+    xv     = _resolve_x(x, x0, step, length(files))
+    series = [_filter_scans(load(f), filters) for f in files]
+    return _yields_core(series, peaks, xv, xlabel, String.(files), centroid_method)
+end
+
+"""
+    yields(series::AbstractVector{<:AbstractVector{MSscans}}, peaks, filters::FilterType...;
+           x | x0,step, xlabel, labels, centroid_method) -> YieldCurve
+
+Build a [`YieldCurve`](@ref) from a pre-built *series of scan-lists* — one
+`Vector{MSscans}` per external-parameter point. This is the composable form: the
+caller does any preprocessing (filtering, smoothing, baseline correction,
+calibration…) before handing the scans over, and the per-scan SEM is preserved.
+Optional [`FilterType`](@ref) arguments are applied to each list as well. Name the
+points with `labels` (defaults to `point_1`, `point_2`, …).
+
+```julia
+series = [load(f) |> s -> smooth.(s) for f in files]   # any per-point prep
+yc = yields(series, peaks, Level(1); x = energies)
+```
+"""
+function yields(series::AbstractVector{<:AbstractVector{MSscans}}, peaks::Vector{<:AbstractPeak},
+                filters::FilterType...;
+                x::Union{AbstractVector{<:Real},Nothing} = nothing,
+                x0::Union{Real,Nothing} = nothing,
+                step::Union{Real,Nothing} = nothing,
+                xlabel::AbstractString = "energy",
+                labels::Union{AbstractVector{<:AbstractString},Nothing} = nothing,
+                centroid_method::Union{MethodType,Nothing} = nothing)
+    xv  = _resolve_x(x, x0, step, length(series))
+    pts = [_filter_scans(collect(MSscans, s), filters) for s in series]
+    plabels = labels === nothing ? ["point_$i" for i in 1:length(series)] : String.(labels)
+    length(plabels) == length(series) ||
+        error("yields: length(labels) ($(length(plabels))) != number of points ($(length(series)))")
+    return _yields_core(pts, peaks, xv, xlabel, plabels, centroid_method)
+end
+
+"""
+    yields(dir::AbstractString, peaks::Vector{<:AbstractPeak}, filters::FilterType...;
+           x0, step, x, xlabel, centroid_method)
+Convenience method: list supported spectrum files in `dir` (natural-sort order) and
+assign `x = x0 + step*(i-1)` to file `i` (or pass an explicit `x`). [`FilterType`](@ref)
+arguments are applied to each file's scans before averaging/integration.
+"""
+function yields(dir::AbstractString, peaks::Vector{<:AbstractPeak}, filters::FilterType...;
+                x0::Union{Real,Nothing} = nothing,
+                step::Union{Real,Nothing} = nothing,
+                x::Union{AbstractVector{<:Real},Nothing} = nothing,
+                xlabel::AbstractString = "energy",
+                type = nothing,
+                centroid_method::Union{MethodType,Nothing} = nothing)
+    files = list_spectra(dir; type = type)
     if isempty(files)
         exts = join(_YIELDS_SUPPORTED_EXT, ", ")
         error("yields: no supported spectra in $dir (extensions: $exts)")
     end
-    x = [x0 + step * (i - 1) for i in 1:length(files)]
-    return yields(files, peaks; x = x, xlabel = xlabel,
+    return yields(files, peaks, filters...;
+                  x = x, x0 = x0, step = step, xlabel = xlabel,
                   centroid_method = centroid_method)
 end
 
@@ -434,14 +490,13 @@ _natkey(s::AbstractString) = replace(String(s), r"\d+" => m -> lpad(m, 20, '0'))
 Return paths of all supported spectrum files in `dir`, sorted in natural order
 (so "e2.mzML" comes before "e10.mzML").
 """
-function list_spectra(dir::AbstractString)
+function list_spectra(dir::AbstractString; type = nothing)
     isdir(dir) || error("list_spectra: directory not found: $dir")
+    allowed = _allowed_exts(type)
     selected = String[]
     for entry in readdir(dir; join = true)
         isfile(entry) || continue
-        ext = lowercase(splitext(entry)[2])
-        ext = startswith(ext, ".") ? ext[2:end] : ext
-        ext in _YIELDS_SUPPORTED_EXT && push!(selected, entry)
+        _ext_of(entry) in allowed && push!(selected, entry)
     end
     sort!(selected, by = _natkey)
     return selected
@@ -558,46 +613,51 @@ end
 
 
 """
-    normalize_flux(yc::YieldCurve, flux_file::AbstractString;
-                   flux_err_pct::Real = 0.10,
-                   skipstart::Int = 0,
-                   extrapolate::Symbol = :clamp) -> YieldCurve
-Return a new YieldCurve with each row's peak integrals and TIC divided by the photon
-flux at that row's `x` value, linearly interpolated from `flux_file`.
+    normalize_external(yc::YieldCurve, external_file::AbstractString;
+                       err_pct::Real = 0.10,
+                       skipstart::Int = 0,
+                       extrapolate::Symbol = :clamp) -> YieldCurve
+Return a new YieldCurve with each row's peak integrals and TIC divided by an
+**external quantity** (one not contained in the mass spectra) interpolated to that
+row's `x` value from `external_file`. The quantity can be anything the yields
+should be normalised against: photon flux, laser power or pulse energy, ion-source
+current, detector efficiency, transmission, acquisition time — any per-`x`
+reference with its own (optional) uncertainty.
 
-`extrapolate` controls behaviour when `yc.x[i]` falls *outside* the flux file's
-range:
+`extrapolate` controls behaviour when `yc.x[i]` falls *outside* the file's range:
 * `:clamp` (default) — value clamped to the nearest endpoint, a warning is
   emitted.
 * `:line` — value linearly extrapolated using the slope of the nearest
   segment (equivalent to `Interpolations.LinearInterpolation(...; extrapolation_bc = Line())`).
-  No warning. Same scheme is applied to σ_φ (with `abs(...)` to keep
+  No warning. The same scheme is applied to the σ column (with `abs(...)` to keep
   uncertainties non-negative).
 
-The flux file has either:
+The file has either:
 
-* **2 columns** `x, φ` — the uncertainty on the flux is taken as
-  `flux_err_pct * φ` (default 10%); or
-* **3 columns** `x, φ, σ_φ` — the third column carries the per-point 1-σ
-  uncertainty on the flux and is interpolated alongside `φ`.
+* **2 columns** `x, v` — the uncertainty on the value is taken as
+  `err_pct * v` (default 10%); or
+* **3 columns** `x, v, σ_v` — the third column carries the per-point 1-σ
+  uncertainty and is interpolated alongside `v`.
 
 Lines starting with `#` are treated as comments and ignored; leading non-numeric
 rows are auto-detected and skipped. Use `skipstart = N` to force `N` physical
 lines to be discarded from the top of the file before parsing.
 
 Errors propagate by the standard division rule
-`σ(y/φ) = (y/φ)·sqrt((σ_y/y)² + (σ_φ/φ)²)`, applied to both the peak yields and
-to `tic`. Rows whose interpolated flux is non-positive are left unchanged with a
+`σ(y/v) = (y/v)·sqrt((σ_y/y)² + (σ_v/v)²)`, applied to both the peak yields and to
+`tic`. Rows whose interpolated value is non-positive are left unchanged with a
 warning.
+
+(`normalize_flux` is a deprecated alias of this function.)
 """
-function normalize_flux(yc::YieldCurve, flux_file::AbstractString;
-                        flux_err_pct::Real  = 0.10,
-                        skipstart::Int      = 0,
-                        extrapolate::Symbol = :clamp)
+function normalize_external(yc::YieldCurve, external_file::AbstractString;
+                            err_pct::Real       = 0.10,
+                            skipstart::Int      = 0,
+                            extrapolate::Symbol = :clamp)
     extrapolate ∈ (:clamp, :line) ||
-        error("normalize_flux: extrapolate must be :clamp or :line (got :$extrapolate)")
-    xf, ff, σf = _read_flux(flux_file; skipstart = skipstart,
-                            flux_err_pct = flux_err_pct)
+        error("normalize_external: extrapolate must be :clamp or :line (got :$extrapolate)")
+    xf, ff, σf = _read_flux(external_file; skipstart = skipstart,
+                            flux_err_pct = err_pct)
     Y       = copy(yc.yields)
     Y_err   = copy(yc.yields_err)
     tic     = copy(yc.tic)
@@ -609,12 +669,12 @@ function normalize_flux(yc::YieldCurve, flux_file::AbstractString;
         σφ_raw, _       = _interp_linear(xf, σf, yc.x[i]; mode = extrapolate)
         σφ              = abs(σφ_raw)   # extrapolation of σ can go negative
         if !in_range
-            @warn "normalize_flux: x=$(yc.x[i]) outside flux range " *
-                  "[$(xf[1]), $(xf[end])]; clamped to nearest" flux = φ
+            @warn "normalize_external: x=$(yc.x[i]) outside reference range " *
+                  "[$(xf[1]), $(xf[end])]; clamped to nearest" value = φ
         end
         if !(φ > 0)
-            @warn "normalize_flux: non-positive flux at x=$(yc.x[i]); " *
-                  "skipping division" flux = φ
+            @warn "normalize_external: non-positive reference value at x=$(yc.x[i]); " *
+                  "skipping division" value = φ
             continue
         end
 
@@ -643,13 +703,28 @@ function normalize_flux(yc::YieldCurve, flux_file::AbstractString;
         end
     end
     md = copy(yc.metadata)
-    md["normalize_flux"]         = String(flux_file)
-    md["normalize_flux_err_pct"] = Float64(flux_err_pct)
-    md["normalize_flux_extrap"]  = String(extrapolate)
+    md["normalize_external"]         = String(external_file)
+    md["normalize_external_err_pct"] = Float64(err_pct)
+    md["normalize_external_extrap"]  = String(extrapolate)
     return YieldCurve(copy(yc.x), yc.xlabel,
                       Y, Y_err, tic, tic_err,
                       copy(yc.found_mz), copy(yc.labels), copy(yc.windows),
                       copy(yc.files), md)
+end
+
+"""
+    normalize_flux(yc, flux_file; flux_err_pct = 0.10, kw...)
+Deprecated alias for [`normalize_external`](@ref) (the operation is general — the
+external reference need not be a flux). `flux_err_pct` maps to `err_pct`.
+"""
+function normalize_flux(yc::YieldCurve, flux_file::AbstractString;
+                        flux_err_pct::Real  = 0.10,
+                        skipstart::Int      = 0,
+                        extrapolate::Symbol = :clamp)
+    Base.depwarn("`normalize_flux` is deprecated, use `normalize_external` " *
+                 "(with `err_pct` instead of `flux_err_pct`).", :normalize_flux)
+    return normalize_external(yc, flux_file; err_pct = flux_err_pct,
+                              skipstart = skipstart, extrapolate = extrapolate)
 end
 
 
