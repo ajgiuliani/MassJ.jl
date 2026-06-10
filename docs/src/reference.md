@@ -5,6 +5,8 @@ DocTestSetup  = quote
 end
 ```
 
+# References
+
 This page lists the public API of the `MassJ.jl` package. Internal helpers
 that implement these functions are intentionally not exposed here; their
 docstrings live in the source and are reachable via the REPL `?name` help.
@@ -83,9 +85,13 @@ appropriate format reader is selected automatically from the file extension
 ```@docs
 MassJ.info(filename::String; verbose::Bool = false)
 MassJ.load(filename::String)
+MassJ.load(paths::AbstractVector{<:AbstractString})
 MassJ.retention_time(filename::String)
 MassJ.chromatogram(filename::String, filters::FilterType...; method::MethodType=TIC())
+MassJ.mobilogram
+MassJ.ionogram
 MassJ.average(filename::String, arguments::FilterType...; stats::Bool=true)
+MassJ.average(paths::AbstractVector{<:AbstractString}, arguments::FilterType...; stats::Bool=true, recursive::Bool=false)
 MassJ.save
 MassJ.save_mzml
 MassJ.save_mzxml
@@ -162,6 +168,35 @@ MassJ.isotope_table
 MassJ.simulate
 ```
 
+## Adducts and neutral-mass conversion
+```@docs
+MassJ.Adduct
+MassJ.Adducts
+MassJ.adduct_mz
+MassJ.neutral_mass
+```
+
+## Mass calibration
+```@docs
+MassJ.Calibration
+MassJ.calibrate
+```
+
+## Formula assignment from m/z
+```@docs
+MassJ.FormulaCandidate
+MassJ.assign_formula
+MassJ.score_isotope_pattern
+```
+
+## Peptide fragmentation
+```@docs
+MassJ.FragmentIon
+MassJ.fragment_ions
+MassJ.peptide_mass
+MassJ.fragment_peaks
+```
+
 
 ## Energy-resolved yields
 -------------------------
@@ -169,7 +204,14 @@ MassJ.simulate
 MassJ.yields
 MassJ.integrate_window
 MassJ.normalize_tic
+MassJ.normalize_external
 MassJ.normalize_flux
+MassJ.combine_yields
+MassJ.shift_x
+MassJ.scale_yields
+MassJ.recalibrate_x
+MassJ.trim_yields
+MassJ.restrict_x
 MassJ.drop_peaks
 MassJ.read_peaklist
 MassJ.write_csv
@@ -190,6 +232,20 @@ MassJ.partial_correlation
 MassJ.cmi_matrix
 MassJ.cluster_ions
 MassJ.cluster_spectra
+```
+
+
+## Ecosystem interoperability
+----------------------------
+Bridges between MassJ's typed containers and the wider Julia data / machine-learning
+ecosystem: featurise a spectrum series to a matrix, map results back, and rebuild
+spectra. See [Interoperability](@ref).
+
+```@docs
+MassJ.featurize
+MassJ.select_spectra
+MassJ.from_matrix
+MassJ.spectra_table
 ```
 
 
