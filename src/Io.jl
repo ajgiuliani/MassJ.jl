@@ -358,21 +358,6 @@ function chromatogram(filename::String, filters::FilterType...; method::MethodTy
     end
 end
 
-"""
-    chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
-Returns the retention time and the total ion current by default for all the mass spectra within the Array of mass spectrum container `MSscans`. Alternatively, other options may be supplied such as method = MassJ.BasePeak, which returs the base peak intensity, method = MassJ.∆MZ([500,5]), which returns the ion current for the range mz = 500 ± 5, or method = MassJ.MZ([200,1000]) which return the ion current in the range from m/z 200 to m/z 1000.  The data may be filtered by ms level, precursor mass, activation methods, etc, using the arguments MassJ.Level(N), MassJ.Precursor(mz), MassJ.Activation_Method("method")...
-# Examples
-```julia-repl
-julia> rt, ic = chromatogram("test.mzxml")
-([0.1384  …  60.4793], [4.74795e6  …  17.4918])
-julia> rt, ic = chromatogram("test.mzxml", method = MassJ.BasePeak() )
-([0.1384  …  60.4793], [102558.0  …  1.23181])
-julia> rt, ic = chromatogram("test.mzxml", method = MassJ.∆MZ([500,5]) )
-([0.1384  …  60.4793], [46036.6  …  14.2529])
-julia> rt, ic = chromatogram("test.mzxml", method = MassJ.MZ([200,1000]))
-([0.1384  …  60.4793], [4.74795e6  …  17.4918])
-```
-"""
 # Per-scan ion-current value for a chromatogram/mobilogram/ionogram `method`:
 # TIC (default), base-peak intensity, or summed intensity over an m/z window
 # (∆MZ = mz ± Δ, MZ = [mz1, mz2]).
@@ -392,6 +377,21 @@ function _ion_current(scan::MSscans, method::MethodType)
     end
 end
 
+"""
+    chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
+Returns the retention time and the total ion current by default for all the mass spectra within the Array of mass spectrum container `MSscans`. Alternatively, other options may be supplied such as method = MassJ.BasePeak, which returs the base peak intensity, method = MassJ.∆MZ([500,5]), which returns the ion current for the range mz = 500 ± 5, or method = MassJ.MZ([200,1000]) which return the ion current in the range from m/z 200 to m/z 1000.  The data may be filtered by ms level, precursor mass, activation methods, etc, using the arguments MassJ.Level(N), MassJ.Precursor(mz), MassJ.Activation_Method("method")...
+# Examples
+```julia-repl
+julia> rt, ic = chromatogram("test.mzxml")
+([0.1384  …  60.4793], [4.74795e6  …  17.4918])
+julia> rt, ic = chromatogram("test.mzxml", method = MassJ.BasePeak() )
+([0.1384  …  60.4793], [102558.0  …  1.23181])
+julia> rt, ic = chromatogram("test.mzxml", method = MassJ.∆MZ([500,5]) )
+([0.1384  …  60.4793], [46036.6  …  14.2529])
+julia> rt, ic = chromatogram("test.mzxml", method = MassJ.MZ([200,1000]))
+([0.1384  …  60.4793], [4.74795e6  …  17.4918])
+```
+"""
 function chromatogram(scans::AbstractVector{MSscans}, filters::FilterType...; method::MethodType=TIC())
     pred = compose_predicates(scans, filters)
 
