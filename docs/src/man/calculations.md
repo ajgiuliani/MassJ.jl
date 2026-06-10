@@ -166,5 +166,5 @@ julia> plot(sim)
 ```
 
 
-See [Plotting](@ref) for more information on how to plot mass spectra.
+See [Plotting](plotting.md) for more information on how to plot mass spectra.
 
