@@ -104,8 +104,8 @@ plot(yc)             # 1-σ ribbons drawn automatically
 
 The full error model — why it integrates per scan rather than per m/z bin, and
 how the errors propagate through [`normalize_tic`](@ref) and
-[`normalize_flux`](@ref) — is described on the
-[Energy-resolved yields](@ref) page.
+[`normalize_external`](@ref) — is described on the
+[Energy-resolved yields](yields.md) page.
 
 ## Automatic propagation with Measurements.jl
 
