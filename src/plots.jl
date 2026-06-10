@@ -429,7 +429,7 @@ plot(avg)
 plot!(peaks)          # all TargetPeak / Peak windows in one call
 ```
 
-Equivalent to `plot!`-ing each peak in turn; see [`pk`](@ref) for a single peak.
+Equivalent to `plot!`-ing each peak in turn; see `pk` for a single peak.
 """
 @recipe function pkv(ps::AbstractVector{<:AbstractPeak})
     seriesalpha --> 0.2
