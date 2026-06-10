@@ -5,6 +5,10 @@ makedocs(
         prettyurls = get(ENV, "CI", nothing) == "true",
         canonical = "https://ajgiuliani.github.io/MassJ.jl/stable/",
         assets = ["assets/favicon.ico"],
+        # reference.md is the full single-page API (~190 KiB); raise the per-page
+        # size limits (bytes) above it, with headroom as the API grows.
+        size_threshold_warn = 300_000,
+        size_threshold = 500_000,
     ),
     modules = [MassJ],
     sitename = "MassJ.jl",
@@ -31,6 +35,7 @@ makedocs(
             "Properties calculations"      => "man/calculations.md",
             "Energy-resolved yields"       => "man/yields.md",
             "Chimeric spectra"             => "man/chimeric.md",
+            "Interoperability"             => "man/interop.md",
             "Plotting"                     => "man/plotting.md",
         ],
         "References"                       => "reference.md",
