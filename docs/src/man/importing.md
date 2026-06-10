@@ -1,6 +1,6 @@
 # Importing data
 
-The [`load`](@ref) function reads a mass spectrometry file and returns an [`MassJ.MSrun`](@ref) — a vector of [`MassJ.MSscans`](@ref) bundled with any file-level metadata. The file format is automatically determined from the extension. (A TXT file, or a single spectrum saved as a scalar, comes back as a bare [`MassJ.MSscans`](@ref) instead — see [Data types](@ref).)
+The [`load`](@ref) function reads a mass spectrometry file and returns an [`MassJ.MSrun`](@ref) — a vector of [`MassJ.MSscans`](@ref) bundled with any file-level metadata. The file format is automatically determined from the extension. (A TXT file, or a single spectrum saved as a scalar, comes back as a bare [`MassJ.MSscans`](@ref) instead — see [Data types](types.md).)
 
 Supported file formats: mzXML, mzML, MGF, MSP, imzML, TXT.
 
@@ -40,6 +40,36 @@ julia> scans[1].mz
 22320-element Array{Float64,1}:
  140.083
  ...
+```
+
+## Loading several files and folders
+
+[`load`](@ref) (and [`average`](@ref)) also accept a **directory**, or a
+collection of files and/or directories, and pool every supported spectrum into one
+flat `Vector{MSscans}`. A single path is given as a plain string; several are
+given as a `Vector`, `Tuple`, or any iterable of strings:
+
+```julia
+scans = load("run_A/")                         # one folder
+scans = load(["run_A/", "run_B/"])             # several folders / files
+scans = load(("run_A/", "run_B/"))             # a tuple works too
+scans = load(["batch/"]; recursive = true)     # walk sub-folders as well
+```
+
+Directories are scanned in *natural-sort* order. When a folder holds more than one
+supported format, restrict the load with `type` — a single `Symbol`/`String` or a
+collection — and the others are ignored:
+
+```julia
+scans = load("mixed/"; type = :mzML)           # only mzML files
+scans = load("mixed/"; type = (:mzml, :mzxml)) # mzML and mzXML
+```
+
+[`average`](@ref) takes the same path forms (plus its [`MassJ.FilterType`](@ref)
+arguments), grand-averaging everything that is gathered:
+
+```julia
+avg = average("run_A/", MassJ.Level(1); type = :mzML)
 ```
 
 ## Format-specific notes
