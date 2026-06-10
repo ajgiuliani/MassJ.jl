@@ -8,16 +8,7 @@ using Logging  # @test_logs min_level for the bare-vector save warning
 # Loading these weak dependencies activates the package extensions
 # (cmi_matrix via EntropyInvariant, cluster_ions via Clustering, and the
 # YieldCurve Tables.jl source via Tables).
-# EntropyInvariant pins StatsBase 0.33, whose `hist.jl` calls a 4-arg
-# `Base.floatrange` removed in Julia 1.12 — so it cannot be installed there. Load
-# it optionally: the cmi_matrix testset is skipped (with a notice) when it is
-# absent, keeping the suite green on Julia ≥ 1.12.
-const HAS_ENTROPYINVARIANT = try
-    @eval import EntropyInvariant
-    true
-catch
-    false
-end
+import EntropyInvariant
 import Clustering
 import Tables
 import Measurements
@@ -2268,9 +2259,6 @@ function test_chimeric()
         @test sort(vcat([length(s.mz) for s in specs])) == [2, 3]   # B has 2, A has 3
     end
 
-    HAS_ENTROPYINVARIANT || @info "Skipping CMI testset: EntropyInvariant unavailable " *
-        "(requires StatsBase 0.33, incompatible with Julia $(VERSION))."
-    HAS_ENTROPYINVARIANT &&
     @testset "Chimeric - conditional mutual information" begin
         # CMI scenario: two groups driven by *independent* latent signals,
         # conditioned on an independent variable, so CMI separates them.
