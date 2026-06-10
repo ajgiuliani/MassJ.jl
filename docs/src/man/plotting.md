@@ -50,6 +50,27 @@ hover tooltip with its m/z, charge, and label. The keyword is named `annot` (not
 `annotate`) because `Plots` reserves `annotate` as an alias of its own
 `annotations` attribute.
 
+## Peak-window overlays
+
+Where `annot` *labels* peaks, a [`MassJ.Peak`](@ref) or [`MassJ.TargetPeak`](@ref)
+can be **overlaid** on a spectrum with `plot!`, shading its integration window(s)
+as vertical bands — so you can see exactly where a peak integrates (for a cluster
+or formula `TargetPeak`, every isotopologue sub-window is drawn):
+
+```julia
+plot(avg)                                                     # the spectrum
+plot!(TargetPeak("Nd(NO3)4", "Precursor"; charge = -1, tol = 0.2))
+plot!(peaks)                                                  # a whole list at once
+plot!(tp; seriescolor = :red, seriesalpha = 0.3, label = "window")
+```
+
+`plot!(peaks)` cycles a colour per window and labels each by `peak.label`. Combine
+the two layers to both shade the window and label the apex:
+
+```julia
+plot(avg, annot = [tp]); plot!(tp)
+```
+
 For a [`MassJ.YieldCurve`](@ref), the x-axis is taken from `yc.x` and labelled with `yc.xlabel`, and one line is drawn per peak using `yc.labels` for the legend. When `yc.yields_err` contains any finite values, 1-σ ribbons are drawn around each line with `fillalpha = 0.15`. Either default can be overridden by passing the same keyword to `plot`:
 
 ```julia
