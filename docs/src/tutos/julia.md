@@ -23,7 +23,7 @@ $ julia hello.jl
 
 You can also put `#!/usr/local/bin/julia` in the first line of the `hello.jl` file, make it executable (` chmod +x hello.jl`) and execute it like any other executable.
 
-Finally, Julia scripts can be executed within Jupyter Notebooks, see the dedicated section [Jupyter notebooks](@ref).
+Finally, Julia scripts can be executed within Jupyter Notebooks, see the dedicated section [Jupyter notebooks](jupyter.md).
 
 
 ## Types
