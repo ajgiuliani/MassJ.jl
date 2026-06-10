@@ -99,7 +99,7 @@ source file information, processing history, and so on.
 
 [`load`](@ref) returns an `MSrun` for **every** multi-spectrum format (mzML,
 mzXML, MGF, MSP, imzML); for the non-mzML formats the metadata dictionary and
-chromatogram list are simply empty. Two cases return a bare [`MSscans`](@ref)
+chromatogram list are simply empty. Two cases return a bare [`MassJ.MSscans`](@ref)
 instead, because they represent a single spectrum rather than a run: a TXT file
 (one spectrum by construction), and a single spectrum that was saved with
 [`save`](@ref) as a scalar (the scalar round-trip — save a bare spectrum, load a

@@ -4,7 +4,7 @@ The [`smooth`](@ref) function is public and applies on `MSscans`or `MSscans` obj
 The function returns an `MScontainer` type identical to the input. 
 	
 ## Base line correction
-Base line correction is performed using the [`baseline_correction`](@ref) function. This function as two methods and operates either on [`MScontainer`](@ref) or on Array of [`MSscans`](@ref) such as obtained after [importing data](Importing data).
+Base line correction is performed using the [`baseline_correction`](@ref) function. This function as two methods and operates either on [`MassJ.MScontainer`](@ref) or on Array of [`MassJ.MSscans`](@ref) such as obtained after [importing data](importing.md).
 ```julia
 baseline_correction(scans)
 baseline_correction(scans, method = MassJ.IPSA(51, 100))
@@ -92,7 +92,7 @@ deconv_data = deconv(scans, Charges(adduct="H", range=(1,10)), FWHM=0.5, shape=:
 
 ## Chromatographic peak analysis
 
-Ion-current traces ([`IonCurrent`](@ref) — chromatograms, mobilograms, or
+Ion-current traces ([`MassJ.IonCurrent`](@ref) — chromatograms, mobilograms, or
 ionograms produced by [`chromatogram`](@ref) / `mobilogram` / `ionogram`) can be
 smoothed, background-corrected, and analysed for peaks.
 
