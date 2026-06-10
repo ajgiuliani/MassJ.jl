@@ -57,6 +57,38 @@ For `:centroid`, pass the centroiding parameters to [`yields`](@ref) via
 data with many close peaks, prefer `MassJ.TBPD(:gauss, R, threshold)` with `R`
 matching the instrument resolution.
 
+### Isotope clusters and formula-driven peaks
+
+A `TargetPeak` can bundle **several m/z under one label** — typically the
+isotopologues of one species — so [`yields`](@ref) reports a single column for the
+whole pattern. The sub-window integrals are summed *inside each scan* before the
+error is taken, so the pattern-level uncertainty is correct (the isotopes
+co-vary), and overlapping sub-windows are merged so a shared region is counted
+once. Three forms:
+
+```julia
+# explicit cluster of m/z
+MassJ.TargetPeak([442.01, 443.01, 444.01], "Nd cluster"; tol = 0.02)
+
+# from a chemical formula — the isotopologue m/z come from `isotopic_distribution`
+# up to cumulative probability `p_target`; with `adduct = ""` the m/z are the
+# neutral isotopologue masses divided by |charge|
+MassJ.TargetPeak("Nd(NO3)4", "Precursor"; charge = -1, adduct = "",
+                 p_target = 0.999, tol = 0.2)
+
+# with an adduct (charge comes from the adduct, m/z via `adduct_mz`)
+MassJ.TargetPeak("C6H12O6", "glucose"; adduct = "[M+H]+", tol = 0.01)
+```
+
+For a cluster, `method` is `:fixed` (default — fixed windows at the theoretical
+m/z) or `:anchor` (locate the **anchor** isotopologue in each spectrum and shift
+the whole pattern by the calibration offset, preserving the isotope spacing;
+falls back to fixed when the anchor is absent). The anchor defaults to the
+most-abundant isotopologue for a formula (`anchor = :max` — robust for heavy ions
+whose monoisotopic peak is weak); use `anchor = :mono` for the lowest m/z, or pass
+an explicit m/z. Because the whole pattern is shifted rigidly by one offset,
+isotopologues lighter than the anchor reconstitute correctly below it.
+
 ### Loading peaks from CSV
 
 [`MassJ.read_peaklist`](@ref) auto-detects three CSV layouts by column count:
@@ -109,6 +141,29 @@ Files in the directory are picked in *natural-sort* order (so `scan2.mzML` comes
 before `scan10.mzML`). Supported extensions are mzXML, mzML, MGF, MSP, imzML, and
 TXT.
 
+### Filtering and preprocessing each file
+
+Any [`MassJ.FilterType`](@ref) passed after `peaks` is applied to each file's scans
+before averaging and integration, so the yield is built from only the scans you
+want (one MS level, a retention-time window, an activation method, …):
+
+```julia
+yc = yields(files, peaks, Level(1), RT(5.0, 15.0); x = energies)
+yc = yields("data/UVPD/", peaks, Level(1); x0 = 3.0, step = 0.1)
+```
+
+For full control over per-point preprocessing (filtering, smoothing, baseline
+correction, calibration, …) build the scan lists yourself and pass a *series* —
+one `Vector{MSscans}` per point:
+
+```julia
+series = [baseline_correction.(smooth.(load(f))) for f in files]
+yc = yields(series, peaks; x = energies, labels = string.(energies))
+```
+
+Both forms preserve the per-scan error model described in the
+**Uncertainties** section below.
+
 The result is a [`MassJ.YieldCurve`](@ref) holding the energy axis `yc.x`, the
 matrix `yc.yields[file, peak]`, the per-file `yc.tic` (sum across peak windows),
 the matrix `yc.found_mz[file, peak]` (`NaN` for fixed `Peak`s, the located m/z
@@ -132,45 +187,53 @@ Normalization steps are *post-processing* functions that return a new
 `YieldCurve` (the input is not mutated). They can be composed:
 
 ```julia
-yc_norm = yc |> normalize_tic |> y -> normalize_flux(y, "flux.txt")
+yc_norm = yc |> normalize_tic |> y -> normalize_external(y, "flux.txt")
 ```
 
 [`normalize_tic`](@ref) divides each row of `yc.yields` by that row's TIC so the
 peaks sum to 1 per energy step (relative branching ratios). The raw TIC column
 is preserved.
 
-[`normalize_flux`](@ref) divides each row (peaks and TIC) by the photon flux at
-that row's `x` value, linearly interpolated from a text file. See the
-[Flux file format](@ref) section below for the accepted layouts.
+[`normalize_external`](@ref) divides each row (peaks and TIC) by an **external
+reference** — a quantity that is *not* contained in the spectra — interpolated to
+that row's `x` value from a text file. The reference can be anything the yields
+should be normalised against: photon flux, laser power or pulse energy, ion-source
+current, detector efficiency, transmission, or acquisition time. See the
+[External-reference file format](@ref) section below.
 
 ```julia
-yc_flux = normalize_flux(yc_tic, "flux.txt")                       # 10% default σ_φ
-yc_flux = normalize_flux(yc_tic, "flux.txt"; flux_err_pct = 0.05)  # override default
-yc_flux = normalize_flux(yc_tic, "flux.txt"; skipstart   = 3)      # force header skip
-yc_flux = normalize_flux(yc_tic, "flux.txt"; extrapolate = :line)  # linear extrap.
+yc_n = normalize_external(yc_tic, "flux.txt")                    # 10% default σ
+yc_n = normalize_external(yc_tic, "power.txt"; err_pct = 0.05)   # override default
+yc_n = normalize_external(yc_tic, "ref.txt";   skipstart = 3)    # force header skip
+yc_n = normalize_external(yc_tic, "ref.txt";   extrapolate = :line)  # linear extrap.
 ```
 
-By default (`extrapolate = :clamp`), `x` values outside the flux file's range
+By default (`extrapolate = :clamp`), `x` values outside the reference file's range
 are clamped to the nearest endpoint and a warning is emitted. Pass
 `extrapolate = :line` to linearly extrapolate using the slope of the nearest
 segment (the same behaviour as `Interpolations.LinearInterpolation(...; extrapolation_bc = Line())`).
-The same scheme is applied to σ_φ, with `abs(...)` to keep uncertainties
+The same scheme is applied to the σ column, with `abs(...)` to keep uncertainties
 non-negative.
+
+!!! note "Renamed from `normalize_flux`"
+    This function was previously `normalize_flux` (with a `flux_err_pct` keyword).
+    The old name is kept as a deprecated alias that forwards to
+    `normalize_external`, so existing scripts keep working.
 
 Each normalization records itself in `yc.metadata` so the provenance of a curve
 is preserved.
 
 
-## Flux file format
+## External-reference file format
 
-[`normalize_flux`](@ref) is liberal in what it accepts. Three layouts are
-recognised, distinguished by the column count:
+[`normalize_external`](@ref) is liberal in what it accepts. Three layouts are
+recognised, distinguished by the column count (`v` is the reference value):
 
-| Cols | Meaning                  | Where σ_φ comes from                              |
+| Cols | Meaning                  | Where σ comes from                                |
 |------|--------------------------|---------------------------------------------------|
-| 2    | `x  φ`                   | `flux_err_pct * φ` (default 10%)                  |
-| 3    | `x  φ  σ_φ`              | the third column (per-row)                        |
-| ≥3   | `x  φ  <non-numeric>`    | falls back to `flux_err_pct * φ` for that row     |
+| 2    | `x  v`                   | `err_pct * v` (default 10%)                       |
+| 3    | `x  v  σ_v`              | the third column (per-row)                        |
+| ≥3   | `x  v  <non-numeric>`    | falls back to `err_pct * v` for that row          |
 
 Parsing rules:
 
@@ -182,7 +245,7 @@ Parsing rules:
 * Whitespace separates columns (any mix of spaces and tabs).
 * When a 3rd column is present but contains non-numeric text on a given row —
   for example a timestamp on each line of a DESIRS beamline flux log — that
-  row's σ_φ silently falls back to `flux_err_pct * φ`. No need to pre-process
+  row's σ silently falls back to `err_pct * v`. No need to pre-process
   the file.
 * Pass `skipstart = N` to discard `N` *physical* lines from the top before
   parsing, for the rare cases where a numeric-looking row at the top is not
@@ -244,12 +307,12 @@ The errors propagate through subsequent normalization:
 * [`normalize_tic`](@ref) — `σ(y/T) = (y/T)·sqrt((σ_y/y)² + (σ_T/T)²)` (the
   correlation between `y` and `T = Σy` is ignored, the usual first-order
   approximation).
-* [`normalize_flux`](@ref) — `σ(y/φ) = (y/φ)·sqrt((σ_y/y)² + (σ_φ/φ)²)`. The
-  flux uncertainty `σ_φ` is taken from a third column in the flux file when
-  present; otherwise it is computed as `flux_err_pct * φ` (default 10%). Use
-  the keyword `flux_err_pct = 0.05` to override:
+* [`normalize_external`](@ref) — `σ(y/v) = (y/v)·sqrt((σ_y/y)² + (σ_v/v)²)`. The
+  reference uncertainty `σ_v` is taken from a third column in the reference file
+  when present; otherwise it is `err_pct * v` (default 10%). Use the keyword
+  `err_pct = 0.05` to override:
   ```julia
-  yc_flux = normalize_flux(yc_tic, "flux.txt"; flux_err_pct = 0.05)
+  yc_n = normalize_external(yc_tic, "ref.txt"; err_pct = 0.05)
   ```
 
 Plotting picks up the ribbon automatically — see [Plotting](#Plotting).
