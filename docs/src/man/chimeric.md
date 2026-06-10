@@ -71,7 +71,7 @@ score matrix (converting it to a dissimilarity according to `kind`) and returns 
 cluster label per ion. The number of clusters is chosen automatically by the
 elbow of the within-cluster sum of squares, or fixed with `nclusters`.
 [`cluster_spectra`](@ref) then averages each cluster's bins across the
-acquisitions to produce one [`MSscans`](@ref) per precursor.
+acquisitions to produce one [`MassJ.MSscans`](@ref) per precursor.
 
 ## Optional dependencies
 
