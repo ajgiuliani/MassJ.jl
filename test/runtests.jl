@@ -37,6 +37,13 @@ function tests()
         rt = MassJ.retention_time("test.mzXML")
         @test length(rt) == 6                                                          #14
 
+        # mzXML retention times are normalised to minutes: spec "S" (seconds) is
+        # converted, MassJ's own "M" (minutes) is kept as-is.
+        @test MassJ.rt_to_minutes("PT60S")  == 1.0
+        @test MassJ.rt_to_minutes("PT90S")  == 1.5
+        @test MassJ.rt_to_minutes("PT2M")   == 2.0
+        @test MassJ.rt_to_minutes("PT0.5M") == 0.5
+
         cr = MassJ.chromatogram("test.mzXML", method = MassJ.TIC() )
         @test length(cr.x) == 6                                                       #15
 
@@ -1375,6 +1382,13 @@ function test_mzml()
         # chromatogram base peak
         chrom_bp = MassJ.chromatogram("test.mzML", method=MassJ.BasePeak())
         @test chrom_bp.ic ≈ [8000.0, 2000.0, 1200.0]
+
+        # base-peak / TIC must be populated (from cvParam, or derived from the peak
+        # data when a writer omits them) so BasePeak chromatograms are never flat
+        let scmz = MassJ.load("test.mzML")
+            @test all(s.basePeakIntensity == maximum(s.int) for s in scmz)
+            @test all(s.tic > 0 for s in scmz)
+        end
 
         # extract
         ms2 = MassJ.extract("test.mzML", MassJ.Level(2))
@@ -3067,6 +3081,63 @@ function test_interop()
 end
 
 
+function test_feature_detection()
+    @testset "2D LC-MS feature detection" begin
+        # synthetic run: 40 MS1 scans (rt = scan index); two ions eluting as
+        # Gaussians at known m/z and apex RT.
+        function run_scans()
+            scans = MassJ.MSscans[]
+            for i in 1:40
+                mz = Float64[]; int = Float64[]
+                a = 1000 * exp(-((i - 10)^2) / (2 * 3.0^2))
+                (4  <= i <= 16) && (push!(mz, 400.00); push!(int, a))
+                b = 800  * exp(-((i - 25)^2) / (2 * 2.5^2))
+                (18 <= i <= 32) && (push!(mz, 600.50); push!(int, b))
+                isempty(mz) && (push!(mz, 50.0); push!(int, 1.0))  # keep non-empty
+                o = sortperm(mz)
+                push!(scans, MassJ.MSscans(i, Float64(i), sum(int), mz[o], int[o], 1,
+                                           mz[o][argmax(int[o])], maximum(int),
+                                           0.0, "+", "", 0.0))
+            end
+            return scans
+        end
+        scans = run_scans()
+
+        feats = MassJ.detect_features(scans; ppm = 20.0, min_scans = 5, snr = 3.0)
+        @test length(feats) == 2
+        @test eltype(feats) == MassJ.Feature
+        fa, fb = feats                                   # sorted by (mz, rt)
+        @test fa.mz ≈ 400.00 atol = 0.01
+        @test fb.mz ≈ 600.50 atol = 0.01
+        @test fa.rt ≈ 10.0 atol = 1.0                    # apex RT recovered
+        @test fb.rt ≈ 25.0 atol = 1.0
+        @test fa.area > 0 && fb.area > 0
+        @test fa.height ≈ 1000.0 rtol = 0.2
+        @test fa.npoints >= 5 && fb.npoints >= 5
+        @test fa.rt_left < fa.rt < fa.rt_right
+
+        # min_scans gating: requiring 20-scan traces drops both
+        @test isempty(MassJ.detect_features(scans; ppm = 20.0, min_scans = 20))
+
+        # absolute m/z tolerance form
+        @test length(MassJ.detect_features(scans; mz_tol = 0.02, min_scans = 5)) == 2
+
+        # snr gating: a very high threshold rejects everything
+        @test isempty(MassJ.detect_features(scans; ppm = 20.0, min_scans = 5, snr = 1e6))
+
+        # empty input
+        @test isempty(MassJ.detect_features(MassJ.MSscans[]))
+
+        # feature_table is a Tables source
+        nt = MassJ.feature_table(feats)
+        @test Tables.istable(typeof(nt))
+        @test haskey(nt, :mz) && haskey(nt, :rt) && haskey(nt, :area)
+        @test length(nt.mz) == 2
+        @test Tables.getcolumn(Tables.columntable(nt), :mz) ≈ [fa.mz, fb.mz]
+    end
+end
+
+
 function test_aqua()
     @testset "Aqua — package-quality checks" begin
         # Lighter check set than test_all to start; we'll enable the rest
@@ -3099,6 +3170,7 @@ test_measurements()
 test_unitful()
 test_chrom_processing()
 test_chrom_peaks()
+test_feature_detection()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
