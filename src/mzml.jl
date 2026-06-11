@@ -607,6 +607,17 @@ function load_mzml_spectrum(spec::XMLElement, scan_index::Int;
     ref = ic_ref !== nothing ? ic_ref : default_ic_ref
     ref !== nothing && (extra_md["instrument_configuration_ref"] = String(ref))
 
+    # Some writers (e.g. ViMMS) omit the base-peak / TIC cvParams; derive them from
+    # the peak data so BasePeak chromatograms and spectrum normalisation still work.
+    if !isempty(int_arr)
+        if basePeakIntensity <= 0.0
+            bi = argmax(int_arr)
+            basePeakIntensity = int_arr[bi]
+            isempty(mz) || (basePeakMz = mz[bi])
+        end
+        tic <= 0.0 && (tic = sum(int_arr))
+    end
+
     scan = MSscans(scan_index, rt, tic, mz, int_arr, msLevel,
                    basePeakMz, basePeakIntensity, precursorMz, polarity,
                    activationMethod, collisionEnergy,
