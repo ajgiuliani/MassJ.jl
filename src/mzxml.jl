@@ -166,8 +166,21 @@ end
 
 
 """
+    rt_to_minutes(s::AbstractString)
+Parse an mzXML ISO-8601 retention-time string (`"PT<value>S"` or `"PT<value>M"`)
+and return the value in **minutes**. The mzXML spec encodes seconds (`S`), which
+are converted; a `M` suffix (as written by MassJ's own `save_mzxml`) is already
+minutes and returned as-is. Keeps the whole package on a single RT unit.
+"""
+function rt_to_minutes(s::AbstractString)
+    val = parse(Float64, s[3:end-1])             # strip leading "PT" and the unit char
+    return last(s) == 'S' ? val / 60.0 : val     # seconds -> minutes; minutes as-is
+end
+
+
+"""
     load_mzxml_spectrum(c::XMLElement)
-From an XMLElement, returns the data into an `MSscans`. 
+From an XMLElement, returns the data into an `MSscans`.
 """
 function load_mzxml_spectrum(c::XMLElement)
     num = attribute(c, "num")
@@ -244,7 +257,7 @@ function load_mzxml_spectrum(c::XMLElement)
     int = convert(Array{Float64,1}, A[2:2:end])
     mz  = convert(Array{Float64,1}, A[1:2:end])
 
-    scan = MSscans(parse(Int,num) , parse(Float64, retentionTime[3:end-1]), parse(Float64,totIonCurrent), mz, int, parse(Int, msLevel), parse(Float64, basePeakMz), parse(Float64, basePeakIntensity), parse(Float64, precursor), polarity, activationMethod, parse(Float64, collisionEnergy) )
+    scan = MSscans(parse(Int,num) , rt_to_minutes(retentionTime), parse(Float64,totIonCurrent), mz, int, parse(Int, msLevel), parse(Float64, basePeakMz), parse(Float64, basePeakIntensity), parse(Float64, precursor), polarity, activationMethod, parse(Float64, collisionEnergy) )
 
     # Promote to MSscans if the MassJ marker is present.
     if attribute(c, MASSJ_MZXML_CONTAINER_ATTR) == "MSscans"
@@ -342,7 +355,7 @@ function retention_time(msRun::XMLElement)
         while name(c1) == "scan"
             if has_attribute(c1, "totIonCurrent")
                 retentionTime = attribute(c1, "retentionTime")
-                push!(rt, parse(Float64,retentionTime[3:end-1]))
+                push!(rt, rt_to_minutes(retentionTime))
             end           
             c1 = find_element(c1,"scan")
             if c1 == nothing
