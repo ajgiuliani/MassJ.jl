@@ -2,7 +2,7 @@
 <mzXML xmlns="http://sashimi.sourceforge.net/schema_revision/mzXML_3.1"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
  xsi:schemaLocation="http://sashimi.sourceforge.net/schema_revision/mzXML_3.1 http://sashimi.sourceforge.net/schema_revision/mzXML_3.1/mzXML_idx_3.1.xsd" >
- <msRun scanCount="6" startTime="PT0.1384S" endTime="PT5.7689S" > 
+ <msRun scanCount="6" startTime="PT0.1384M" endTime="PT5.7689M" > 
   <parentFile fileName="test.raw" fileType="RAWData" fileSha1="sha1" />
   <msInstrument>
    <msManufacturer category="msManufacturer" value="Manufacturer" />
@@ -21,7 +21,7 @@
    polarity="+"
    scanType="Full"
    filterLine="filter line"
-   retentionTime="PT0.1384S"
+   retentionTime="PT0.1384M"
    lowMz="140.083"
    highMz="2000"
    basePeakMz="628.333"
@@ -38,7 +38,7 @@
     polarity="+"
     scanType="Full"
     filterLine="ITMS + p ESI Full ms2 1255.50@cid18.00 [345.00-2000.00]"
-    retentionTime="PT0.7307S"
+    retentionTime="PT0.7307M"
     lowMz="345.083"
     highMz="2000"
     basePeakMz="1255.42"
@@ -57,7 +57,7 @@
      polarity="+"
      scanType="Full"
      filterLine="ITMS + p ESI Full ms3 1255.50@cid18.00 902.33@pqd35.00 [50.00-2000.00]"
-     retentionTime="PT2.1379S"
+     retentionTime="PT2.1379M"
      lowMz="50.0833"
      highMz="2000"
      basePeakMz="560"
@@ -79,7 +79,7 @@
    polarity="+"
    scanType="Full"
    filterLine="ITMS + p ESI Full ms [140.00-2000.00]"
-   retentionTime="PT3.7578S"
+   retentionTime="PT3.7578M"
    lowMz="140.083"
    highMz="2000"
    basePeakMz="628.333"
@@ -96,7 +96,7 @@
     polarity="+"
     scanType="Full"
     filterLine="ITMS + p ESI Full ms2 1255.50@cid18.00 [345.00-2000.00]"
-    retentionTime="PT4.3442S"
+    retentionTime="PT4.3442M"
     lowMz="345.083"
     highMz="2000"
     basePeakMz="1255.5"
@@ -115,7 +115,7 @@
      polarity="+"
      scanType="Full"
      filterLine="ITMS + p ESI Full ms3 1255.50@cid18.00 902.33@pqd35.00 [50.00-2000.00]"
-     retentionTime="PT5.7689S"
+     retentionTime="PT5.7689M"
      lowMz="50.0833"
      highMz="2000"
      basePeakMz="611.167"
