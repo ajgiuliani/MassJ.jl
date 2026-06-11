@@ -152,6 +152,15 @@ MassJ.chrom_peaks
 MassJ.chrom_peak
 ```
 
+### 2-D LC-MS feature detection
+Detect m/z × retention-time features in a single run: build mass traces, then run
+chromatographic peak detection on each.
+```@docs
+MassJ.Feature
+MassJ.detect_features
+MassJ.feature_table
+```
+
 ## Deconvolution
 ----------------
 ```@docs

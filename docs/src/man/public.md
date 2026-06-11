@@ -19,6 +19,7 @@ group give worked examples.
 - [`baseline_correction`](@ref)
 - [`centroid`](@ref)
 - [`chrom_peaks`](@ref) / [`chrom_peak`](@ref)
+- [`detect_features`](@ref) / [`feature_table`](@ref)
 
 **Scientific calculations**
 - [`formula`](@ref) / [`masses`](@ref)
@@ -50,6 +51,6 @@ group give worked examples.
 **Exported types**
 - [`MassJ.MSscans`](@ref) / [`MassJ.IonCurrent`](@ref) / [`MassJ.MSrun`](@ref)
 - [`MassJ.AbstractPeak`](@ref) / [`MassJ.Peak`](@ref) / [`MassJ.TargetPeak`](@ref)
-- [`MassJ.YieldCurve`](@ref) / [`MassJ.ChromPeak`](@ref)
+- [`MassJ.YieldCurve`](@ref) / [`MassJ.ChromPeak`](@ref) / [`MassJ.Feature`](@ref)
 - [`MassJ.Adduct`](@ref) / [`MassJ.Calibration`](@ref)
 - [`MassJ.FormulaCandidate`](@ref) / [`MassJ.FragmentIon`](@ref)

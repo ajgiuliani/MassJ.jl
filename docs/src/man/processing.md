@@ -130,3 +130,37 @@ p = chrom_peak(chr, 4.5, 5.5)              # targeted integration over [4.5, 5.5
 Detection works best on a smoothed, baseline-corrected trace. The metrics are
 axis-agnostic, so they apply equally to drift-time (mobilogram) and
 compensation-voltage (ionogram) peaks.
+
+## 2-D LC-MS feature detection
+
+[`detect_features`](@ref) extends one-dimensional chromatographic peak detection
+to a full LC-MS run: it finds **features** — ions (a narrow m/z) that elute as a
+chromatographic peak over a range of retention times. Detection follows the
+standard two-step recipe: build *mass traces* (regions of interest that persist
+across consecutive scans at roughly constant m/z), then run [`chrom_peaks`](@ref)
+on each trace, so every shape/quality metric comes for free.
+
+```julia
+feats = detect_features("run.mzML"; ppm = 8, min_scans = 6, snr = 5)
+# or on already-loaded scans:
+feats = detect_features(load("run.mzML"); ppm = 8)
+```
+
+Each [`Feature`](@ref) reports the trace m/z (intensity-weighted), the apex
+retention time and its boundaries, the **area**, **height**, **FWHM**, the number
+of contributing scans, the **S/N**, and the m/z spread of the trace. Key
+parameters: `ppm` (or absolute `mz_tol`) sets the trace-matching tolerance,
+`min_scans` the minimum trace length, `max_gap` the allowed scan gap, and `snr`
+the peak-detection threshold. By default the MS1 scans are used as-is; pass
+`centroid_method` (e.g. `SNRA(...)`) to centroid profile scans first.
+
+[`feature_table`](@ref) gives a [Tables.jl](https://github.com/JuliaData/Tables.jl)
+view of the result, so a feature list drops straight into a `DataFrame` or CSV:
+
+```julia
+using DataFrames
+df = DataFrame(feature_table(feats))
+```
+
+This is a single-run detector; cross-sample alignment / correspondence is future
+work.
