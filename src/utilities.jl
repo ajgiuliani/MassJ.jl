@@ -366,12 +366,15 @@ withunits(args...; kwargs...) =
 
 """
     add_ion_current(x::AbstractArray, y::AbstractArray, a::Real, b::Real)
-Returns sum the ion current (int) within the m/z range defined by the a and b input values.
+Returns the summed ion current (int) for the points whose m/z falls within the
+range `[a, b]`. The m/z axis `x` is assumed sorted ascending. Returns `0.0` when
+no point lies in the window — essential for sparse/centroid spectra, where a
+nearest-index window would otherwise leak the closest out-of-range peak.
 """
 function add_ion_current(x::AbstractArray, y::AbstractArray, a::Real, b::Real)
-    ia = num2pnt(x, a)
-    ib = num2pnt(x, b)
-    return sum( y[ia:ib] )
+    lo = searchsortedfirst(x, a)
+    hi = searchsortedlast(x, b)
+    return lo > hi ? 0.0 : sum(@view y[lo:hi])
 end
 
 
