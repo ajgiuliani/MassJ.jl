@@ -45,11 +45,12 @@ end
 
 """
     scaling(cr::MassJ.IonCurrent)
-Scaling function to display retention times of chromatograms in minutes instead of seconds.
-Other axes (drift time, compensation voltage) are returned unscaled.
+Abscissa values for display, returned as-is. Retention time is taken to be in
+minutes — the convention the mzML loader and the v2 pipeline use — so it is not
+rescaled here; drift time and compensation voltage are likewise unscaled.
 """
 function scaling(cr::IonCurrent)
-    return cr.axis === :rt ? cr.x ./ 60. : cr.x
+    return cr.x
 end
 
 
@@ -223,13 +224,17 @@ as an alias of its own `annotations` attribute.)
     seriescolor --> :red
     label       --> ""
     xlabel      --> "m/z"
+    # base-peak height; fall back to the data max when the file/scan did not record
+    # basePeakIntensity (e.g. mzML without the cvParam) so normalisation never divides by 0.
+    base = ms.basePeakIntensity > 0 ? ms.basePeakIntensity :
+           (isempty(ms.int) ? 1.0 : maximum(ms.int))
     if method == :relative
-        factor = 100. / ms.basePeakIntensity
+        factor = 100. / base
         ymax   = 100.0
         ylabel --> "Intensity (%)"
     else  # :absolute
         factor = 1.0
-        ymax   = ms.basePeakIntensity
+        ymax   = base
         ylabel --> "Intensity (a.u.)"
     end
     if (band === :std || band === :sem) && !isempty(ms.s)
@@ -248,22 +253,21 @@ as an alias of its own `annotations` attribute.)
                                  declutter = declutter, nlabels = nlabels)
         if !isempty(placed)
             ylims --> (0.0, ymax * 1.3)
-            cols  = _label_colors(placed, color_by)
-            off   = 0.015 * ymax
-            annos = [(p.mz, p.y + off,
-                      _textobj(_disp(p; show_mz = show_mz, show_charge = show_charge,
-                                     fmt = annot_fmt), cols[i]))
-                     for (i, p) in enumerate(placed)]
-            htxt  = [_hover(p; fmt = annot_fmt) for p in placed]
+            cols   = _label_colors(placed, color_by)
+            off    = 0.015 * ymax
+            labels = [_textobj(_disp(p; show_mz = show_mz, show_charge = show_charge,
+                                     fmt = annot_fmt), cols[i])
+                      for (i, p) in enumerate(placed)]
+            htxt   = [_hover(p; fmt = annot_fmt) for p in placed]
             @series begin
-                seriestype        := :scatter
-                markersize        := 1
-                markeralpha       := 0.0
-                markerstrokewidth := 0
-                label             := ""
-                annotations       := annos
-                hover             := htxt
-                [p.mz for p in placed], [p.y for p in placed]
+                seriestype         := :scatter
+                primary            := false
+                markersize         := 1
+                markeralpha        := 0.0
+                markerstrokewidth  := 0
+                series_annotations := labels
+                hover              := htxt
+                [p.mz for p in placed], [p.y + off for p in placed]
             end
         end
     end
@@ -339,19 +343,19 @@ trace.
                               declutter = declutter, nlabels = nlabels, fmt = annot_fmt)
         if !isempty(placed)
             ylims --> (0.0, ymax * 1.3)
-            off   = 0.015 * ymax
-            annos = [(p.x, p.y + off, _textobj(p.text, :black)) for p in placed]
-            htxt  = [p.text for p in placed]
+            off    = 0.015 * ymax
+            labels = [_textobj(p.text, :black) for p in placed]
+            htxt   = [p.text for p in placed]
             @series begin
-                seriestype        := :scatter
-                markersize        := 1
-                markeralpha       := 0.0
-                markerstrokewidth := 0
-                fillrange         := nothing
-                label             := ""
-                annotations       := annos
-                hover             := htxt
-                [p.x for p in placed], [p.y for p in placed]
+                seriestype         := :scatter
+                primary            := false
+                markersize         := 1
+                markeralpha        := 0.0
+                markerstrokewidth  := 0
+                fillrange          := nothing
+                series_annotations := labels
+                hover              := htxt
+                [p.x for p in placed], [p.y + off for p in placed]
             end
         end
     end
