@@ -25,15 +25,13 @@ readable. `annot = nothing` (the default) reproduces the plain plot.
 ```julia
 plot(scan, annot = :auto)                        # the most intense peaks (m/z labels)
 plot(scan, annot = [195.09 => "M+H", 217.07 => "M+Na"])  # explicit mz => text
-plot(scan, annot = fragment_ions("PEPTIDE"; ions = (:b, :y), charges = 1:2))
-plot(scan, sequence = "PEPTIDE", ions = (:b, :y))        # shortcut for the line above
 plot(scan, annot = peaks)                         # a Vector of Peak / TargetPeak
 plot(chrom, annot = :auto)                        # chromatographic peaks (chrom_peaks)
 ```
 
 `annot` accepts `:auto` (top peaks of the spectrum, or [`chrom_peaks`](@ref) for a
-trace), a `Vector{FragmentIon}`, a `Vector{<:AbstractPeak}`, a bare m/z (or
-abscissa) vector, or `mz => "text"` pairs. Useful keywords:
+trace), a `Vector{<:AbstractPeak}`, a bare m/z (or abscissa) vector, or
+`mz => "text"` pairs. Useful keywords:
 
 | Keyword | Effect |
 |---------|--------|
@@ -43,7 +41,7 @@ abscissa) vector, or `mz => "text"` pairs. Useful keywords:
 | `show_mz` | append the matched m/z to a text label |
 | `show_charge` | append a charge glyph (e.g. `2+`) for multiply-charged ions |
 | `annot_fmt` | `printf` format for the m/z (default `"%.2f"`) |
-| `color_by` | `:none` (default) or `:group` (colour fragment ions by series) |
+| `color_by` | `:none` (default) or `:group` (colour annotations by group) |
 
 Under an interactive backend (`plotly()`), each labelled peak also carries a
 hover tooltip with its m/z, charge, and label. The keyword is named `annot` (not

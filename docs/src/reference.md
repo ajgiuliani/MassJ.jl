@@ -198,15 +198,6 @@ MassJ.assign_formula
 MassJ.score_isotope_pattern
 ```
 
-## Peptide fragmentation
-```@docs
-MassJ.FragmentIon
-MassJ.fragment_ions
-MassJ.peptide_mass
-MassJ.fragment_peaks
-```
-
-
 ## Energy-resolved yields
 -------------------------
 ```@docs

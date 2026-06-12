@@ -28,14 +28,12 @@ group give worked examples.
 - [`adduct_mz`](@ref) / [`neutral_mass`](@ref)
 - [`calibrate`](@ref)
 - [`assign_formula`](@ref) / [`score_isotope_pattern`](@ref)
-- [`fragment_ions`](@ref) / [`peptide_mass`](@ref)
 
 **Energy-resolved yields**
 - [`yields`](@ref) / [`integrate_window`](@ref) / [`read_peaklist`](@ref)
 - [`normalize_tic`](@ref) / [`normalize_external`](@ref)
 - [`combine_yields`](@ref) / [`shift_x`](@ref) / [`scale_yields`](@ref) / [`recalibrate_x`](@ref)
 - [`trim_yields`](@ref) / [`restrict_x`](@ref) / [`drop_peaks`](@ref)
-- [`fragment_peaks`](@ref)
 
 **Chimeric spectra**
 - [`abundance_matrix`](@ref) / [`partial_correlation`](@ref) / [`cmi_matrix`](@ref)
@@ -53,4 +51,4 @@ group give worked examples.
 - [`MassJ.AbstractPeak`](@ref) / [`MassJ.Peak`](@ref) / [`MassJ.TargetPeak`](@ref)
 - [`MassJ.YieldCurve`](@ref) / [`MassJ.ChromPeak`](@ref) / [`MassJ.Feature`](@ref)
 - [`MassJ.Adduct`](@ref) / [`MassJ.Calibration`](@ref)
-- [`MassJ.FormulaCandidate`](@ref) / [`MassJ.FragmentIon`](@ref)
+- [`MassJ.FormulaCandidate`](@ref)

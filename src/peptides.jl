@@ -23,7 +23,12 @@ fragments ([M+zH]ᶻ⁺) are electron-mass correct. Radical ETD/UVPD variants
 (c·, z·, a+1 …) are requested through the `hshifts` keyword.
 """
 
-export FragmentIon, fragment_ions, peptide_mass
+# Peptide fragment-ion API is intentionally NOT exported in the v2.0.0 (Paper 1)
+# release — it is reserved for the proteomics paper (Paper 2). The code stays in
+# the package and is used internally (yields `fragment_peaks`, the plots
+# `FragmentIon` annotation adapter); only the public API surface is withheld.
+# Restore for the proteomics release:
+# export FragmentIon, fragment_ions, peptide_mass
 
 # Residue elemental formulas (amino acid − H₂O) → monoisotopic masses on the
 # shared element table, so fragment masses match `masses`/`adduct_mz` exactly.

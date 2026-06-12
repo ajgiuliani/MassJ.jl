@@ -6,3 +6,9 @@ docs/Manifest.toml
 CLAUDE.md
 .claude/
 .ipynb_checkpoints/
+
+# editor / tooling backups and autosaves
+*~
+\#*\#
+*.bak
+*.bak-*
