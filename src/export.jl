@@ -1320,10 +1320,7 @@ function _stream_mzml_file_metadata(io::IO, md::Dict{String,Any})
         end
         write(io, "</instrumentConfigurationList>\n")
     else
-        write(io, "<instrumentConfigurationList count=\"1\">\n",
-                  "<instrumentConfiguration id=\"IC1\">\n")
-        _stream_cvParam(io, "MS:1000031", "instrument model")
-        write(io, "</instrumentConfiguration>\n</instrumentConfigurationList>\n")
+        _stream_mzml_default_instrumentConfiguration(io)
     end
 
     # -- dataProcessingList -------------------------------------------------
@@ -1356,6 +1353,32 @@ function _stream_mzml_file_metadata(io::IO, md::Dict{String,Any})
     end
 end
 
+# Default "no specific instrument known" <instrumentConfigurationList>, used by
+# both `_stream_mzml_file_metadata` (when the MSrun has no instrument metadata)
+# and `_stream_mzml_minimal_stub` (bare Vector{MSscans} save). Emits a
+# structurally complete IC with a <componentList> (source / analyzer / detector)
+# carrying the PSI "type" parent cvParams — honestly typed, no fabricated
+# specific model. Tools such as MSFragger and MaxQuant require the componentList
+# to be present.
+function _stream_mzml_default_instrumentConfiguration(io::IO)
+    write(io, "<instrumentConfigurationList count=\"1\">\n",
+              "<instrumentConfiguration id=\"IC1\">\n")
+    _stream_cvParam(io, "MS:1000031", "instrument model")
+    write(io, "<componentList count=\"3\">\n",
+              "<source order=\"1\">\n")
+    _stream_cvParam(io, "MS:1000008", "ionization type")
+    write(io, "</source>\n",
+              "<analyzer order=\"2\">\n")
+    _stream_cvParam(io, "MS:1000443", "mass analyzer type")
+    write(io, "</analyzer>\n",
+              "<detector order=\"3\">\n")
+    _stream_cvParam(io, "MS:1000026", "detector type")
+    write(io, "</detector>\n",
+              "</componentList>\n",
+              "</instrumentConfiguration>\n</instrumentConfigurationList>\n")
+end
+
+
 # Minimal placeholder block used when no metadata is supplied (Vector{MSscans}
 # save without an MSrun). Identical to the pre-MSrun output.
 function _stream_mzml_minimal_stub(io::IO)
@@ -1368,10 +1391,7 @@ function _stream_mzml_minimal_stub(io::IO)
     _stream_cvParam(io, "MS:1000799", "custom unreleased software tool"; value = "MassJ")
     write(io, "</software>\n</softwareList>\n")
 
-    write(io, "<instrumentConfigurationList count=\"1\">\n",
-              "<instrumentConfiguration id=\"IC1\">\n")
-    _stream_cvParam(io, "MS:1000031", "instrument model")
-    write(io, "</instrumentConfiguration>\n</instrumentConfigurationList>\n")
+    _stream_mzml_default_instrumentConfiguration(io)
 
     write(io, "<dataProcessingList count=\"1\">\n",
               "<dataProcessing id=\"MassJExport\">\n",

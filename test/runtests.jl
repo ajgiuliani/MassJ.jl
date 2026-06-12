@@ -2305,6 +2305,48 @@ function test_chimeric()
 end
 
 
+function test_mzml_fallback_ic()
+    @testset "mzML export — fallback instrumentConfiguration has a componentList" begin
+        # Two fallback paths must both emit a structurally complete IC:
+        #   1) bare Vector{MSscans} save → _stream_mzml_minimal_stub
+        #   2) MSrun with no instrument metadata → _stream_mzml_file_metadata else
+        #
+        # Without this, downstream tools (e.g. MSFragger) reject the file with
+        # "specifications regarding hardware used for data acquisition missing".
+        run = MassJ.load("test.mzML")
+        plain = run.scans                                  # Vector{MSscans}
+
+        md_noinstr = copy(run.metadata)
+        delete!(md_noinstr, "instruments")
+        md_noinstr["software"] = get(md_noinstr, "software", Any[Dict("id" => "MassJ")])
+        run_noinstr = MassJ.MSrun(run.scans, md_noinstr, MassJ.IonCurrent[])
+
+        for (label, data) in (("bare Vector{MSscans}", plain),
+                              ("MSrun w/ no instruments", run_noinstr))
+            path = tempname() * ".mzML"
+            MassJ.save_mzml(path, data; compress = false)
+            txt = read(path, String)
+
+            # componentList + the three components must all be present
+            @test occursin("<componentList count=\"3\">", txt)
+            @test occursin("<source order=\"1\">",       txt)
+            @test occursin("<analyzer order=\"2\">",     txt)
+            @test occursin("<detector order=\"3\">",     txt)
+
+            # each component carries a typed cvParam (PSI parent "type" terms)
+            @test occursin("accession=\"MS:1000008\"",   txt)   # ionization type
+            @test occursin("accession=\"MS:1000443\"",   txt)   # mass analyzer type
+            @test occursin("accession=\"MS:1000026\"",   txt)   # detector type
+
+            # IC still wraps the componentList and lives inside its list
+            @test occursin("<instrumentConfigurationList count=\"1\">", txt)
+            @test occursin("<instrumentConfiguration id=\"IC1\">",      txt)
+            rm(path)
+        end
+    end
+end
+
+
 function test_composed_predicates()
     scans = MassJ.load("test.mzXML")
 
@@ -3180,6 +3222,7 @@ test_imzml()
 test_composed_predicates()
 test_new_filters()
 test_export()
+test_mzml_fallback_ic()
 test_text_writers()
 test_cwt()
 test_chimeric()
