@@ -7,6 +7,7 @@ group give worked examples.
 **I/O and selection**
 - [`info`](@ref)
 - [`load`](@ref)
+- [`load_usi`](@ref)
 - [`save`](@ref)
 - [`average`](@ref)
 - [`extract`](@ref)

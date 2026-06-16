@@ -86,6 +86,7 @@ appropriate format reader is selected automatically from the file extension
 MassJ.info(filename::String; verbose::Bool = false)
 MassJ.load(filename::String)
 MassJ.load(paths::AbstractVector{<:AbstractString})
+MassJ.load_usi
 MassJ.retention_time(filename::String)
 MassJ.chromatogram(filename::String, filters::FilterType...; method::MethodType=TIC())
 MassJ.mobilogram

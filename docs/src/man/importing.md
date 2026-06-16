@@ -72,6 +72,28 @@ arguments), grand-averaging everything that is gathered:
 avg = average("run_A/", MassJ.Level(1); type = :mzML)
 ```
 
+## Loading a spectrum by USI
+
+A [Universal Spectrum Identifier (USI)](https://www.psidev.info/usi) is a portable
+reference to a single spectrum held in a public proteomics or metabolomics
+repository — a "permalink" for a spectrum. [`load_usi`](@ref) resolves a USI through
+a PROXI-compliant server and returns it as an [`MassJ.MSscans`](@ref), with the peak
+list, precursor *m/z*, charge, activation, collision energy, and isolation window
+(when the server provides them) populated; the USI and any instrument filter string
+are kept in the spectrum's `metadata`.
+
+```julia
+spec = load_usi("mzspec:PXD000561:Adult_Frontalcortex_bRP_Elite_85_f09:scan:17555")
+spec.precursor[1]    # precursor m/z
+spec.mz, spec.int    # fragment peaks
+```
+
+Network access is required. The default resolver is the ProteomeCentral aggregator,
+which dispatches the USI to the repository hosting it; pass another PROXI endpoint
+with the `resolver` keyword to override it (for example a MassIVE or PeptideAtlas
+URL). `load_usi` throws if the USI is malformed, the resolver is unreachable, or the
+spectrum is not found.
+
 ## Format-specific notes
 
 ### mzXML

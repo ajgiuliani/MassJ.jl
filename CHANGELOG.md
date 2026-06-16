@@ -29,6 +29,13 @@ types changed shape. Functionality is otherwise unchanged.
   `centroid`, `baseline_correction`) accept any `AbstractVector{MSscans}`, so
   they work on an `MSrun` directly.
 
+* ![Feature][badge-feature] `load_usi`: retrieve a single spectrum by its Universal Spectrum
+  Identifier (USI) from a PROXI-compliant server (default the ProteomeCentral aggregator),
+  returning an `MSscans` with precursor / charge / activation / collision-energy /
+  isolation-window metadata. Lets a spectrum be loaded by reference from a public proteomics
+  or metabolomics repository rather than from a local file. Adds `JSON` and `Downloads`
+  dependencies.
+
 * ![Feature][badge-feature] New filters for the per-spectrum information exposed by the mzML
   reader, all composable with the existing filters in a single pass: `ChargeState`,
   `SpectrumType` (`:centroid`/`:profile`), `MobilityType`, a generic `MetaData(key[, value])`

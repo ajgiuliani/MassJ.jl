@@ -2305,6 +2305,41 @@ function test_chimeric()
 end
 
 
+function test_usi()
+    @testset "USI / PROXI retrieval" begin
+        # Offline: parse the saved PROXI response fixture (deterministic, no network)
+        usi = "mzspec:PXD000561:Adult_Frontalcortex_bRP_Elite_85_f09:scan:17555"
+        data = MassJ.JSON.parse(read(joinpath(@__DIR__, "usi_sample.json"), String))
+        spec = MassJ._msscans_from_proxi(data[1], usi)
+        @test length(spec.mz) == 564
+        @test length(spec.int) == 564
+        @test spec.precursor[1] ≈ 767.9739
+        @test spec.chargeState[1] == 2
+        @test spec.level[1] == 2
+        @test spec.activationMethod[1] == "HCD"
+        @test spec.collisionEnergy[1] == 32.0
+        @test spec.spectrumType == :centroid
+        @test spec.metadata["usi"] == usi
+        @test spec.metadata["isolation_window_target_mz"] ≈ 767.97
+
+        # helpers
+        @test MassJ._percent_encode("mzspec:PXD:f:scan:1/2") == "mzspec%3APXD%3Af%3Ascan%3A1%2F2"
+        fl = MassJ._parse_filter_string("FTMS + p NSI d Full ms2 767.97@hcd32.00 [110.00-1550.00]")
+        @test fl.level == 2 && fl.activation == "HCD" && fl.ce == 32.0 && fl.polarity == "+"
+
+        # a non-USI string is rejected before any network access
+        @test_throws ErrorException MassJ.load_usi("not-a-usi")
+
+        # Live retrieval over the network is opt-in (set MASSJ_TEST_USI_LIVE=true)
+        if get(ENV, "MASSJ_TEST_USI_LIVE", "false") == "true"
+            live = MassJ.load_usi(usi)
+            @test length(live.mz) == 564
+            @test live.precursor[1] ≈ 767.9739
+        end
+    end
+end
+
+
 function test_mzml_fallback_ic()
     @testset "mzML export — fallback instrumentConfiguration has a componentList" begin
         # Two fallback paths must both emit a structurally complete IC:
@@ -3223,6 +3258,7 @@ test_composed_predicates()
 test_new_filters()
 test_export()
 test_mzml_fallback_ic()
+test_usi()
 test_text_writers()
 test_cwt()
 test_chimeric()
