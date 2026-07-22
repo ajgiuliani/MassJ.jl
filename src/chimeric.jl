@@ -183,3 +183,258 @@ function cluster_spectra(mz::AbstractVector{<:Real}, X::AbstractMatrix{<:Real},
     end
     return out
 end
+
+
+# =====================================================================
+#  Conditioned-association significance, FDR gating, and the hands-off
+#  correspondence pipeline. These add a per-edge statistical confidence to
+#  the score matrices above (partial_correlation / cmi_matrix), so the ion
+#  grouping can be gated by significance rather than a hand-picked threshold.
+# =====================================================================
+
+export covariance_matrix, jackknife_significance, permutation_significance,
+       fdr_adjust, correspondence
+
+
+"""
+    covariance_matrix(X; corrected = true)
+
+Symmetric `M × M` sample covariance between the columns (m/z variables) of the
+abundance matrix `X` (rows = acquisitions) — the classical covariance map. The
+diagonal holds each variable's variance; `corrected = false` divides by `N`
+instead of `N - 1`. Unlike [`partial_correlation`](@ref) it applies no
+conditioning, so a common intensity fluctuation shared by every ion appears as a
+positive background; condition it out with `partial_correlation` (linear) or
+`cmi_matrix` (information-theoretic) when that matters.
+"""
+function covariance_matrix(X::AbstractMatrix{<:Real}; corrected::Bool = true)
+    N = size(X, 1)
+    N > 1 || error("covariance_matrix: need at least two acquisitions.")
+    Xc = X .- mean(X, dims = 1)
+    return (Xc' * Xc) ./ (corrected ? (N - 1) : N)
+end
+
+
+# Two-sided standard-normal tail p = erfc(|z|/√2), via the Abramowitz & Stegun
+# 7.1.26 erf approximation (|error| < 1.5e-7) — no SpecialFunctions dependency.
+function _normal_sf2(z::Real)
+    x = abs(z) / sqrt(2)
+    t = 1 / (1 + 0.3275911 * x)
+    erf = 1 - (((((1.061405429t - 1.453152027)t + 1.421413741)t -
+                 0.284496736)t + 0.254829592)t) * exp(-x * x)
+    return clamp(1 - erf, 0.0, 1.0)          # erfc(x) for x ≥ 0
+end
+_z_to_p(z::Real) = isnan(z) ? 1.0 : (isinf(z) ? 0.0 : _normal_sf2(z))
+
+
+# M×M pairwise statistic among the first `M` columns from the sufficient
+# statistics (column sums `s1`, Gram matrix `S2`) computed on `n` rows.
+# For :pcorr the control occupies the last column (index length(s1)).
+function _pairwise_stat(s1::AbstractVector, S2::AbstractMatrix, n::Integer,
+                        statistic::Symbol, M::Integer)
+    Cov = (S2 .- (s1 * s1') ./ n) ./ (n - 1)          # P×P
+    statistic === :covariance && return Cov[1:M, 1:M]
+    sd = sqrt.(max.(diag(Cov), 0.0))
+    R = Cov ./ (sd * sd')
+    R[.!isfinite.(R)] .= 0.0
+    statistic === :correlation && return R[1:M, 1:M]
+    c  = length(s1)                                    # control column
+    rc = R[1:M, c]
+    denom = sqrt.((1 .- rc .^ 2) * (1 .- rc .^ 2)')
+    P = (R[1:M, 1:M] .- rc * rc') ./ denom
+    P[.!isfinite.(P)] .= 0.0
+    return P
+end
+
+
+"""
+    jackknife_significance(X; statistic = :pcorr, control = vec(sum(X, dims = 2)))
+
+Delete-one jackknife significance of a pairwise association between the columns of
+the abundance matrix `X`. Returns a named tuple `(estimate, se, z)` of `M × M`
+matrices: the full-sample statistic, its jackknife standard error
+(`√((N-1)/N · Σ(θₖ − θ̄)²)` over the leave-one-out replicates `θₖ`), and the
+z-score `estimate / se`. A large `|z|` marks a pair whose association is stable
+under leave-one-out resampling — i.e. supported by the whole series rather than a
+single outlier acquisition, the failure mode that inflates raw covariance.
+
+`statistic` is `:covariance`, `:correlation`, or `:pcorr` (partial correlation
+conditioned on `control`, the per-acquisition TIC by default). Convert the z-score
+to a two-sided p-value with the standard-normal tail. Cost is `O(N·M²)`; for very
+large `M` (profile-resolution maps) prefer the windowed feature route.
+"""
+function jackknife_significance(X::AbstractMatrix{<:Real};
+                                statistic::Symbol = :pcorr,
+                                control::AbstractVector{<:Real} = vec(sum(X, dims = 2)))
+    statistic in (:covariance, :correlation, :pcorr) ||
+        error("jackknife_significance: statistic must be :covariance, :correlation, or :pcorr.")
+    N, M = size(X)
+    N > 2 || error("jackknife_significance: need at least three acquisitions.")
+    D  = statistic === :pcorr ? hcat(float.(X), float.(control)) : float.(X)
+    s1 = vec(sum(D, dims = 1))
+    S2 = D' * D
+    est  = _pairwise_stat(s1, S2, N, statistic, M)
+    acc  = zeros(Float64, M, M)
+    acc2 = zeros(Float64, M, M)
+    for k in 1:N
+        d   = D[k, :]
+        θ   = _pairwise_stat(s1 .- d, S2 .- d * d', N - 1, statistic, M)
+        acc  .+= θ
+        acc2 .+= θ .^ 2
+    end
+    θbar = acc ./ N
+    v    = max.(((N - 1) / N) .* (acc2 .- N .* θbar .^ 2), 0.0)
+    se   = sqrt.(v)
+    return (estimate = est, se = se, z = est ./ se)
+end
+
+
+"""
+    permutation_significance(X; statistic = :cmi, condition = vec(sum(X, dims = 2)),
+                             nperm = 200, rng = Random.default_rng(),
+                             tail = :greater, kwargs...)
+
+Permutation significance of a pairwise association between the columns of `X`.
+Returns `(estimate, pvalue)` of `M × M` matrices. The null is built by
+independently permuting each column of `X` (destroying inter-column association
+while preserving each variable's marginal), recomputing the statistic `nperm`
+times, and counting how often the null reaches the observed value:
+`p = (1 + #{null ⋈ obs}) / (nperm + 1)`. This is the significance route for a
+statistic whose null is not zero-centred, notably conditional mutual information
+(`:cmi`, requires `EntropyInvariant`), where a jackknife z-score does not apply.
+`statistic` is `:cmi`, `:pcorr`, `:correlation`, or `:covariance`; `tail` is
+`:greater` (non-negative statistics like CMI) or `:two` (signed statistics).
+
+Note: the null permutes columns unconditionally, so it tests association beyond
+chance rather than a strict conditional-independence null; extra `kwargs` are
+forwarded to `cmi_matrix`.
+"""
+function permutation_significance(X::AbstractMatrix{<:Real};
+                                  statistic::Symbol = :cmi,
+                                  condition::AbstractVector{<:Real} = vec(sum(X, dims = 2)),
+                                  nperm::Integer = 200,
+                                  rng = Random.default_rng(),
+                                  tail::Symbol = :greater, kwargs...)
+    N, M = size(X)
+    statfun =
+        statistic === :cmi         ? (Xm -> cmi_matrix(Xm; condition = condition, kwargs...)) :
+        statistic === :pcorr       ? (Xm -> partial_correlation(Xm; control = condition))     :
+        statistic === :correlation ? (Xm -> cor(Xm))                                          :
+        statistic === :covariance  ? (Xm -> covariance_matrix(Xm))                            :
+        error("permutation_significance: statistic must be :cmi, :pcorr, :correlation, or :covariance.")
+    obs    = statfun(X)
+    cmpobs = tail === :two ? abs.(obs) : obs
+    cnt    = zeros(Int, M, M)
+    Xp     = Matrix{Float64}(undef, N, M)
+    for _ in 1:nperm
+        for j in 1:M
+            col = @view Xp[:, j]
+            copyto!(col, @view X[:, j])
+            shuffle!(rng, col)
+        end
+        ns   = statfun(Xp)
+        cmpn = tail === :two ? abs.(ns) : ns
+        cnt .+= (cmpn .>= cmpobs)
+    end
+    return (estimate = obs, pvalue = (1 .+ cnt) ./ (nperm + 1))
+end
+
+
+"""
+    fdr_adjust(P; q = 0.05)
+
+Benjamini-Hochberg false-discovery-rate control over the pairwise p-value matrix
+`P` (symmetric, `M × M`). Only the unique upper-triangle pairs (`i < j`) are tested;
+the diagonal is never significant. Returns `(significant, qvalue)`: a symmetric
+`BitMatrix` of edges whose BH q-value is ≤ `q`, and the symmetric matrix of BH
+q-values (1.0 on untested cells). Use it to keep only edges whose association
+survives multiple-comparison correction before clustering.
+"""
+function fdr_adjust(P::AbstractMatrix{<:Real}; q::Real = 0.05)
+    M   = size(P, 1)
+    idx = [(i, j) for i in 1:M for j in i+1:M]
+    pv  = [P[i, j] for (i, j) in idx]
+    m   = length(pv)
+    m == 0 && return (significant = falses(M, M), qvalue = fill(1.0, M, M))
+    ord  = sortperm(pv)
+    qval = fill(1.0, m)
+    minq = 1.0
+    for r in m:-1:1
+        k    = ord[r]
+        minq = min(minq, pv[k] * m / r)
+        qval[k] = min(minq, 1.0)
+    end
+    sig = falses(M, M)
+    Q   = fill(1.0, M, M)
+    for (t, (i, j)) in enumerate(idx)
+        Q[i, j] = Q[j, i] = qval[t]
+        if qval[t] <= q
+            sig[i, j] = sig[j, i] = true
+        end
+    end
+    return (significant = sig, qvalue = Q)
+end
+
+
+"""
+    correspondence(spectra; score = :pcorr, significance = :jackknife, q = 0.05,
+                   binsize = 1.0, threshold = 0.01, mzrange = nothing,
+                   control = nothing, nperm = 200, rng = Random.default_rng(),
+                   nclusters = nothing, linkage = :ward, kwargs...)
+
+Hands-off decomposition of a chimeric / multiplexed spectral series into
+per-precursor spectra, gating the association graph by statistical significance so
+the grouping needs no manually chosen correlation threshold.
+
+Pipeline: [`abundance_matrix`](@ref) → association score (`:pcorr`, `:covariance`,
+or `:cmi`) with its per-edge significance (`:jackknife` z→p for the correlation
+family, `:permutation` for `:cmi`) → Benjamini-Hochberg FDR gate at level `q`
+([`fdr_adjust`](@ref)) → [`cluster_ions`](@ref) on the significant-edge graph →
+[`cluster_spectra`](@ref). `control` defaults to the per-acquisition TIC. Requires
+the `Clustering` package (and `EntropyInvariant` when `score = :cmi`).
+
+Returns `(labels, spectra, score, pvalue, significant, mz)`.
+"""
+function correspondence(spectra::AbstractVector{MSscans};
+                        score::Symbol = :pcorr,
+                        significance::Symbol = (score === :cmi ? :permutation : :jackknife),
+                        q::Real = 0.05, binsize::Real = 1.0, threshold::Real = 0.01,
+                        mzrange = nothing, control = nothing,
+                        nperm::Integer = 200, rng = Random.default_rng(),
+                        nclusters = nothing, linkage::Symbol = :ward, kwargs...)
+    am   = abundance_matrix(spectra; binsize = binsize, threshold = threshold, mzrange = mzrange)
+    X, mz = am.matrix, am.mz
+    ctrl = control === nothing ? am.tic : control
+
+    S, kind =
+        score === :pcorr      ? (partial_correlation(X; control = ctrl), :correlation) :
+        score === :covariance ? (covariance_matrix(X),                   :correlation) :
+        score === :cmi        ? (cmi_matrix(X; condition = ctrl, kwargs...), :cmi)      :
+        error("correspondence: score must be :pcorr, :covariance, or :cmi.")
+
+    p = if significance === :jackknife
+        _z_to_p.(jackknife_significance(X; statistic = score, control = ctrl).z)
+    elseif significance === :permutation
+        permutation_significance(X; statistic = score, condition = ctrl, nperm = nperm,
+                                 rng = rng, tail = (score === :cmi ? :greater : :two),
+                                 kwargs...).pvalue
+    else
+        error("correspondence: significance must be :jackknife or :permutation.")
+    end
+
+    fg = fdr_adjust(p; q = q)
+    gated = if any(fg.significant)
+        g = S .* fg.significant
+        @inbounds for i in axes(g, 1)          # restore self-similarity for clustering
+            g[i, i] = S[i, i]
+        end
+        g
+    else
+        @warn "correspondence: no edges survived FDR gating at q=$q; clustering on the " *
+              "ungated score. Try a larger nperm, a looser q, or more acquisitions."
+        copy(S)
+    end
+    labels = cluster_ions(gated; kind = kind, nclusters = nclusters, linkage = linkage)
+    return (labels = labels, spectra = cluster_spectra(mz, X, labels),
+            score = S, pvalue = p, significant = fg.significant, mz = mz)
+end
