@@ -227,12 +227,40 @@ matrices feed hierarchical clustering to group ions by precursor.
 [`MassJ.cluster_ions`](@ref) requires `Clustering`; both are loaded on demand as
 package extensions.
 
+Each association can carry a per-edge significance — a leave-one-out
+[`MassJ.jackknife_significance`](@ref) z-score for the covariance/correlation family,
+or a [`MassJ.permutation_significance`](@ref) p-value for conditional mutual
+information — which [`MassJ.fdr_adjust`](@ref) turns into a Benjamini-Hochberg gate.
+[`MassJ.correspondence`](@ref) chains the whole pipeline (abundance matrix → score →
+significance → FDR gate → clustering → per-precursor spectra) into one hands-off call.
+
 ```@docs
 MassJ.abundance_matrix
 MassJ.partial_correlation
+MassJ.covariance_matrix
 MassJ.cmi_matrix
+MassJ.jackknife_significance
+MassJ.permutation_significance
+MassJ.fdr_adjust
 MassJ.cluster_ions
 MassJ.cluster_spectra
+MassJ.correspondence
+```
+
+
+## Covariance maps and fragment-pair features
+---------------------------------------------
+The pairwise route, complementary to the clustering above: pick correlated
+fragment-ion *pairs* off a two-dimensional association map, integrate each pair's
+covariance volume, and rate it by a leave-one-out jackknife signal-to-noise. Plot the
+map with [`MassJ.plots.covmap`](@ref) or the framed figure
+[`MassJ.plots.covmap_marginal`](@ref).
+
+```@docs
+MassJ.cut_autocorrelation
+MassJ.MapFeature
+MassJ.map_features
+MassJ.covariance_features
 ```
 
 

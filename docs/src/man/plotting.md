@@ -84,3 +84,29 @@ swamps the axes — use [`drop_peaks`](@ref):
 plot(drop_peaks(yc, "precursor"))
 plot(drop_peaks(yc, ["precursor", "solvent"]))
 ```
+
+## Covariance / association maps
+
+A square association map (from [`covariance_matrix`](@ref),
+[`partial_correlation`](@ref), or [`cmi_matrix`](@ref)) is drawn as a diverging
+heatmap centred on zero, so positive (same-precursor) and negative
+(different-precursor) associations read symmetrically:
+
+```julia
+using MassJ.plots, Plots
+A = covariance_matrix(am.matrix)
+covmap(cut_autocorrelation(A), am.mz)       # heatmap; suppress the diagonal first
+```
+
+[`MassJ.plots.covmap_marginal`](@ref) draws the classic covariance-mapping figure —
+the map as a central heatmap with the 1-D marginal spectrum above (shared m/z on the
+x-axis) and to the left (shared m/z on the y-axis), so a cross-peak lines up with the
+two ions that produced it:
+
+```julia
+covmap_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
+```
+
+Both work with any Plots backend — `gr()` for print figures, `plotly()` for
+interactive notebooks. See [Chimeric tandem mass spectra](@ref) for the analysis that
+produces the map and its picked pairs.

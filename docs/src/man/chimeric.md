@@ -73,6 +73,64 @@ elbow of the within-cluster sum of squares, or fixed with `nclusters`.
 [`cluster_spectra`](@ref) then averages each cluster's bins across the
 acquisitions to produce one [`MassJ.MSscans`](@ref) per precursor.
 
+## Significance and hands-off correspondence
+
+Any association can carry a *per-edge significance*, so the grouping can be gated by
+statistical confidence rather than a hand-picked score threshold. Two resampling
+routes are provided:
+
+- [`jackknife_significance`](@ref) — a delete-one jackknife giving each pair an
+  `(estimate, se, z)`. A large `|z|` marks a co-variation supported by the whole
+  series rather than a single outlier acquisition (the failure mode that inflates raw
+  covariance). Use it for the covariance / correlation family (`:covariance`,
+  `:correlation`, `:pcorr`).
+- [`permutation_significance`](@ref) — a column-permutation p-value, the correct route
+  for a statistic whose null is not zero-centred, notably conditional mutual
+  information (`:cmi`).
+
+[`fdr_adjust`](@ref) turns a p-value matrix into a Benjamini-Hochberg gate at a chosen
+FDR level, keeping only edges that survive multiple-comparison correction over the
+``M(M-1)/2`` pairs. [`correspondence`](@ref) chains all of it into one call —
+abundance matrix → score → significance → FDR gate → clustering → per-precursor
+spectra:
+
+```julia
+res = correspondence(scans; score = :pcorr, significance = :jackknife, q = 0.05)
+res.labels        # cluster label per ion (as from cluster_ions)
+res.spectra       # Vector{MSscans}, one resolved precursor each
+res.significant   # BitMatrix of the FDR-surviving edges
+```
+
+With `score = :cmi` it uses the permutation route automatically. If no edge survives
+the gate it warns and falls back to the ungated score, so you always get a result.
+
+## Covariance maps and fragment pairs
+
+Instead of *grouping* ions, the covariance-mapping route reports individual correlated
+*pairs*. [`covariance_matrix`](@ref) builds the map and [`covariance_features`](@ref)
+picks its peaks and quantifies each:
+
+```julia
+feats = covariance_features(scans; normalize = :tic, nfeatures = 50)
+# each MapFeature :: (mz1, mz2, value, volume, snr), sorted by jackknife S/N
+```
+
+`normalize = :tic` divides each spectrum by its total ion current before the
+covariance — a simple, unconditioned way to damp the common intensity fluctuation (it
+uses no conditioning model). Internally [`map_features`](@ref) does the 2-D
+peak-picking after [`cut_autocorrelation`](@ref) suppresses the diagonal; each pair's
+volume is a windowed 2-D integral of the covariance, and its `snr` is a leave-one-out
+jackknife of that volume. `map_features` works on any symmetric map, so you can also
+pick pairs off a `partial_correlation` or `cmi_matrix`. Visualise the map with the
+classic marginal-spectrum figure [`MassJ.plots.covmap_marginal`](@ref):
+
+```julia
+using MassJ.plots, Plots
+am = abundance_matrix(scans; binsize = 1.0)
+A  = covariance_matrix(am.matrix ./ max.(am.tic, 1))    # TIC-normalised
+covmap_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
+```
+
 ## Optional dependencies
 
 The scoring step [`cmi_matrix`](@ref) and the clustering step
