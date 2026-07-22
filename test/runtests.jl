@@ -2472,14 +2472,14 @@ function test_association_maps()
         @test all(f.value > 0 for f in pf)               # positive partial correlations
     end
 
-    @testset "Association maps - covmap plot recipes" begin
+    @testset "Association maps - association_map plot recipes" begin
         gr()
         A = MassJ.covariance_matrix(X)
-        @test MassJ.plots.covmap(A, am.mz) isa Plots.Plot
-        @test MassJ.plots.covmap(MassJ.cut_autocorrelation(A), am.mz) isa Plots.Plot
-        @test MassJ.plots.covmap_marginal(A, am.mz, vec(sum(X, dims = 1))) isa Plots.Plot
-        @test MassJ.plots.covmap_marginal(A, am.mz) isa Plots.Plot   # default √diag marginal
-        @test_throws ErrorException MassJ.plots.covmap_marginal(A, am.mz[1:2])
+        @test MassJ.plots.association_map(A, am.mz) isa Plots.Plot
+        @test MassJ.plots.association_map(MassJ.cut_autocorrelation(A), am.mz) isa Plots.Plot
+        @test MassJ.plots.association_map_marginal(A, am.mz, vec(sum(X, dims = 1))) isa Plots.Plot
+        @test MassJ.plots.association_map_marginal(A, am.mz) isa Plots.Plot   # default √diag marginal
+        @test_throws ErrorException MassJ.plots.association_map_marginal(A, am.mz[1:2])
     end
 end
 

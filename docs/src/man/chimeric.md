@@ -122,13 +122,13 @@ peak-picking after [`cut_autocorrelation`](@ref) suppresses the diagonal; each p
 volume is a windowed 2-D integral of the covariance, and its `snr` is a leave-one-out
 jackknife of that volume. `map_features` works on any symmetric map, so you can also
 pick pairs off a `partial_correlation` or `cmi_matrix`. Visualise the map with the
-classic marginal-spectrum figure [`MassJ.plots.covmap_marginal`](@ref):
+classic marginal-spectrum figure [`MassJ.plots.association_map_marginal`](@ref):
 
 ```julia
 using MassJ.plots, Plots
 am = abundance_matrix(scans; binsize = 1.0)
 A  = covariance_matrix(am.matrix ./ max.(am.tic, 1))    # TIC-normalised
-covmap_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
+association_map_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
 ```
 
 ## Optional dependencies

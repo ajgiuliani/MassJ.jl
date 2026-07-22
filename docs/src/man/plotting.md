@@ -95,16 +95,16 @@ heatmap centred on zero, so positive (same-precursor) and negative
 ```julia
 using MassJ.plots, Plots
 A = covariance_matrix(am.matrix)
-covmap(cut_autocorrelation(A), am.mz)       # heatmap; suppress the diagonal first
+association_map(cut_autocorrelation(A), am.mz)       # heatmap; suppress the diagonal first
 ```
 
-[`MassJ.plots.covmap_marginal`](@ref) draws the classic covariance-mapping figure —
+[`MassJ.plots.association_map_marginal`](@ref) draws the classic covariance-mapping figure —
 the map as a central heatmap with the 1-D marginal spectrum above (shared m/z on the
 x-axis) and to the left (shared m/z on the y-axis), so a cross-peak lines up with the
 two ions that produced it:
 
 ```julia
-covmap_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
+association_map_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
 ```
 
 Both work with any Plots backend — `gr()` for print figures, `plotly()` for

@@ -450,71 +450,85 @@ Equivalent to `plot!`-ing each peak in turn; see `pk` for a single peak.
 end
 
 
-export covmap, covmap_marginal
+export association_map, association_map_marginal
+
+# Colour scheme + limits for an association map: a diverging scale centred on zero for
+# a signed map (covariance, correlation) and a sequential scale from zero for a
+# non-negative one (conditional mutual information). Explicit `color`/`clims` win.
+function _map_colorscale(M; color = nothing, clims = nothing)
+    signed = minimum(M) < 0
+    m = maximum(abs, M)
+    color === nothing && (color = signed ? :RdBu : :viridis)
+    if clims === nothing
+        clims = signed ? (m > 0 ? (-m, m) : (-1.0, 1.0)) : (0.0, m > 0 ? float(m) : 1.0)
+    end
+    return color, clims
+end
 
 """
-    covmap(A, mz; kwargs...)
-    covmap(A; kwargs...)
+    association_map(A, mz = 1:size(A,1); cut = true, halfwidth = 1,
+                    color = nothing, clims = nothing, kwargs...)
 
-Heatmap of a square association map `A` (covariance, `partial_correlation`, or
-`cmi_matrix`), with its columns indexed by `mz` (defaults to `1:size(A,1)`). Uses a
-diverging colour scale centred on zero so positive (same-precursor) and negative
-(different-precursor) associations read symmetrically. Overlay the picked pairs with
-`scatter!` on the `MapFeature` `mz1`/`mz2`. For the framed figure with marginal
-spectra use [`covmap_marginal`](@ref).
+Heatmap of a square association map `A` — a covariance ([`covariance_matrix`](@ref)),
+correlation ([`partial_correlation`](@ref)), or conditional-mutual-information
+([`cmi_matrix`](@ref)) matrix — with its columns indexed by `mz`. A signed map gets a
+diverging colour scale centred on zero (positive = same precursor, negative =
+different); a non-negative map (CMI) gets a sequential scale from zero. `cut`
+suppresses the autocorrelation diagonal band (half-width `halfwidth`) so cross-peaks
+are visible. Override the scheme with `color`/`clims`. Returns a `Plots.Plot`; overlay
+picked pairs with `scatter!` on the `MapFeature` `mz1`/`mz2`. For the framed figure
+with marginal spectra see [`association_map_marginal`](@ref).
 
 ```julia
 using MassJ.plots
-A = MassJ.covariance_matrix(X)
-covmap(MassJ.cut_autocorrelation(A), mz)
+association_map(MassJ.covariance_matrix(X), mz)   # or a partial_correlation / cmi_matrix map
 ```
 """
-@userplot CovMap
-@recipe function f(h::CovMap)
-    A  = h.args[1]
-    mz = length(h.args) >= 2 ? h.args[2] : collect(1.0:size(A, 1))
-    seriestype := :heatmap
-    xguide --> "m/z"
-    yguide --> "m/z"
-    m = maximum(abs, A)
-    m > 0 && (clims --> (-m, m))
-    color --> :RdBu
-    colorbar_title --> "association"
-    mz, mz, A
+function association_map(A::AbstractMatrix{<:Real},
+                         mz::AbstractVector{<:Real} = 1:size(A, 1);
+                         cut::Bool = true, halfwidth::Integer = 1,
+                         color = nothing, clims = nothing, kwargs...)
+    n = checksquare(A)
+    length(mz) == n || error("association_map: length(mz) must equal size(A,1) = $n.")
+    M = cut ? cut_autocorrelation(A; halfwidth = halfwidth) : A
+    c, cl = _map_colorscale(M; color = color, clims = clims)
+    return heatmap(mz, mz, M; color = c, clims = cl, xguide = "m/z", yguide = "m/z",
+                   colorbar_title = "association", kwargs...)
 end
 
 
 """
-    covmap_marginal(A, mz, intensity = sqrt.(max.(diag(A), 0)); cut = true,
-                    halfwidth = 1, color = :RdBu, size = (720, 720), kwargs...)
+    association_map_marginal(A, mz, intensity = sqrt.(max.(diag(A), 0)); cut = true,
+                             halfwidth = 1, color = nothing, clims = nothing,
+                             size = (720, 720), kwargs...)
 
 The classic covariance-mapping figure: the square association map `A` as a central
-diverging heatmap, with the 1-D marginal spectrum `intensity` (length `size(A,1)`)
-drawn *above* it (sharing the m/z x-axis) and to its *left* (sharing the m/z y-axis),
-so a cross-peak lines up with the two ions that produced it. `intensity` defaults to
-the per-bin standard deviation (√ of `A`'s diagonal); pass the averaged or summed
-series spectrum for a data marginal. `cut` suppresses the autocorrelation band
-(half-width `halfwidth`) in the heatmap so cross-peaks are visible. Returns a
-`Plots.Plot` and works with any backend (`gr()` for print, `plotly()` for
-interactive). Extra `kwargs` pass through to the composite plot.
+heatmap (coloured as in [`association_map`](@ref)), with the 1-D marginal spectrum
+`intensity` (length `size(A,1)`) drawn *above* it (sharing the m/z x-axis) and to its
+*left* (sharing the m/z y-axis), so a cross-peak lines up with the two ions that
+produced it. `intensity` defaults to the per-bin standard deviation (√ of `A`'s
+diagonal), which is meaningful for a *covariance* map; for a correlation or CMI map
+pass the averaged or summed series spectrum instead. `cut` suppresses the
+autocorrelation band (half-width `halfwidth`). Returns a `Plots.Plot` and works with
+any backend (`gr()` for print, `plotly()` for interactive).
 
 ```julia
 using MassJ.plots
 am = MassJ.abundance_matrix(scans; binsize = 1.0)
 A  = MassJ.covariance_matrix(am.matrix ./ max.(am.tic, 1))   # TIC-normalised
-covmap_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
+association_map_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
 ```
 """
-function covmap_marginal(A::AbstractMatrix{<:Real}, mz::AbstractVector{<:Real},
-                         intensity::AbstractVector{<:Real} = sqrt.(max.(diag(A), 0.0));
-                         cut::Bool = true, halfwidth::Integer = 1,
-                         color = :RdBu, size = (720, 720), kwargs...)
+function association_map_marginal(A::AbstractMatrix{<:Real}, mz::AbstractVector{<:Real},
+                                  intensity::AbstractVector{<:Real} = sqrt.(max.(diag(A), 0.0));
+                                  cut::Bool = true, halfwidth::Integer = 1,
+                                  color = nothing, clims = nothing,
+                                  size = (720, 720), kwargs...)
     n = checksquare(A)
     (length(mz) == n && length(intensity) == n) ||
-        error("covmap_marginal: mz and intensity must have length size(A,1) = $n.")
-    Mheat = cut ? cut_autocorrelation(A; halfwidth = halfwidth) : A
-    m  = maximum(abs, Mheat)
-    cl = m > 0 ? (-m, m) : (-1.0, 1.0)
+        error("association_map_marginal: mz and intensity must have length size(A,1) = $n.")
+    M = cut ? cut_autocorrelation(A; halfwidth = halfwidth) : A
+    c, cl = _map_colorscale(M; color = color, clims = clims)
     xl = (float(first(mz)), float(last(mz)))
 
     top = plot(mz, intensity; xlims = xl, legend = false, grid = false,
@@ -523,7 +537,7 @@ function covmap_marginal(A::AbstractMatrix{<:Real}, mz::AbstractVector{<:Real},
     left = plot(intensity, mz; ylims = xl, xflip = true, legend = false, grid = false,
                 framestyle = :box, ticks = false, linecolor = :steelblue, fillrange = 0,
                 fillalpha = 0.15, fillcolor = :steelblue)
-    hm = heatmap(mz, mz, Mheat; color = color, clims = cl, xlims = xl, ylims = xl,
+    hm = heatmap(mz, mz, M; color = c, clims = cl, xlims = xl, ylims = xl,
                  xguide = "m/z", yguide = "m/z", colorbar_title = "association")
 
     lay = @layout [ _         t{0.80w,0.20h}

@@ -253,8 +253,8 @@ MassJ.correspondence
 The pairwise route, complementary to the clustering above: pick correlated
 fragment-ion *pairs* off a two-dimensional association map, integrate each pair's
 covariance volume, and rate it by a leave-one-out jackknife signal-to-noise. Plot the
-map with [`MassJ.plots.covmap`](@ref) or the framed figure
-[`MassJ.plots.covmap_marginal`](@ref).
+map with [`MassJ.plots.association_map`](@ref) or the framed figure
+[`MassJ.plots.association_map_marginal`](@ref).
 
 ```@docs
 MassJ.cut_autocorrelation
