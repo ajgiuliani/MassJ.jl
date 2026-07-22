@@ -19,6 +19,7 @@ using Libz                 # used for zlib compression (mzxml import)
 using ProgressMeter        # used in deconvolution
 using DelimitedFiles       # used in txt file import
 using SHA                  # used for fileChecksum in indexed mzML export
+using Random               # used for permutation significance (chimeric)
 
 import Base: +, -, *, /
 
@@ -49,6 +50,7 @@ include("usi.jl")
 include("yields.jl")
 include("export.jl")
 include("chimeric.jl")
+include("association_maps.jl")
 include("interop.jl")
 
 
