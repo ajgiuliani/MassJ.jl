@@ -84,7 +84,7 @@ of radius `clearradius` around it (and its mirror). Stops at `nfeatures` or once
 largest remaining value falls to `minvalue`. With `cut = true` the autocorrelation
 band (half-width `halfwidth`) is suppressed first; `edge` skips peaks within that many
 pixels of the border (so an integration window fits later). Works on any symmetric
-map (covariance, `partial_correlation`, `cmi_matrix`). Returns features by descending
+map (covariance, `pcor`, `cmi`). Returns features by descending
 value with `volume`/`snr` left `NaN` — fill them via [`covariance_features`](@ref).
 """
 function map_features(A::AbstractMatrix{<:Real}, mz::AbstractVector{<:Real};
@@ -114,27 +114,28 @@ function map_features(A::AbstractMatrix{<:Real}, mz::AbstractVector{<:Real};
 end
 
 
-# Windowed covariance between column-sets from sufficient statistics.
-_covwin(G, sr, sc, n) = (G .- sr * sc' ./ n) ./ (n - 1)
 # Volume = sum of positive covariance over the window (a fixed-window 2-D integral).
 _winvolume(cw) = sum(x -> max(x, 0.0), cw)
 
-# Volume + jackknife S/N of the covariance peak at (i,j) over a ±window box.
+# Volume + jackknife S/N of the covariance peak at (i,j) over a ±window box, reusing
+# `cov` (Statistics) on the window columns (no separate covariance implementation).
 function _quantify(X::AbstractMatrix{<:Real}, i::Integer, j::Integer,
                    w::Integer, jackknife::Bool)
     N, M = size(X)
-    R = clamp(i - w, 1, M):clamp(i + w, 1, M)
-    C = clamp(j - w, 1, M):clamp(j + w, 1, M)
-    XR = X[:, R]; XC = X[:, C]
-    sR = vec(sum(XR, dims = 1)); sC = vec(sum(XC, dims = 1))
-    G  = XR' * XC
-    vol = _winvolume(_covwin(G, sR, sC, N))
+    R    = clamp(i - w, 1, M):clamp(i + w, 1, M)
+    C    = clamp(j - w, 1, M):clamp(j + w, 1, M)
+    cols = unique(vcat(collect(R), collect(C)))
+    ri   = findall(in(R), cols)              # positions of the R / C columns within `cols`
+    ci   = findall(in(C), cols)
+    block(rows) = view(cov(view(X, rows, cols)), ri, ci)
+    vol = _winvolume(block(1:N))
     jackknife || return (vol, NaN)
-    acc = 0.0; acc2 = 0.0
-    @inbounds for k in 1:N
-        xr = XR[k, :]; xc = XC[k, :]
-        vk = _winvolume(_covwin(G .- xr * xc', sR .- xr, sC .- xc, N - 1))
+    acc = 0.0; acc2 = 0.0; mask = trues(N)
+    for k in 1:N
+        mask[k] = false
+        vk = _winvolume(block(mask))
         acc += vk; acc2 += vk * vk
+        mask[k] = true
     end
     v̄  = acc / N
     se = sqrt(max((N - 1) / N * (acc2 - N * v̄^2), 0.0))
@@ -173,7 +174,7 @@ function covariance_features(spectra::AbstractVector{MSscans};
     elseif normalize !== :none
         error("covariance_features: normalize must be :none or :tic.")
     end
-    A = covariance_matrix(X)
+    A = cov(X)
     e = edge < 0 ? window : edge
     feats = map_features(A, mz; nfeatures = nfeatures, clearradius = clearradius,
                          minvalue = minvalue, edge = e, halfwidth = halfwidth, cut = true)
