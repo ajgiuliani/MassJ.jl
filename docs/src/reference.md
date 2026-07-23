@@ -221,26 +221,29 @@ MassJ.write_csv
 
 ## Chimeric-spectra statistical decomposition
 ----------------------------------------------
-Data-driven resolution of multiplexed (chimeric) tandem mass spectra. The score
-matrices feed hierarchical clustering to group ions by precursor.
-[`MassJ.cmi_matrix`](@ref) requires `EntropyInvariant` and
-[`MassJ.cluster_ions`](@ref) requires `Clustering`; both are loaded on demand as
-package extensions.
+Data-driven resolution of multiplexed (chimeric) tandem mass spectra, in three explicit
+stages. First [`MassJ.abundance_matrix`](@ref) reduces the spectrum series to a numeric
+matrix (this is where binning/thresholding lives). Then a **score function** measures the
+pairwise association between the m/z channels: `cov`/`cor` (reused from `Statistics`),
+[`MassJ.pcor`](@ref) (partial correlation, conditioned on a control variable),
+[`MassJ.mi`](@ref) (mutual information) and [`MassJ.cmi`](@ref) (conditional MI). The
+conditioned scores take the control as an explicit argument, e.g. `pcor(X, am.tic)`.
+[`MassJ.mi`](@ref)/[`MassJ.cmi`](@ref) require `EntropyInvariant`.
 
-Each association can carry a per-edge significance — a leave-one-out
-[`MassJ.jackknife_significance`](@ref) z-score for the covariance/correlation family,
-or a [`MassJ.permutation_significance`](@ref) p-value for conditional mutual
-information — which [`MassJ.fdr_adjust`](@ref) turns into a Benjamini-Hochberg gate.
-[`MassJ.correspondence`](@ref) chains the whole pipeline (abundance matrix → score →
-significance → FDR gate → clustering → per-precursor spectra) into one hands-off call.
+Significance is a separate, optional step: [`MassJ.jackknife`](@ref) (covariance/
+correlation family) or [`MassJ.permutation`](@ref) (any score; required for `mi`/`cmi`)
+takes the score function and returns `(estimate, pvalue)`, which [`MassJ.fdr_adjust`](@ref)
+turns into a Benjamini-Hochberg gate before [`MassJ.cluster_ions`](@ref) (needs
+`Clustering`) and [`MassJ.cluster_spectra`](@ref). [`MassJ.correspondence`](@ref) chains
+the whole pipeline into one hands-off call.
 
 ```@docs
 MassJ.abundance_matrix
-MassJ.partial_correlation
-MassJ.covariance_matrix
-MassJ.cmi_matrix
-MassJ.jackknife_significance
-MassJ.permutation_significance
+MassJ.pcor
+MassJ.mi
+MassJ.cmi
+MassJ.jackknife
+MassJ.permutation
 MassJ.fdr_adjust
 MassJ.cluster_ions
 MassJ.cluster_spectra

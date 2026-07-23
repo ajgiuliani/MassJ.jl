@@ -87,14 +87,14 @@ plot(drop_peaks(yc, ["precursor", "solvent"]))
 
 ## Covariance / association maps
 
-A square association map (from [`covariance_matrix`](@ref),
-[`partial_correlation`](@ref), or [`cmi_matrix`](@ref)) is drawn as a diverging
+A square association map (from `cov`,
+[`pcor`](@ref), or [`cmi`](@ref)) is drawn as a diverging
 heatmap centred on zero, so positive (same-precursor) and negative
 (different-precursor) associations read symmetrically:
 
 ```julia
 using MassJ.plots, Plots
-A = covariance_matrix(am.matrix)
+A = cov(am.matrix)
 association_map(cut_autocorrelation(A), am.mz)       # heatmap; suppress the diagonal first
 ```
 
