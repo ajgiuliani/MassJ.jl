@@ -469,9 +469,9 @@ end
     association_map(A, mz = 1:size(A,1); cut = true, halfwidth = 1,
                     color = nothing, clims = nothing, kwargs...)
 
-Heatmap of a square association map `A` — a covariance ([`covariance_matrix`](@ref)),
-correlation ([`partial_correlation`](@ref)), or conditional-mutual-information
-([`cmi_matrix`](@ref)) matrix — with its columns indexed by `mz`. A signed map gets a
+Heatmap of a square association map `A` — a covariance (`cov`),
+correlation ([`pcor`](@ref)), or conditional-mutual-information
+([`cmi`](@ref)) matrix — with its columns indexed by `mz`. A signed map gets a
 diverging colour scale centred on zero (positive = same precursor, negative =
 different); a non-negative map (CMI) gets a sequential scale from zero. `cut`
 suppresses the autocorrelation diagonal band (half-width `halfwidth`) so cross-peaks
@@ -481,7 +481,7 @@ with marginal spectra see [`association_map_marginal`](@ref).
 
 ```julia
 using MassJ.plots
-association_map(MassJ.covariance_matrix(X), mz)   # or a partial_correlation / cmi_matrix map
+association_map(MassJ.cov(X), mz)   # or a pcor / cmi map
 ```
 """
 function association_map(A::AbstractMatrix{<:Real},
@@ -515,7 +515,7 @@ any backend (`gr()` for print, `plotly()` for interactive).
 ```julia
 using MassJ.plots
 am = MassJ.abundance_matrix(scans; binsize = 1.0)
-A  = MassJ.covariance_matrix(am.matrix ./ max.(am.tic, 1))   # TIC-normalised
+A  = MassJ.cov(am.matrix ./ max.(am.tic, 1))   # TIC-normalised
 association_map_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
 ```
 """
