@@ -7,7 +7,7 @@ using Random
 using Statistics  # cor for the jackknife-significance cross-check
 using Logging  # @test_logs min_level for the bare-vector save warning
 # Loading these weak dependencies activates the package extensions
-# (cmi_matrix via EntropyInvariant, cluster_ions via Clustering, and the
+# (cmi via EntropyInvariant, cluster_ions via Clustering, and the
 # YieldCurve Tables.jl source via Tables).
 import EntropyInvariant
 import Clustering
@@ -2254,7 +2254,7 @@ function test_chimeric()
 
     @testset "Chimeric - partial correlation + clustering separates precursors" begin
         am = MassJ.abundance_matrix(scans; binsize = 1.0)
-        P  = MassJ.partial_correlation(am.matrix)
+        P  = MassJ.pcor(am.matrix, am.tic)
         @test size(P) == (5, 5)
         @test all(isfinite, P)
         # bins sorted: 150(B),201(A),305(A),410(A),600(B) -> A = idx 2,3,4 ; B = idx 1,5
@@ -2292,7 +2292,7 @@ function test_chimeric()
                                     mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
         end
         am = MassJ.abundance_matrix(sc; binsize = 1.0)
-        C  = MassJ.cmi_matrix(am.matrix; condition = z)
+        C  = MassJ.cmi(am.matrix, z)
         @test size(C) == (4, 4)
         @test all(isfinite, C)
         @test C ≈ C'                                         # symmetric
@@ -2322,86 +2322,102 @@ function test_covariance_significance()
         push!(scans, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
                                    mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
     end
-    am = MassJ.abundance_matrix(scans; binsize = 1.0, threshold = 0.0)
-    X  = am.matrix                    # N×5, bins sorted 150,201,305,410,600 -> A=2,3,4 B=1,5
+    am  = MassJ.abundance_matrix(scans; binsize = 1.0, threshold = 0.0)
+    X   = am.matrix                   # N×5, bins sorted 150,201,305,410,600 -> A=2,3,4 B=1,5
+    tic = am.tic
 
-    @testset "Covariance map - covariance_matrix" begin
-        C = MassJ.covariance_matrix(X)
-        @test size(C) == (5, 5)
-        @test maximum(abs.(C .- C')) < 1e-9
-        @test C[2,3] > 0 && C[1,5] > 0                          # within-group covary
-        @test isapprox(MassJ.covariance_matrix(X; corrected = false),
-                       C .* (N-1)/N; rtol = 1e-10)
+    @testset "Association - cov / cor / pcor" begin
+        C = cov(X)
+        @test size(C) == (5,5) && maximum(abs.(C .- C')) < 1e-9
+        @test C[2,3] > 0 && C[1,5] > 0                         # within-group covary
+        @test C ≈ Statistics.cov(X)                           # reuses Statistics
+        @test cor(X) ≈ Statistics.cor(X)
+        P = pcor(X, tic)                                       # partial correlation via residuals
+        @test size(P) == (5,5) && maximum(abs.(P .- P')) < 1e-9
+        @test !(P ≈ Statistics.cor(X))                        # conditioning changes the score
+        @test P[2,3] > 0 && P[3,4] > 0 && P[1,5] > 0          # within-group positive
+        @test size(pcor(X, hcat(tic, collect(1.0:N)))) == (5,5)   # multivariate control
+        @test_throws ErrorException pcor(X, [1.0, 2.0])       # length mismatch
+        @test cov(scans) isa AbstractMatrix && cor(scans) isa AbstractMatrix   # MSscans convenience
+        @test pcor(scans) isa AbstractMatrix                  # auto-TIC on the MSscans path
     end
 
-    @testset "Covariance map - jackknife significance" begin
-        js = MassJ.jackknife_significance(X; statistic = :pcorr)
-        @test size(js.z) == (5, 5)
-        @test isapprox(js.estimate, MassJ.partial_correlation(X); rtol = 1e-8)
-        @test all(>=(0), js.se)
-        @test all(isfinite, js.z)
-        @test abs(js.z[2,3]) > 3 && abs(js.z[3,4]) > 3          # within-group A stable
-        @test abs(js.z[1,5]) > 3                                # within-group B stable
-        jc = MassJ.jackknife_significance(X; statistic = :correlation)
-        @test isapprox(jc.estimate, cor(X); rtol = 1e-8)
-        @test_throws ErrorException MassJ.jackknife_significance(X; statistic = :bogus)
+    @testset "Association - jackknife significance" begin
+        s = jackknife(pcor, X, tic; progress = false)
+        @test size(s.pvalue) == (5,5)
+        @test s.estimate ≈ pcor(X, tic)
+        @test all(0 .<= s.pvalue .<= 1)
+        @test s.pvalue[2,3] < 0.01 && s.pvalue[3,4] < 0.01 && s.pvalue[1,5] < 0.01
+        # matches brute-force leave-one-out for plain correlation
+        sc = jackknife(cor, X; progress = false)
+        Rc = Statistics.cor(X)
+        @test sc.estimate ≈ Rc
+        bf_se(i,j) = (v = [Statistics.cor(X[setdiff(1:N,k),i], X[setdiff(1:N,k),j]) for k in 1:N];
+                      θ = mean(v); sqrt((N-1)/N * sum((v .- θ).^2)))
+        @test isapprox(sc.pvalue[1,2], MassJ._z_to_p(Rc[1,2]/bf_se(1,2)); rtol = 1e-6)
+        @test_throws ErrorException jackknife(mi, X; progress = false)   # invalid for mi
     end
 
-    @testset "Covariance map - permutation significance" begin
-        ps = MassJ.permutation_significance(X; statistic = :pcorr, nperm = 200,
-                                            tail = :two, rng = MersenneTwister(1))
-        @test size(ps.pvalue) == (5, 5)
-        @test all(0 .< ps.pvalue .<= 1)
-        @test ps.pvalue[2,3] < 0.05 && ps.pvalue[1,5] < 0.05    # within-group significant
+    @testset "Association - permutation significance" begin
+        s = permutation(pcor, X, tic; nperm = 200, rng = MersenneTwister(1), progress = false)
+        @test size(s.pvalue) == (5,5) && all(0 .< s.pvalue .<= 1)
+        @test s.pvalue[2,3] < 0.05 && s.pvalue[1,5] < 0.05
     end
 
-    @testset "Covariance map - FDR gating" begin
-        js = MassJ.jackknife_significance(X; statistic = :pcorr)
-        p  = MassJ._z_to_p.(js.z)
+    @testset "Association - FDR gating" begin
+        p  = jackknife(pcor, X, tic; progress = false).pvalue
         fg = MassJ.fdr_adjust(p; q = 0.05)
         @test fg.significant == fg.significant'
-        @test !any(fg.significant[i,i] for i in 1:5)            # diagonal never significant
-        @test fg.significant[2,3] && fg.significant[1,5]        # real edges kept
-        @test all(0 .<= fg.qvalue .<= 1)
+        @test !any(fg.significant[i,i] for i in 1:5)
+        @test fg.significant[2,3] && fg.significant[1,5]
         @test sum(MassJ.fdr_adjust(p; q = 1e-8).significant) <= sum(fg.significant)
     end
 
-    @testset "Covariance map - hands-off correspondence (jackknife)" begin
-        res = MassJ.correspondence(scans; score = :pcorr, significance = :jackknife,
-                                   binsize = 1.0, threshold = 0.0, nclusters = 2)
+    @testset "Association - correspondence (pcor / cov / plain cor)" begin
+        res = MassJ.correspondence(scans; measure = :pcor, control = :tic, method = :jackknife,
+                                   binsize = 1.0, threshold = 0.0, nclusters = 2, progress = false)
         @test length(res.labels) == 5
-        @test res.labels[2] == res.labels[3] == res.labels[4]  # A fragments together
-        @test res.labels[1] == res.labels[5]                   # B fragments together
-        @test res.labels[1] != res.labels[2]
-        @test length(res.spectra) == 2
-        @test sort([length(s.mz) for s in res.spectra]) == [2, 3]
-        @test size(res.significant) == (5, 5)
+        @test res.labels[2] == res.labels[3] == res.labels[4]
+        @test res.labels[1] == res.labels[5] && res.labels[1] != res.labels[2]
+        @test length(res.spectra) == 2 && sort([length(s.mz) for s in res.spectra]) == [2,3]
+        @test size(res.significant) == (5,5)
+        # covariance works with no control; plain correlation via control = :none
+        @test length(MassJ.correspondence(scans; measure = :cov, binsize = 1.0, threshold = 0.0,
+                                          nclusters = 2, progress = false).labels) == 5
+        r2 = MassJ.correspondence(scans; measure = :cor, control = :none, method = :permutation,
+                                  binsize = 1.0, threshold = 0.0, nperm = 200, nclusters = 2,
+                                  rng = MersenneTwister(2), progress = false)
+        @test r2.labels[2] == r2.labels[3] == r2.labels[4]
+        @test_throws ErrorException MassJ.correspondence(scans; measure = :bogus, progress = false)
     end
 
-    @testset "Covariance map - CMI significance + correspondence" begin
-        Random.seed!(7)
-        Nc = 200
+    @testset "Association - mutual information (mi / cmi + correspondence)" begin
+        Random.seed!(7); Nc = 200
         s1 = abs.(randn(Nc)) .+ 1.0; s2 = abs.(randn(Nc)) .+ 1.0; z = randn(Nc)
-        g1 = [101.0, 202.0]; g2 = [303.0, 404.0]
-        sc = MassJ.MSscans[]
+        g1 = [101.0, 202.0]; g2 = [303.0, 404.0]; sc2 = MassJ.MSscans[]
         for n in 1:Nc
             mz = Float64[]; int = Float64[]
             for f in g1; push!(mz, f); push!(int, max(s1[n]*50 + 0.3*randn(), 0.0)); end
             for f in g2; push!(mz, f); push!(int, max(s2[n]*50 + 0.3*randn(), 0.0)); end
             o = sortperm(mz)
-            push!(sc, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
-                                    mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
+            push!(sc2, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
+                                     mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
         end
-        am2 = MassJ.abundance_matrix(sc; binsize = 1.0, threshold = 0.0)
-        ps  = MassJ.permutation_significance(am2.matrix; statistic = :cmi, condition = z,
-                                             nperm = 50, tail = :greater, rng = MersenneTwister(5))
-        @test size(ps.pvalue) == (4, 4)
-        @test all(0 .< ps.pvalue .<= 1)
-        @test ps.pvalue[1,2] < 0.05 && ps.pvalue[3,4] < 0.05    # within-group dependent
-
-        res = MassJ.correspondence(sc; score = :cmi, significance = :permutation,
-                                   binsize = 1.0, threshold = 0.0, control = z, nperm = 200,
-                                   nclusters = 2, rng = MersenneTwister(6))
+        am2 = MassJ.abundance_matrix(sc2; binsize = 1.0, threshold = 0.0)
+        MI  = mi(am2.matrix; progress = false)
+        CMI = cmi(am2.matrix, z; progress = false)
+        @test size(MI) == (4,4) && MI ≈ MI' && all(MI[i,i] == 0.0 for i in 1:4)
+        @test CMI ≈ CMI'                                         # conditional MI: symmetric by construction
+        @test minimum(CMI) > -0.1 * maximum(CMI)                 # ≥ 0 up to finite-sample kNN-estimator noise
+        @test MI[1,2] > MI[1,3] && MI[3,4] > MI[2,3]            # within-group > cross-group
+        # the threaded pair loop must reproduce the serial result exactly (race guard)
+        @test mi(am2.matrix; progress = false, parallel = false) == MI
+        @test cmi(am2.matrix, z; progress = false, parallel = false) == CMI
+        ps = permutation(cmi, am2.matrix, z; nperm = 50, rng = MersenneTwister(5), progress = false)
+        @test ps.pvalue[1,2] < 0.05 && ps.pvalue[3,4] < 0.05
+        res = MassJ.correspondence(sc2; measure = :cmi, control = z, method = :permutation,
+                                   binsize = 1.0, threshold = 0.0, nperm = 200, nclusters = 2,
+                                   rng = MersenneTwister(6), progress = false)
         @test res.labels[1] == res.labels[2] && res.labels[3] == res.labels[4]
         @test res.labels[1] != res.labels[3]
     end
@@ -2427,7 +2443,7 @@ function test_association_maps()
     X  = am.matrix                    # columns (bins) 1,2 = g1 ; 3,4 = g2
 
     @testset "Association maps - cut_autocorrelation" begin
-        A = MassJ.covariance_matrix(X)
+        A = cov(X)
         B0 = MassJ.cut_autocorrelation(A; halfwidth = 0)
         @test all(B0[i,i] == 0.0 for i in 1:4)
         @test B0[1,2] == A[1,2]                          # off-band untouched
@@ -2438,7 +2454,7 @@ function test_association_maps()
     end
 
     @testset "Association maps - map_features picks correlated pairs" begin
-        A = MassJ.covariance_matrix(X)
+        A = cov(X)
         feats = MassJ.map_features(A, am.mz; nfeatures = 4, clearradius = 0, halfwidth = 0)
         @test !isempty(feats)
         @test all(f.i < f.j for f in feats)              # strict upper triangle only
@@ -2467,14 +2483,14 @@ function test_association_maps()
     end
 
     @testset "Association maps - map_features on any symmetric map" begin
-        P  = MassJ.partial_correlation(X)                # works on a correlation map too
+        P  = pcor(X, am.tic)                             # a conditioned correlation map
         pf = MassJ.map_features(P, am.mz; nfeatures = 2, clearradius = 0, halfwidth = 0)
         @test all(f.value > 0 for f in pf)               # positive partial correlations
     end
 
     @testset "Association maps - association_map plot recipes" begin
         gr()
-        A = MassJ.covariance_matrix(X)
+        A = cov(X)
         @test MassJ.plots.association_map(A, am.mz) isa Plots.Plot
         @test MassJ.plots.association_map(MassJ.cut_autocorrelation(A), am.mz) isa Plots.Plot
         @test MassJ.plots.association_map_marginal(A, am.mz, vec(sum(X, dims = 1))) isa Plots.Plot
