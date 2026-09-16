@@ -741,6 +741,178 @@ function test_yield_trim()
 end
 
 
+function test_yield_peak_ops()
+    @testset "YieldCurve peak ops (select / sum / group / with_peaks)" begin
+        x      = [1.0, 2.0, 3.0]
+        labels = ["a1", "a2", "b1", "b2", "y1", "b1-H2O", "precursor"]
+        Y      = [1.0  2.0  3.0  4.0  5.0  6.0  70.0;
+                  1.5  2.5  3.5  4.5  5.5  6.5  60.0;
+                  2.0  3.0  4.0  5.0  6.0  7.0  50.0]
+        E      = [0.1  0.2  0.3  0.4  0.5  NaN  1.0;
+                  0.1  0.2  0.3  0.4  0.5  NaN  1.0;
+                  0.1  0.2  0.3  0.4  0.5  NaN  1.0]
+        tic, tic_err = MassJ._recompute_tic(Y, E)
+        fmz    = fill(NaN, 3, 7)
+        wins   = [(100.0, 101.0), (200.0, 201.0), (300.0, 301.0), (400.0, 401.0),
+                  (500.0, 501.0), (280.0, 281.0), (800.0, 801.0)]
+        files  = ["f1", "f2", "f3"]
+        yc = MassJ.YieldCurve(x, "E", Y, E, tic, tic_err, fmz, labels, wins, files,
+                              Dict{String,Any}())
+
+        # --- selectors: keep_peaks / drop_peaks / yc[label] -------------------
+        k = MassJ.keep_peaks(yc, r"^a\d")
+        @test k.labels == ["a1", "a2"]
+        @test k.yields == Y[:, 1:2] && k.yields_err == E[:, 1:2]
+        @test k.windows == wins[1:2] && size(k.found_mz) == (3, 2)
+        @test k.tic == yc.tic && k.tic_err == yc.tic_err                 # untouched by design
+        @test MassJ.keep_peaks(yc, ["precursor", "b1"]).labels == ["precursor", "b1"]  # order given
+        @test MassJ.keep_peaks(yc, "y1").labels == ["y1"]
+        @test MassJ.keep_peaks(yc, l -> endswith(l, "1")).labels == ["a1", "b1", "y1"]
+        @test k.metadata["peak_ops"] == [(op = "keep", label = nothing, sources = ["a1", "a2"])]
+        @test_throws ErrorException MassJ.keep_peaks(yc, "nope")                  # strict
+        @test_throws ErrorException MassJ.keep_peaks(yc, [1, 2])                  # not a selector
+        @test MassJ.drop_peaks(yc, r"-H2O$").labels == ["a1", "a2", "b1", "b2", "y1", "precursor"]
+        @test MassJ.drop_peaks(yc, l -> occursin("-", l)).labels ==
+              ["a1", "a2", "b1", "b2", "y1", "precursor"]
+        @test MassJ.drop_peaks(yc, "nope").labels == labels                       # lenient
+        @test MassJ.drop_peaks(yc, "precursor").tic == yc.tic
+        @test yc["b2"].y == Y[:, 4] && yc["b2"].err == E[:, 4]
+        y1, e1 = yc["y1"]
+        @test y1 == Y[:, 5] && e1 == E[:, 5]
+        @test_throws ErrorException yc["nope"]
+
+        # --- sum_peaks ---------------------------------------------------------
+        s = MassJ.sum_peaks(yc)
+        @test s.labels == ["sum"] && size(s.yields) == (3, 1)
+        @test s.yields[:, 1] ≈ yc.tic
+        @test s.yields_err[:, 1] ≈ yc.tic_err                             # quadrature, NaN skipped
+        @test all(isnan, s.found_mz) && s.windows == [(100.0, 801.0)]
+        @test s.tic == yc.tic && s.tic_err == yc.tic_err
+        @test s.metadata["peak_ops"] == [(op = "sum", label = "sum", sources = labels)]
+        @test !haskey(yc.metadata, "peak_ops")                             # input not mutated
+
+        a = MassJ.sum_peaks(yc, r"^a\d"; label = "a-ions")
+        @test a.labels == ["a-ions", "b1", "b2", "y1", "b1-H2O", "precursor"]   # first-member slot
+        @test a.yields[:, 1] ≈ Y[:, 1] .+ Y[:, 2]
+        @test a.yields_err[:, 1] ≈ sqrt.(E[:, 1] .^ 2 .+ E[:, 2] .^ 2)
+        @test a.yields[:, 2:end] == Y[:, 3:end]
+        @test isequal(a.yields_err[:, 2:end], E[:, 3:end])                 # NaN-aware equality
+        @test a.windows[1] == (100.0, 201.0) && a.windows[2:end] == wins[3:end]
+
+        f = MassJ.sum_peaks(yc; exclude = "precursor", label = "fragments")
+        @test f.labels == ["fragments", "precursor"]
+        @test f.yields[:, 1] ≈ vec(sum(Y[:, 1:6], dims = 2))
+        @test f.yields_err[:, 1] ≈ sqrt.(vec(sum(E[:, 1:5] .^ 2, dims = 2)))  # NaN column skipped
+        @test f.yields[:, 2] == Y[:, 7]
+        @test f.windows == [(100.0, 501.0), (800.0, 801.0)]
+
+        ks = MassJ.sum_peaks(yc, ["a1", "a2"]; label = "A", keep_sources = true)
+        @test ks.labels == ["A", "a1", "a2", "b1", "b2", "y1", "b1-H2O", "precursor"]
+        @test ks.yields[:, 2:3] == Y[:, 1:2]
+
+        nan = MassJ.sum_peaks(yc, "b1-H2O"; label = "w")                  # only NaN-error member
+        @test nan.labels == ["a1", "a2", "b1", "b2", "y1", "w", "precursor"]   # sits at its member's slot
+        @test all(isnan, nan["w"].err) && nan["w"].y == Y[:, 6]
+
+        @test_throws ErrorException MassJ.sum_peaks(yc, "a1"; exclude = "a2")
+        @test_throws ErrorException MassJ.sum_peaks(yc, r"^zzz")                # empty selection
+        @test_throws ErrorException MassJ.sum_peaks(yc; exclude = r".")         # nothing left
+        @test_throws ErrorException MassJ.sum_peaks(yc, r"^a\d"; label = "b1")  # label clash
+        @test_throws ErrorException MassJ.sum_peaks(yc, ["a1", "nope"])         # unknown label
+
+        # --- group_peaks -------------------------------------------------------
+        g = MassJ.group_peaks(yc, r"^([aby])\d+$")
+        @test g.labels == ["a", "b", "y", "b1-H2O", "precursor"]
+        @test g.yields[:, 1] ≈ Y[:, 1] .+ Y[:, 2]
+        @test g.yields[:, 2] ≈ Y[:, 3] .+ Y[:, 4]
+        @test g.yields[:, 3] == Y[:, 5]
+        @test g.yields[:, 4:5] == Y[:, 6:7]
+        @test g.yields_err[:, 2] ≈ sqrt.(E[:, 3] .^ 2 .+ E[:, 4] .^ 2)
+        @test g.windows == [(100.0, 201.0), (300.0, 401.0), (500.0, 501.0), (280.0, 281.0), (800.0, 801.0)]
+        @test length(g.metadata["peak_ops"]) == 3
+        @test g.metadata["peak_ops"][2] == (op = "group", label = "b", sources = ["b1", "b2"])
+        @test g.tic == yc.tic
+
+        nl = MassJ.group_peaks(yc, r"-(\w+)$")                             # neutral losses
+        @test nl.labels == ["a1", "a2", "b1", "b2", "y1", "H2O", "precursor"]
+        @test nl.yields[:, 6] == Y[:, 6]
+        fn = MassJ.group_peaks(yc, l -> occursin("-", l) ? nothing : string(l[1]))
+        @test fn.labels == ["a", "b", "y", "b1-H2O", "p"]
+        @test MassJ.group_peaks(yc, l -> occursin("-", l) ? nothing : Symbol(l[1])).labels == fn.labels
+        nc = MassJ.group_peaks(yc, r"^a")                                  # no capture: whole match
+        @test nc.labels == ["a", "b1", "b2", "y1", "b1-H2O", "precursor"]
+        pr = MassJ.group_peaks(yc, ["N" => r"^[ab]\d+$", "C" => "y1"])
+        @test pr.labels == ["N", "C", "b1-H2O", "precursor"]
+        @test pr.yields[:, 1] ≈ vec(sum(Y[:, 1:4], dims = 2))
+        @test MassJ.group_peaks(yc, r"^(a)"; keep_sources = true).labels ==
+              ["a", "a1", "a2", "b1", "b2", "y1", "b1-H2O", "precursor"]
+        @test_throws ErrorException MassJ.group_peaks(yc, ["N" => r"^a", "M" => "a1"])  # overlap
+        @test_throws ErrorException MassJ.group_peaks(yc, ["N" => r"^zzz"])             # empty group
+        @test_throws ErrorException MassJ.group_peaks(yc, r"^zzz")                      # nothing matched
+        @test_throws ErrorException MassJ.group_peaks(yc, ["a1" => "a2"])               # name clash
+        @test_throws ErrorException MassJ.group_peaks(yc, ["N", "M"])                   # not pairs
+
+        # --- with_peaks --------------------------------------------------------
+        d  = Y[:, 1] .- Y[:, 3]
+        σd = sqrt.(E[:, 1] .^ 2 .+ E[:, 3] .^ 2)
+        w = MassJ.with_peaks(yc, "a1 − b1", d, σd; sources = ["a1", "b1"])
+        @test w.labels == vcat(labels, ["a1 − b1"])
+        @test w.yields[:, end] == d && w.yields_err[:, end] == σd
+        @test w.yields[:, 1:7] == Y && isequal(w.yields_err[:, 1:7], E)
+        @test all(isnan, w.found_mz[:, end]) && all(isnan, w.windows[end])
+        @test w.tic == yc.tic && w.tic_err == yc.tic_err
+        @test w.metadata["peak_ops"] == [(op = "with", label = "a1 − b1", sources = ["a1", "b1"])]
+        w2 = MassJ.with_peaks(yc, ["p", "q"], hcat(d, 2d))                 # no errors → NaN
+        @test w2.labels[end-1:end] == ["p", "q"] && all(isnan, w2.yields_err[:, end-1:end])
+        @test w2.yields[:, end] == 2d
+        w3 = MassJ.with_peaks(yc, ["p", "q"], hcat(d, 2d), hcat(σd, 2σd);
+                              windows = [(1.0, 2.0), (3.0, 4.0)], found_mz = hcat(x, 2x),
+                              sources = [["a1", "b1"], ["a1", "b1"]])
+        @test w3.windows[end-1:end] == [(1.0, 2.0), (3.0, 4.0)] && w3.found_mz[:, end] == 2x
+        @test w3.yields_err[:, end] == 2σd
+        r = MassJ.with_peaks(yc, "y1", sqrt.(Y[:, 5]), 0.5 .* E[:, 5] ./ sqrt.(Y[:, 5]);
+                             replace = true)
+        @test r.labels == labels && r.yields[:, 5] ≈ sqrt.(Y[:, 5]) && r.windows == wins
+        @test r.yields[:, 1:4] == Y[:, 1:4] && r.yields[:, 6:7] == Y[:, 6:7]
+        @test r.metadata["peak_ops"][end].op == "replace"
+        @test_throws ErrorException MassJ.with_peaks(yc, "y1", d)                 # exists, no replace
+        @test_throws ErrorException MassJ.with_peaks(yc, "z", d[1:2])              # wrong row count
+        @test_throws ErrorException MassJ.with_peaks(yc, ["z1", "z2"], d)          # 1 column, 2 labels
+        @test_throws ErrorException MassJ.with_peaks(yc, "z", d, σd[1:2])          # err shape
+        @test_throws ErrorException MassJ.with_peaks(yc, ["z", "z"], hcat(d, d))   # duplicate labels
+        @test_throws ErrorException MassJ.with_peaks(yc, ["z1", "z2"], hcat(d, d); sources = [["a1"]])
+
+        # Measurements round trip: any expression on measurements(yc) comes back with its 1-σ
+        M  = MassJ.measurements(yc)
+        mw = MassJ.with_peaks(yc, ["a1 − b1", "√y1"], hcat(M[:, 1] .- M[:, 3], sqrt.(M[:, 5])))
+        @test mw.yields[:, end-1] ≈ d && mw.yields_err[:, end-1] ≈ σd
+        @test mw.yields[:, end] ≈ sqrt.(Y[:, 5])
+        @test mw.yields_err[:, end] ≈ 0.5 .* E[:, 5] ./ sqrt.(Y[:, 5])
+        mr = MassJ.with_peaks(yc, "y1", sqrt.(M[:, 5]); replace = true)
+        @test mr.labels == labels && mr.yields[:, 5] ≈ sqrt.(Y[:, 5])
+
+        # downstream: normalization, Tables, plotting all see the new columns
+        gn = MassJ.normalize_tic(g)
+        @test gn.yields[:, 1] ≈ g.yields[:, 1] ./ g.tic
+        @test Tables.columns(g).a == g.yields[:, 1] && Tables.columns(g).a_err == g.yields_err[:, 1]
+        gr()
+        @test plot(g) isa Plots.Plot
+        @test plot(MassJ.keep_peaks(w, ["a1 − b1", "precursor"])) isa Plots.Plot
+
+        # end to end: fragment_peaks → yields → group by ion series
+        pks = MassJ.fragment_peaks("PEPTIDE"; ions = (:a, :b, :y), tol = 0.5)
+        yce = MassJ.yields(["test.mzXML", "test.mzXML"], pks; x = [1.0, 2.0])
+        ge  = MassJ.group_peaks(yce, r"^([aby])\d+")
+        @test ge.labels == ["a", "b", "y"]
+        for (c, ser) in enumerate(("a", "b", "y"))
+            @test ge.yields[:, c] ≈ vec(sum(yce.yields[:, startswith.(yce.labels, ser)], dims = 2))
+        end
+        @test ge.tic == yce.tic
+        @test MassJ.sum_peaks(yce; label = "all").yields[:, 1] ≈ yce.tic
+    end
+end
+
+
 function test_peptides()
     @testset "Peptide fragment ions" begin
         # neutral monoisotopic peptide mass
@@ -3416,6 +3588,7 @@ test_assignment()
 test_multifolder()
 test_yield_transforms()
 test_yield_trim()
+test_yield_peak_ops()
 test_peptides()
 test_fragment_peaks()
 test_mobility()

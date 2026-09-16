@@ -214,6 +214,11 @@ MassJ.recalibrate_x
 MassJ.trim_yields
 MassJ.restrict_x
 MassJ.drop_peaks
+MassJ.keep_peaks
+MassJ.sum_peaks
+MassJ.group_peaks
+MassJ.with_peaks
+Base.getindex(yc::YieldCurve, label::AbstractString)
 MassJ.read_peaklist
 MassJ.write_csv
 ```
