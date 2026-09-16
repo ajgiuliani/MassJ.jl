@@ -2272,6 +2272,9 @@ function test_chimeric()
         @test length(specs) == 2
         @test all(s -> s isa MassJ.MSscans, specs)
         @test sort(vcat([length(s.mz) for s in specs])) == [2, 3]   # B has 2, A has 3
+        # cluster spectra are discrete peak lists → :centroid, so the recipe draws sticks
+        # (not a line interpolating sparse bins into a ramp)
+        @test all(s -> s.spectrumType === :centroid, specs)
     end
 
     @testset "Chimeric - conditional mutual information" begin
@@ -2488,6 +2491,32 @@ function test_association_maps()
         @test all(f.value > 0 for f in pf)               # positive partial correlations
     end
 
+    @testset "Association maps - association_features (measure + auto significance)" begin
+        # signed family → jackknife S/N; each recovers a within-precursor pair
+        for m in (:cov, :cor, :pcor)
+            af = MassJ.association_features(scans; measure = m, nfeatures = 2, window = 1,
+                                           edge = 0, halfwidth = 0, clearradius = 0,
+                                           binsize = 1.0, threshold = 0.0)
+            @test !isempty(af) && all(f -> f isa MassJ.MapFeature, af)
+            @test (af[1].mz1 < 250) == (af[1].mz2 < 250)          # top pair within one precursor
+            @test isfinite(af[1].volume) && isfinite(af[1].snr) && af[1].snr > 0
+        end
+        # unsigned family → permutation: snr holds -log10(p)
+        cf = MassJ.association_features(scans; measure = :cmi, nfeatures = 2, window = 1,
+                                       edge = 0, halfwidth = 0, clearradius = 0, binsize = 1.0,
+                                       threshold = 0.0, nperm = 100, rng = MersenneTwister(1))
+        @test !isempty(cf) && all(f -> isfinite(f.snr) && f.snr >= 0, cf)
+        @test (cf[1].mz1 < 250) == (cf[1].mz2 < 250)
+        # :cov reproduces the covariance route's top pair
+        cvf = MassJ.covariance_features(scans; nfeatures = 2, window = 1, edge = 0,
+                                        halfwidth = 0, clearradius = 0, binsize = 1.0, threshold = 0.0)
+        af0 = MassJ.association_features(scans; measure = :cov, nfeatures = 2, window = 1,
+                                        edge = 0, halfwidth = 0, clearradius = 0, binsize = 1.0, threshold = 0.0)
+        @test Set((af0[1].i, af0[1].j)) == Set((cvf[1].i, cvf[1].j))
+        @test_throws ErrorException MassJ.association_features(scans; measure = :pcor, control = :none)
+        @test_throws ErrorException MassJ.association_features(scans; measure = :bogus)
+    end
+
     @testset "Association maps - association_map plot recipes" begin
         gr()
         A = cov(X)
@@ -2496,6 +2525,38 @@ function test_association_maps()
         @test MassJ.plots.association_map_marginal(A, am.mz, vec(sum(X, dims = 1))) isa Plots.Plot
         @test MassJ.plots.association_map_marginal(A, am.mz) isa Plots.Plot   # default √diag marginal
         @test_throws ErrorException MassJ.plots.association_map_marginal(A, am.mz[1:2])
+        # robust (median-based) colour limits + knob + explicit override
+        @test MassJ.plots.association_map(A, am.mz; climscale = 3) isa Plots.Plot
+        @test MassJ.plots.association_map(A, am.mz; clims = (-1, 1)) isa Plots.Plot
+        @test MassJ.plots.association_map_marginal(A, am.mz; climscale = 10) isa Plots.Plot
+        let M = 0.01 .* [iseven(i + j) ? 1.0 : -1.0 for i in 1:10, j in 1:10]
+            M[1, 2] = M[2, 1] = 0.9; M[3, 4] = M[4, 3] = -0.9      # a few strong pairs
+            for i in 1:10; M[i, i] = NaN; end                     # diagonal cut
+            _, cl = MassJ.plots._map_colorscale(M; climscale = 6)
+            @test -0.9 < cl[1] < 0 < cl[2] < 0.9                  # extremes saturate, don't set range
+            @test cl[1] ≈ -cl[2]                                  # symmetric → 0 maps to white
+            @test cl[2] ≈ 0.06 atol = 1e-6                        # 6 × max(median|pos|, median|neg|)
+            @test MassJ.plots._map_colorscale(M; clims = (-1.0, 1.0))[2] == (-1.0, 1.0)  # explicit wins
+        end
+    end
+
+    @testset "Association maps - significance overlays" begin
+        gr()
+        S   = pcor(X, am.tic)
+        jk  = jackknife(pcor, X, am.tic)
+        sig = fdr_adjust(jk.pvalue; q = 0.5).significant
+        # significance-gated score maps (mask hides non-surviving edges)
+        @test MassJ.plots.association_map(S, am.mz; mask = sig) isa Plots.Plot
+        @test MassJ.plots.association_map_marginal(S, am.mz; mask = sig) isa Plots.Plot
+        # colour scale must survive an all-NaN (fully masked) map
+        @test MassJ.plots.association_map(S, am.mz; mask = falses(size(S))) isa Plots.Plot
+        @test_throws ErrorException MassJ.plots.association_map(S, am.mz; mask = sig[1:2, 1:2])
+        # p-value maps
+        @test MassJ.plots.significance_map(jk.pvalue, am.mz) isa Plots.Plot
+        @test MassJ.plots.significance_map(jk.pvalue, am.mz; q = 0.5) isa Plots.Plot
+        @test MassJ.plots.significance_map(jk.pvalue, am.mz; transform = :none) isa Plots.Plot
+        @test_throws ErrorException MassJ.plots.significance_map(jk.pvalue, am.mz; transform = :bogus)
+        @test_throws ErrorException MassJ.plots.significance_map(fill(2.0, length(am.mz), length(am.mz)), am.mz)
     end
 end
 

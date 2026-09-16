@@ -135,8 +135,11 @@ function cluster_spectra(mz::AbstractVector{<:Real}, X::AbstractMatrix{<:Real},
         cmz, cint = cmz[order], cint[order]
         bpi, bpidx = isempty(cint) ? (0.0, 0) : findmax(cint)
         bpm  = bpidx == 0 ? 0.0 : cmz[bpidx]
+        # a per-cluster spectrum is a discrete peak list, not a profile trace — mark it
+        # `:centroid` so the plot recipe draws sticks, not a line interpolating sparse bins.
         push!(out, MSscans(Int(c), 0.0, sum(cint), cmz, cint, 2,
-                           bpm, bpi, 0.0, "", "", 0.0))
+                           bpm, bpi, 0.0, "", "", 0.0,
+                           0, :centroid, -1.0, 0.0, :none, Dict{String,Any}()))
     end
     return out
 end

@@ -264,6 +264,7 @@ MassJ.cut_autocorrelation
 MassJ.MapFeature
 MassJ.map_features
 MassJ.covariance_features
+MassJ.association_features
 ```
 
 
