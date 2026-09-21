@@ -34,8 +34,8 @@ group give worked examples.
 - [`yields`](@ref) / [`integrate_window`](@ref) / [`read_peaklist`](@ref)
 - [`normalize_tic`](@ref) / [`normalize_external`](@ref)
 - [`combine_yields`](@ref) / [`shift_x`](@ref) / [`scale_yields`](@ref) / [`recalibrate_x`](@ref)
-- [`trim_yields`](@ref) / [`restrict_x`](@ref) / [`drop_peaks`](@ref) / [`keep_peaks`](@ref)
-- [`sum_peaks`](@ref) / [`group_peaks`](@ref) / [`with_peaks`](@ref)
+- [`trim_yields`](@ref) / [`restrict_x`](@ref) / [`drop_yields`](@ref) / [`keep_yields`](@ref)
+- [`sum_yields`](@ref) / [`group_yields`](@ref) / [`with_yields`](@ref)
 
 **Chimeric spectra**
 - [`abundance_matrix`](@ref) / [`pcor`](@ref) / [`cmi`](@ref)

@@ -68,16 +68,19 @@ types changed shape. Functionality is otherwise unchanged.
   checksum) in processed mode, preserving per-pixel coordinates. Read **and** write are now
   supported for every format MassJ reads.
 
-* ![Feature][badge-feature] Peak-column operations on a `YieldCurve`. `keep_peaks` /
-  `drop_peaks` select peaks by *label selector* (a label, a list, a `Regex`, or a
-  predicate) and `yc["y5"]` returns one peak's columns; `sum_peaks` adds all peaks, a
-  selection, or everything but an exclusion into one column; `group_peaks` produces one
+* ![Feature][badge-feature] Peak-column operations on a `YieldCurve`. `keep_yields` /
+  `drop_yields` select peaks by *label selector* (a label, a list, a `Regex`, or a
+  predicate) and `yc["y5"]` returns one peak's columns; `sum_yields` adds all peaks, a
+  selection, or everything but an exclusion into one column; `group_yields` produces one
   summed column per group named by a criterion on the labels (e.g. one column per ion
-  series, `r"^([abxy])\d"`, or per neutral loss, `r"-(\w+)$"`); `with_peaks` puts columns
+  series, `r"^([abxy])\d"`, or per neutral loss, `r"-(\w+)$"`); `with_yields` puts columns
   computed by hand back into the curve, splitting `Measurement`s into value / 1-σ when
   Measurements.jl is loaded. Summed errors add in quadrature (the `tic_err` rule);
   `tic`/`tic_err` are never touched and every operation is logged in
-  `metadata["peak_ops"]`.
+  `metadata["yield_ops"]`. The column operations are named `*_yields`, matching
+  `combine_yields` / `scale_yields` / `trim_yields` and leaving `*_peaks` to the
+  functions that build or detect `Peak`s; `drop_peaks` stays as a deprecated alias
+  of `drop_yields`.
 
 ### Migration from v1.x
 

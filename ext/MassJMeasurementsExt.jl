@@ -18,8 +18,8 @@ end
 MassJ.measurements(yc::YieldCurve) = measurement.(yc.yields, yc.yields_err)
 
 # The way back: columns computed on `measurements(yc)` (any expression) are split
-# into value / 1-σ and handed to the core `with_peaks`.
-MassJ.with_peaks(yc::YieldCurve, labels, M::AbstractVecOrMat{<:Measurement}; kwargs...) =
-    MassJ.with_peaks(yc, labels, value.(M), uncertainty.(M); kwargs...)
+# into value / 1-σ and handed to the core `with_yields`.
+MassJ.with_yields(yc::YieldCurve, labels, M::AbstractVecOrMat{<:Measurement}; kwargs...) =
+    MassJ.with_yields(yc, labels, value.(M), uncertainty.(M); kwargs...)
 
 end # module

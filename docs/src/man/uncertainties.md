@@ -102,9 +102,9 @@ yc.tic_err           # per-file 1-σ on the row total  (= sqrt(Σ_p yields_err²
 plot(yc)             # 1-σ ribbons drawn automatically
 ```
 
-Columns merged with [`sum_peaks`](@ref) / [`group_peaks`](@ref) carry the
+Columns merged with [`sum_yields`](@ref) / [`group_yields`](@ref) carry the
 quadrature sum of their members' errors; columns you compute yourself come back
-into the curve through [`with_peaks`](@ref), with Measurements.jl propagating
+into the curve through [`with_yields`](@ref), with Measurements.jl propagating
 the error for you (see below).
 
 The full error model — why it integrates per scan rather than per m/z bin, and

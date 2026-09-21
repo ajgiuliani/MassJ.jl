@@ -315,12 +315,12 @@ The errors propagate through subsequent normalization:
   yc_n = normalize_external(yc_tic, "ref.txt"; err_pct = 0.05)
   ```
 
-* [`sum_peaks`](@ref) / [`group_peaks`](@ref) — `σ(Σy) = sqrt(Σ σ_y²)`, the
+* [`sum_yields`](@ref) / [`group_yields`](@ref) — `σ(Σy) = sqrt(Σ σ_y²)`, the
   quadrature sum over the merged peaks (the same rule as `tic_err`). This assumes
   the merged peaks fluctuate independently across scans; for co-varying peaks
   (isotopologues) prefer a cluster [`TargetPeak`](@ref), which sums inside each
   scan before the error is taken.
-* [`with_peaks`](@ref) — whatever you pass in; with Measurements.jl loaded, the
+* [`with_yields`](@ref) — whatever you pass in; with Measurements.jl loaded, the
   first-order propagation of the expression you computed on
   [`measurements`](@ref)`(yc)`.
 
@@ -332,29 +332,29 @@ Plotting picks up the ribbon automatically — see [Plotting](#Plotting).
 The functions below return a new `YieldCurve` (the input is not mutated) and
 leave `tic`/`tic_err` untouched, so the row totals keep referring to the
 **original** peak set — which is what [`normalize_tic`](@ref) should divide
-by. Every operation is recorded in `yc.metadata["peak_ops"]`.
+by. Every operation is recorded in `yc.metadata["yield_ops"]`.
 
 ### Peak selectors
 
-[`keep_peaks`](@ref) and [`drop_peaks`](@ref) take a *peak selector*: a label,
+[`keep_yields`](@ref) and [`drop_yields`](@ref) take a *peak selector*: a label,
 a collection of labels, a `Regex` matched against the labels, or a predicate on
-the label. The same selectors are accepted by [`sum_peaks`](@ref) and
-[`group_peaks`](@ref).
+the label. The same selectors are accepted by [`sum_yields`](@ref) and
+[`group_yields`](@ref).
 
 ```julia
-keep_peaks(yc, r"^y\d")                        # the y-ion series
-keep_peaks(yc, ["precursor", "b3"])            # two peaks, in that order
-drop_peaks(yc, "precursor")                    # the precursor swamps the axes
-drop_peaks(yc, l -> occursin("-", l))          # every neutral-loss channel
+keep_yields(yc, r"^y\d")                        # the y-ion series
+keep_yields(yc, ["precursor", "b3"])            # two peaks, in that order
+drop_yields(yc, "precursor")                    # the precursor swamps the axes
+drop_yields(yc, l -> occursin("-", l))          # every neutral-loss channel
 y, err = yc["y5"]                              # one peak's columns
 ```
 
-`keep_peaks` raises on a label that does not exist; `drop_peaks` ignores it.
+`keep_yields` raises on a label that does not exist; `drop_yields` ignores it.
 
 ### Summing and grouping
 
-[`sum_peaks`](@ref) adds columns into one — all of them, a selection, or
-everything except a selection. [`group_peaks`](@ref) does several sums at once,
+[`sum_yields`](@ref) adds columns into one — all of them, a selection, or
+everything except a selection. [`group_yields`](@ref) does several sums at once,
 naming the groups by a criterion on the labels: the first capture group of a
 `Regex`, the return value of a function (`nothing` leaves a peak alone), or
 explicit `name => selector` pairs. With the labels produced by
@@ -362,13 +362,13 @@ explicit `name => selector` pairs. With the labels produced by
 losses such as `"b3-H2O"`:
 
 ```julia
-sum_peaks(yc; exclude = "precursor", label = "fragments")   # fragments vs precursor
-sum_peaks(yc, r"^a\d"; label = "a-ions")
+sum_yields(yc; exclude = "precursor", label = "fragments")   # fragments vs precursor
+sum_yields(yc, r"^a\d"; label = "a-ions")
 
-group_peaks(yc, r"^([abxy])\d")                # one column per ion series
-group_peaks(yc, r"-(\w+)$")                    # one column per neutral loss
-group_peaks(yc, r"\((\d)\+\)")                 # by charge state
-group_peaks(yc, ["N-term" => r"^[abc]\d", "C-term" => r"^[xyz]\d"])
+group_yields(yc, r"^([abxy])\d")                # one column per ion series
+group_yields(yc, r"-(\w+)$")                    # one column per neutral loss
+group_yields(yc, r"\((\d)\+\)")                 # by charge state
+group_yields(yc, ["N-term" => r"^[abc]\d", "C-term" => r"^[xyz]\d"])
 ```
 
 A summed column takes the position of its first member and replaces the
@@ -380,7 +380,7 @@ the members' errors — an *independence* assumption across the merged peaks, se
 ### Anything else: compute in Julia, put it back
 
 For differences, ratios, square roots, or any other expression, work on the
-matrix directly and hand the result back with [`with_peaks`](@ref). With
+matrix directly and hand the result back with [`with_yields`](@ref). With
 [Measurements.jl](https://github.com/JuliaPhysics/Measurements.jl) loaded, the
 errors propagate through the expression automatically (correlations included
 when a column is used twice):
@@ -389,9 +389,9 @@ when a column is used twice):
 using Measurements
 M = measurements(yc)                           # yield ± err, columns follow yc.labels
 a, b = M[:, 1], M[:, 2]
-yc2 = with_peaks(yc, ["a − b", "a fraction"], hcat(a .- b, a ./ (a .+ b)))
-yc3 = with_peaks(yc, "y5", sqrt.(yc2["y5"].y .± yc2["y5"].err); replace = true)   # in place
-plot(keep_peaks(yc2, ["a − b", "a fraction"]))
+yc2 = with_yields(yc, ["a − b", "a fraction"], hcat(a .- b, a ./ (a .+ b)))
+yc3 = with_yields(yc, "y5", sqrt.(yc2["y5"].y .± yc2["y5"].err); replace = true)   # in place
+plot(keep_yields(yc2, ["a − b", "a fraction"]))
 ```
 
 Without Measurements, pass the values and their 1-σ explicitly (or omit the
@@ -400,7 +400,7 @@ errors to get `NaN`):
 ```julia
 d = yc.yields[:, 1] .- yc.yields[:, 2]
 σ = sqrt.(yc.yields_err[:, 1].^2 .+ yc.yields_err[:, 2].^2)
-with_peaks(yc, "a − b", d, σ; sources = ["a1", "b1"])
+with_yields(yc, "a − b", d, σ; sources = ["a1", "b1"])
 ```
 
 

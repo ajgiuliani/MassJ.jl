@@ -78,11 +78,11 @@ plot(yc; fillalpha = 0.30)                 # darker ribbon
 ```
 
 To drop one or more peaks from a plot — typically a dominant precursor that
-swamps the axes — use [`drop_peaks`](@ref):
+swamps the axes — use [`drop_yields`](@ref):
 
 ```julia
-plot(drop_peaks(yc, "precursor"))
-plot(drop_peaks(yc, ["precursor", "solvent"]))
+plot(drop_yields(yc, "precursor"))
+plot(drop_yields(yc, ["precursor", "solvent"]))
 ```
 
 ## Covariance / association maps

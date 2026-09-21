@@ -12,7 +12,8 @@ plotted directly or post-processed with [`normalize_tic`](@ref) / [`normalize_ex
 
 export AbstractPeak, Peak, TargetPeak, YieldCurve,
        yields, integrate_window, normalize_tic, normalize_external, normalize_flux,
-       read_peaklist, drop_peaks, keep_peaks, sum_peaks, group_peaks, with_peaks,
+       read_peaklist, drop_yields, keep_yields, sum_yields, group_yields, with_yields,
+       drop_peaks,
        combine_yields, shift_x, scale_yields, recalibrate_x,
        trim_yields, restrict_x,
        fragment_peaks
@@ -731,19 +732,19 @@ end
 # --- Peak selection, summing, grouping, and derived columns -----------------
 #
 # The yields matrix is plain data: the intended workflow for arbitrary arithmetic
-# is "select the columns, compute in Julia, put the result back" (`with_peaks`,
+# is "select the columns, compute in Julia, put the result back" (`with_yields`,
 # with Measurements.jl propagating the errors). The functions here cover the
 # bookkeeping that is easy to get wrong when done by hand: selecting columns by
 # label pattern, and merging co-named peaks (an ion series, a neutral loss) with a
 # consistent error rule. All return a new, immutable `YieldCurve`; `tic`/`tic_err`
 # are never touched (they keep totalling the *original* peak set, which is what
 # `normalize_tic` should divide by); every operation is logged in
-# `metadata["peak_ops"]`.
+# `metadata["yield_ops"]`.
 
 # A *peak selector* names columns by label: a single label, a collection of labels,
 # a `Regex` (labels that match), or a predicate `label -> Bool`. `_peak_indices`
 # resolves it to column indices. With `strict = true` a label absent from
-# `yc.labels` is an error (a silent miss would corrupt a sum); `drop_peaks` is
+# `yc.labels` is an error (a silent miss would corrupt a sum); `drop_yields` is
 # lenient, as it always was.
 _peak_indices(yc::YieldCurve, sel::AbstractString; strict::Bool = true) =
     _peak_indices(yc, (sel,); strict = strict)
@@ -768,14 +769,14 @@ function _peak_indices(yc::YieldCurve, sel; strict::Bool = true)
     return idx
 end
 
-# Append one record to the `"peak_ops"` provenance list of a metadata dict (the
+# Append one record to the `"yield_ops"` provenance list of a metadata dict (the
 # list is copied first so the source curve's own list is never mutated).
 function _note_peak_op!(md::Dict{String,Any}, op::AbstractString, label, sources)
-    ops = copy(get(md, "peak_ops", Any[]))
+    ops = copy(get(md, "yield_ops", Any[]))
     push!(ops, (op = String(op),
                 label = label === nothing ? nothing : String(label),
                 sources = sources === nothing ? nothing : String.(collect(sources))))
-    md["peak_ops"] = ops
+    md["yield_ops"] = ops
     return md
 end
 
@@ -793,38 +794,38 @@ function _take_cols(yc::YieldCurve, keep::AbstractVector{<:Integer},
 end
 
 """
-    keep_peaks(yc::YieldCurve, sel) -> YieldCurve
+    keep_yields(yc::YieldCurve, sel) -> YieldCurve
 
 Return a new [`YieldCurve`](@ref) holding only the peaks selected by `sel`, in the
-order they are selected — the inverse of [`drop_peaks`](@ref). A **peak selector**
+order they are selected — the inverse of [`drop_yields`](@ref). A **peak selector**
 `sel` is any of:
 
 * a label, `"y5"`, or a collection of labels, `["a3", "b3"]` (that order is kept);
 * a `Regex` matched against the labels, `r"^y\\d"` (all y-ions), `r"-H2O\$"`;
 * a predicate on the label, `l -> startswith(l, "b")`.
 
-A label absent from `yc.labels` is an error (unlike `drop_peaks`, which ignores
+A label absent from `yc.labels` is an error (unlike `drop_yields`, which ignores
 it). `tic`/`tic_err` are left unchanged, so they still total the original peak
-set. The same selectors are accepted by [`drop_peaks`](@ref),
-[`sum_peaks`](@ref), and [`group_peaks`](@ref); `yc["y5"]` returns one peak's
+set. The same selectors are accepted by [`drop_yields`](@ref),
+[`sum_yields`](@ref), and [`group_yields`](@ref); `yc["y5"]` returns one peak's
 columns directly.
 
 ```julia
-plot(keep_peaks(yc, r"^y\\d"))                 # the y-ion series only
-keep_peaks(yc, ["precursor", "b3"])            # two peaks, in that order
+plot(keep_yields(yc, r"^y\\d"))                 # the y-ion series only
+keep_yields(yc, ["precursor", "b3"])            # two peaks, in that order
 ```
 """
-function keep_peaks(yc::YieldCurve, sel)
+function keep_yields(yc::YieldCurve, sel)
     keep = _peak_indices(yc, sel; strict = true)
     return _take_cols(yc, keep, "keep", yc.labels[keep])
 end
 
 """
-    drop_peaks(yc::YieldCurve, sel) -> YieldCurve
+    drop_yields(yc::YieldCurve, sel) -> YieldCurve
 
 Return a new [`YieldCurve`](@ref) with the peaks selected by `sel` removed — a
 label, a collection of labels, a `Regex`, or a predicate on the label (see
-[`keep_peaks`](@ref) for the selector forms). Labels not present in `yc.labels`
+[`keep_yields`](@ref) for the selector forms). Labels not present in `yc.labels`
 are silently ignored.
 
 The `tic` field is left unchanged so it still reflects the totals over the
@@ -833,22 +834,35 @@ after dropping a dominant peak (e.g. for plotting fragment yields without
 the precursor swamping the axes).
 
 ```julia
-plot(drop_peaks(yc, "precursor"))
-plot(drop_peaks(yc, ["precursor", "solvent"]))
-plot(drop_peaks(yc, r"-H2O\$"))                # every water-loss channel
+plot(drop_yields(yc, "precursor"))
+plot(drop_yields(yc, ["precursor", "solvent"]))
+plot(drop_yields(yc, r"-H2O\$"))                # every water-loss channel
 ```
 """
-function drop_peaks(yc::YieldCurve, sel)
+function drop_yields(yc::YieldCurve, sel)
     drop = _peak_indices(yc, sel; strict = false)
     keep = setdiff(1:length(yc.labels), drop)
     return _take_cols(yc, keep, "drop", yc.labels[drop])
 end
 
 """
+    drop_peaks(yc::YieldCurve, sel)
+Deprecated alias for [`drop_yields`](@ref). The column operations on a
+[`YieldCurve`](@ref) are named `*_yields` (matching [`combine_yields`](@ref),
+[`scale_yields`](@ref), [`trim_yields`](@ref)), leaving `*_peaks` to the functions
+that build or detect [`Peak`](@ref)s — `fragment_peaks`, [`read_peaklist`](@ref),
+[`chrom_peaks`](@ref).
+"""
+function drop_peaks(yc::YieldCurve, sel)
+    Base.depwarn("`drop_peaks` is deprecated, use `drop_yields`.", :drop_peaks)
+    return drop_yields(yc, sel)
+end
+
+"""
     yc[label] -> (y, err)
 
 Index a [`YieldCurve`](@ref) by peak label: the yield column and its 1-σ column
-as a named tuple, e.g. `y, err = yc["y5"]`. Use [`keep_peaks`](@ref) to select
+as a named tuple, e.g. `y, err = yc["y5"]`. Use [`keep_yields`](@ref) to select
 several peaks as a curve.
 """
 function Base.getindex(yc::YieldCurve, label::AbstractString)
@@ -886,10 +900,10 @@ function _merge_cols(yc::YieldCurve, groups::AbstractVector, op::AbstractString;
     n, m  = size(yc.yields)
     owner = zeros(Int, m)                       # column -> group index (0 = none)
     for (g, (name, cols)) in enumerate(groups)
-        isempty(cols) && error("$(op)_peaks: group \"$name\" selects no peak.")
+        isempty(cols) && error("$(op)_yields: group \"$name\" selects no peak.")
         for j in cols
             owner[j] == 0 ||
-                error("$(op)_peaks: peak \"$(yc.labels[j])\" belongs to two groups " *
+                error("$(op)_yields: peak \"$(yc.labels[j])\" belongs to two groups " *
                       "(\"$(first(groups[owner[j]]))\" and \"$name\").")
             owner[j] = g
         end
@@ -915,7 +929,7 @@ function _merge_cols(yc::YieldCurve, groups::AbstractVector, op::AbstractString;
     end
     if !allunique(labels)
         dup = unique(Base.filter(l -> count(==(l), labels) > 1, labels))
-        error("$(op)_peaks: the result would carry duplicate labels $dup; choose another " *
+        error("$(op)_yields: the result would carry duplicate labels $dup; choose another " *
               "group name / `label`, or drop the clashing peak first.")
     end
     md = copy(yc.metadata)
@@ -930,11 +944,11 @@ function _merge_cols(yc::YieldCurve, groups::AbstractVector, op::AbstractString;
 end
 
 """
-    sum_peaks(yc::YieldCurve[, sel]; exclude = nothing, label = "sum", keep_sources = false)
+    sum_yields(yc::YieldCurve[, sel]; exclude = nothing, label = "sum", keep_sources = false)
 
 Add peak columns of a [`YieldCurve`](@ref) into one column: every column when
 `sel` is omitted, the peaks selected by `sel` (a label, a collection of labels, a
-`Regex`, or a predicate — see [`keep_peaks`](@ref)), or every column *except* those
+`Regex`, or a predicate — see [`keep_yields`](@ref)), or every column *except* those
 selected by `exclude`. The summed column, named `label`, takes the position of its
 first member and replaces the members unless `keep_sources = true`; the other
 columns are untouched.
@@ -947,25 +961,25 @@ only approximate; the rigorous route is a cluster [`TargetPeak`](@ref), which su
 the windows *inside each scan* before the error is taken. `tic`/`tic_err` are
 left unchanged (they still total the original peak set), `found_mz` of the new
 column is `NaN`, and its `windows` entry is the envelope of the members'. The
-operation is recorded in `metadata["peak_ops"]`.
+operation is recorded in `metadata["yield_ops"]`.
 
 ```julia
-sum_peaks(yc)                                          # everything → "sum"
-sum_peaks(yc, r"^a\\d"; label = "a-ions")              # the a-ion series
-sum_peaks(yc; exclude = "precursor", label = "fragments")
+sum_yields(yc)                                          # everything → "sum"
+sum_yields(yc, r"^a\\d"; label = "a-ions")              # the a-ion series
+sum_yields(yc; exclude = "precursor", label = "fragments")
 ```
-See [`group_peaks`](@ref) for several sums at once and [`with_peaks`](@ref) for
+See [`group_yields`](@ref) for several sums at once and [`with_yields`](@ref) for
 any other combination.
 """
-function sum_peaks(yc::YieldCurve, sel = nothing; exclude = nothing,
+function sum_yields(yc::YieldCurve, sel = nothing; exclude = nothing,
                    label::AbstractString = "sum", keep_sources::Bool = false)
     (sel !== nothing && exclude !== nothing) &&
-        error("sum_peaks: pass either a selector or `exclude`, not both.")
+        error("sum_yields: pass either a selector or `exclude`, not both.")
     m = length(yc.labels)
     cols = sel !== nothing     ? _peak_indices(yc, sel; strict = true) :
            exclude !== nothing ? setdiff(1:m, _peak_indices(yc, exclude; strict = true)) :
                                  collect(1:m)
-    isempty(cols) && error("sum_peaks: the selection is empty.")
+    isempty(cols) && error("sum_yields: the selection is empty.")
     return _merge_cols(yc, [String(label) => cols], "sum"; keep_sources = keep_sources)
 end
 
@@ -994,51 +1008,51 @@ function _resolve_groups(yc::YieldCurve, pairs)
     out = Pair{String,Vector{Int}}[]
     for p in pairs
         p isa Pair ||
-            error("group_peaks: `key` must be a function, a Regex, or `name => selector` pairs.")
+            error("group_yields: `key` must be a function, a Regex, or `name => selector` pairs.")
         push!(out, String(first(p)) => _peak_indices(yc, last(p); strict = true))
     end
     return out
 end
 
 """
-    group_peaks(yc::YieldCurve, key; keep_sources = false)
+    group_yields(yc::YieldCurve, key; keep_sources = false)
 
 Merge the peaks of a [`YieldCurve`](@ref) into groups named by a criterion on the
 labels, producing one summed column per group (each computed as in
-[`sum_peaks`](@ref)). `key` is one of:
+[`sum_yields`](@ref)). `key` is one of:
 
 * a function `label -> name`, returning the group name (a `String` or `Symbol`),
   or `nothing` to leave that peak alone;
 * a `Regex`: the first capture group names the group (the whole match when the
   pattern has no capture group); non-matching peaks are left alone;
-* a vector of `name => selector` pairs (selectors as in [`keep_peaks`](@ref)) for
+* a vector of `name => selector` pairs (selectors as in [`keep_yields`](@ref)) for
   hand-named groups. Every group must select at least one peak, and a peak may
   belong to one group only.
 
 Groups appear in order of first appearance (function / `Regex`) or as given
 (pairs); each group column takes the position of its first member, and the members
-are replaced unless `keep_sources = true`. Everything said in [`sum_peaks`](@ref)
+are replaced unless `keep_sources = true`. Everything said in [`sum_yields`](@ref)
 about errors, `tic`, `found_mz`, `windows`, and provenance applies per group.
 
 With the labels produced by `fragment_peaks` (`"b3"`, `"y5(2+)"`, …) and
 hand-labelled neutral losses such as `"b3-H2O"`:
 
 ```julia
-group_peaks(yc, r"^([abxy])\\d")                  # one column per ion series
-group_peaks(yc, r"-(\\w+)\$")                      # one column per neutral loss (H2O, NH3, …)
-group_peaks(yc, r"\\((\\d)\\+\\)")                   # by charge state
-group_peaks(yc, l -> occursin('(', l) ? "multiply charged" : nothing)
-group_peaks(yc, ["N-term" => r"^[abc]\\d", "C-term" => r"^[xyz]\\d"])
+group_yields(yc, r"^([abxy])\\d")                  # one column per ion series
+group_yields(yc, r"-(\\w+)\$")                      # one column per neutral loss (H2O, NH3, …)
+group_yields(yc, r"\\((\\d)\\+\\)")                   # by charge state
+group_yields(yc, l -> occursin('(', l) ? "multiply charged" : nothing)
+group_yields(yc, ["N-term" => r"^[abc]\\d", "C-term" => r"^[xyz]\\d"])
 ```
 """
-function group_peaks(yc::YieldCurve, key; keep_sources::Bool = false)
+function group_yields(yc::YieldCurve, key; keep_sources::Bool = false)
     groups = _resolve_groups(yc, key)
-    isempty(groups) && error("group_peaks: the key matched no peak.")
+    isempty(groups) && error("group_yields: the key matched no peak.")
     return _merge_cols(yc, groups, "group"; keep_sources = keep_sources)
 end
 
 """
-    with_peaks(yc::YieldCurve, labels, Y[, Yerr]; replace = false, sources = nothing,
+    with_yields(yc::YieldCurve, labels, Y[, Yerr]; replace = false, sources = nothing,
                windows = nothing, found_mz = nothing) -> YieldCurve
 
 Put columns computed *outside* the yields machinery back into a
@@ -1051,7 +1065,7 @@ with `replace = true` a label that already exists is overwritten in place instea
 transformed in situ. Without `replace`, an existing label is an error.
 
 `tic`/`tic_err` are left unchanged (they total the original peak set). The
-operation is recorded in `metadata["peak_ops"]`; pass `sources` (a vector of
+operation is recorded in `metadata["yield_ops"]`; pass `sources` (a vector of
 label vectors, one per new column — or a flat label vector for a single column) to
 record what each column was derived from. `windows` (a vector of `(lo, hi)`
 tuples) and `found_mz` (an `n × k` matrix) may be supplied for appended columns;
@@ -1065,17 +1079,17 @@ value and uncertainty are split automatically, so any expression built on
 using Measurements
 M = measurements(yc)                         # yield ± err, columns follow yc.labels
 a, b = M[:, 1], M[:, 2]
-yc2 = with_peaks(yc, ["a − b", "a fraction"], hcat(a .- b, a ./ (a .+ b)))
-yc3 = with_peaks(yc, "y5", sqrt.(M[:, 3]); replace = true)   # in place
+yc2 = with_yields(yc, ["a − b", "a fraction"], hcat(a .- b, a ./ (a .+ b)))
+yc3 = with_yields(yc, "y5", sqrt.(M[:, 3]); replace = true)   # in place
 ```
 Without `Measurements`:
 ```julia
 d = yc.yields[:, 1] .- yc.yields[:, 2]
 σ = sqrt.(yc.yields_err[:, 1].^2 .+ yc.yields_err[:, 2].^2)
-with_peaks(yc, "a − b", d, σ; sources = ["a1", "b1"])
+with_yields(yc, "a − b", d, σ; sources = ["a1", "b1"])
 ```
 """
-function with_peaks(yc::YieldCurve, labels, Y::AbstractVecOrMat{<:Real},
+function with_yields(yc::YieldCurve, labels, Y::AbstractVecOrMat{<:Real},
                     Yerr::Union{AbstractVecOrMat{<:Real},Nothing} = nothing;
                     replace::Bool = false, sources = nothing,
                     windows = nothing, found_mz = nothing)
@@ -1086,20 +1100,20 @@ function with_peaks(yc::YieldCurve, labels, Y::AbstractVecOrMat{<:Real},
     Em   = Yerr === nothing         ? fill(NaN, size(Ym)) :
            Yerr isa AbstractVector  ? reshape(collect(Float64, Yerr), :, 1) :
                                       Matrix{Float64}(Yerr)
-    size(Ym, 1) == n || error("with_peaks: Y has $(size(Ym, 1)) rows, expected $n (one per x).")
-    size(Ym, 2) == k || error("with_peaks: Y has $(size(Ym, 2)) column(s) for $k label(s).")
-    size(Em) == size(Ym) || error("with_peaks: Yerr must have the same shape as Y.")
-    allunique(labs) || error("with_peaks: labels must be unique.")
+    size(Ym, 1) == n || error("with_yields: Y has $(size(Ym, 1)) rows, expected $n (one per x).")
+    size(Ym, 2) == k || error("with_yields: Y has $(size(Ym, 2)) column(s) for $k label(s).")
+    size(Em) == size(Ym) || error("with_yields: Yerr must have the same shape as Y.")
+    allunique(labs) || error("with_yields: labels must be unique.")
     src = sources === nothing ? fill(nothing, k) :
           (k == 1 && all(s -> s isa AbstractString, sources)) ? Any[sources] :
           length(sources) == k ? collect(sources) :
-          error("with_peaks: `sources` must have one entry (a vector of labels) per new column.")
+          error("with_yields: `sources` must have one entry (a vector of labels) per new column.")
     Fm  = found_mz === nothing ? fill(NaN, n, k) :
           (size(found_mz) == (n, k) ? Matrix{Float64}(found_mz) :
-           error("with_peaks: `found_mz` must be an $n × $k matrix."))
+           error("with_yields: `found_mz` must be an $n × $k matrix."))
     Wv  = windows === nothing ? fill((NaN, NaN), k) :
           (length(windows) == k ? [(Float64(w[1]), Float64(w[2])) for w in windows] :
-           error("with_peaks: `windows` must hold one (lo, hi) tuple per new column."))
+           error("with_yields: `windows` must hold one (lo, hi) tuple per new column."))
 
     Yout = copy(yc.yields); Eout = copy(yc.yields_err); Fout = copy(yc.found_mz)
     lout = copy(yc.labels); wout = copy(yc.windows)
@@ -1111,7 +1125,7 @@ function with_peaks(yc::YieldCurve, labels, Y::AbstractVecOrMat{<:Real},
             Yout[:, j] = Ym[:, c]; Eout[:, j] = Em[:, c]
             _note_peak_op!(md, "replace", l, src[c])
         elseif j !== nothing
-            error("with_peaks: label \"$l\" already exists; pass `replace = true` to overwrite " *
+            error("with_yields: label \"$l\" already exists; pass `replace = true` to overwrite " *
                   "it in place, or drop it first.")
         else
             push!(new, c)
@@ -1318,7 +1332,7 @@ recalibrate_x(yc::YieldCurve, obs_x::AbstractVector{<:Real}, ref_x::AbstractVect
 
 
 # --- Row-wise trimming / restriction of a YieldCurve -------------------------
-# (`trim_yields` and `restrict_x` are the row analogue of `drop_peaks`.)
+# (`trim_yields` and `restrict_x` are the row analogue of `drop_yields`.)
 
 # Build a new YieldCurve keeping the rows whose indices are in `keep` (in order).
 function _take_rows(yc::YieldCurve, keep::AbstractVector{<:Integer}, md_note::Pair)
