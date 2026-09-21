@@ -133,7 +133,7 @@ association_map(jk.estimate, am.mz; mask = sig)          # score, gated by signi
 
 The `mask` works on `association_map_marginal` too, and a [`correspondence`](@ref)
 result feeds straight in (`association_map(res.score, am.mz; mask = res.significant)`).
-To colour by the *p-values* instead, use [`significance_map`](@ref), which shows
+To colour by the *p-values* instead, use [`MassJ.plots.significance_map`](@ref), which shows
 ``-\log_{10} p`` (bright = significant) and, given `q`, blanks the non-significant cells:
 
 ```julia

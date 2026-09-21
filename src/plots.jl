@@ -507,8 +507,8 @@ end
                     climscale = 6, color = nothing, clims = nothing, kwargs...)
 
 Heatmap of a square association map `A` — a covariance (`cov`),
-correlation ([`pcor`](@ref)), or conditional-mutual-information
-([`cmi`](@ref)) matrix — with its columns indexed by `mz`. A signed map gets a
+correlation ([`MassJ.pcor`](@ref)), or conditional-mutual-information
+([`MassJ.cmi`](@ref)) matrix — with its columns indexed by `mz`. A signed map gets a
 diverging colour scale (positive = same precursor, negative = different); a non-negative
 map (CMI) gets a sequential scale from zero. `cut` suppresses the autocorrelation diagonal
 band (half-width `halfwidth`) so cross-peaks are visible.
@@ -523,7 +523,7 @@ saturate (staying visible) instead of stretching the scale and washing the map o
 [`association_map_marginal`](@ref).
 
 Pass `mask` — a `Bool` matrix the same size as `A`, e.g. the FDR gate from
-[`fdr_adjust`](@ref) or a [`correspondence`](@ref) result's `significant` field — to keep
+[`MassJ.fdr_adjust`](@ref) or a [`MassJ.correspondence`](@ref) result's `significant` field — to keep
 only the edges where `mask` is true; the rest render transparent. This turns a raw score
 map into a *significance-gated* map. To plot the p-values themselves see
 [`significance_map`](@ref).
@@ -605,12 +605,12 @@ end
     significance_map(P, mz = 1:size(P,1); q = nothing, transform = :neglog10,
                      cut = true, halfwidth = 1, color = nothing, clims = nothing, kwargs...)
 
-Heatmap of a *p-value* map `P` — the `pvalue` field returned by [`jackknife`](@ref) or
-[`permutation`](@ref) — transformed so that strong evidence reads bright. With
+Heatmap of a *p-value* map `P` — the `pvalue` field returned by [`MassJ.jackknife`](@ref) or
+[`MassJ.permutation`](@ref) — transformed so that strong evidence reads bright. With
 `transform = :neglog10` (default) each cell is shown as ``-\\log_{10} p`` on a sequential
 scale (large = significant); `transform = :none` plots `P` itself. When `q` is given,
 cells with ``p \\ge q`` are blanked (rendered transparent), leaving only the edges that
-survive an [`fdr_adjust`](@ref)-style threshold. `cut` suppresses the (untested)
+survive an [`MassJ.fdr_adjust`](@ref)-style threshold. `cut` suppresses the (untested)
 autocorrelation diagonal. Columns are indexed by `mz`. Returns a `Plots.Plot`.
 
 To instead colour a gated map by the *score* (rather than the p-value), pass the gate as
