@@ -82,6 +82,11 @@ types changed shape. Functionality is otherwise unchanged.
   functions that build or detect `Peak`s; `drop_peaks` stays as a deprecated alias
   of `drop_yields`.
 
+* ![Enhancement][badge-enhancement] `write_csv` now writes the 1-σ uncertainty of every
+  peak column (and of the TIC) alongside its value, as `<label>, <label>_err, …, TIC,
+  TIC_err` — matching the Tables.jl view, and making the output usable as the source data
+  behind a published figure. Pass `errors = false` for the previous compact layout.
+
 ### Migration from v1.x
 
 | v1.x                                   | v2.0                                       |

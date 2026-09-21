@@ -1213,15 +1213,42 @@ end
 
 
 """
-    write_csv(yc::YieldCurve, path::AbstractString)
-Write a [`YieldCurve`](@ref) to a CSV file: the first row is the header
-`<xlabel>, <peak labels…>, TIC`; subsequent rows are one per input file.
+    write_csv(yc::YieldCurve, path::AbstractString; errors = true)
+Write a [`YieldCurve`](@ref) to a CSV file, one row per point of the `x` axis.
+
+With `errors = true` (the default) every peak column is followed by its 1-σ
+column, giving the header
+
+    <xlabel>, <label>, <label>_err, …, TIC, TIC_err
+
+— the same columns, named and ordered as in the Tables.jl view of the curve (which
+additionally carries `file`). This is the layout to use for the source data behind a
+published figure, since it keeps each point's uncertainty next to its value. Pass
+`errors = false` for the compact `<xlabel>, <labels…>, TIC` layout.
+
+An uncertainty that was never estimated is written as `NaN` — a point built from a
+single scan, for instance, or a column merged by [`sum_yields`](@ref) whose members all
+lacked errors. See [Uncertainties](@ref).
 """
-function write_csv(yc::YieldCurve, path::AbstractString)
+function write_csv(yc::YieldCurve, path::AbstractString; errors::Bool = true)
+    npeaks = length(yc.labels)
     open(path, "w") do io
-        write(io, join(vcat(yc.xlabel, yc.labels, ["TIC"]), ","), "\n")
-        for i in 1:length(yc.x)
-            row = vcat(yc.x[i], yc.yields[i, :], yc.tic[i])
+        header = String[yc.xlabel]
+        for lbl in yc.labels
+            push!(header, lbl)
+            errors && push!(header, lbl * "_err")
+        end
+        push!(header, "TIC")
+        errors && push!(header, "TIC_err")
+        write(io, join(header, ","), "\n")
+        for i in eachindex(yc.x)
+            row = Any[yc.x[i]]
+            for j in 1:npeaks
+                push!(row, yc.yields[i, j])
+                errors && push!(row, yc.yields_err[i, j])
+            end
+            push!(row, yc.tic[i])
+            errors && push!(row, yc.tic_err[i])
             write(io, join(row, ","), "\n")
         end
     end

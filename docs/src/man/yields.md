@@ -441,13 +441,19 @@ This lets a yield curve flow directly into the rest of the Julia data ecosystem
 
 ## Writing to CSV
 
-[`MassJ.write_csv`](@ref) writes a compact CSV with header
-`<xlabel>, <peak labels…>, TIC` (no error columns) — independent of the Tables
-interface above; use whichever layout suits your downstream workflow:
+[`MassJ.write_csv`](@ref) writes a CSV directly, with no dependency on the Tables
+interface above. By default every peak column is followed by its 1-σ column, so the
+header is `<xlabel>, <label>, <label>_err, …, TIC, TIC_err` — the layout to use for the
+source data behind a published figure, since each value keeps its uncertainty beside it.
+Pass `errors = false` for the compact `<xlabel>, <peak labels…>, TIC` form:
 
 ```julia
-MassJ.write_csv(yc_norm, "yields.csv")
+MassJ.write_csv(yc_norm, "yields.csv")                   # values + 1-σ columns
+MassJ.write_csv(yc_norm, "yields_compact.csv"; errors = false)
 ```
+
+An uncertainty that was never estimated is written as `NaN` — see
+[Uncertainties](@ref).
 
 
 ## Command-line interface

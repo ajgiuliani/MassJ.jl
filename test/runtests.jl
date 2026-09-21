@@ -3047,12 +3047,22 @@ function test_yields()
         @test yf_s.yields ≈ yc.yields ./ 2.0
         rm(flux_skip)
 
-        # write_csv round-trip — header + correct row count
+        # write_csv round-trip — 1-σ columns by default, compact layout on request
         outpath = tempname() * ".csv"
         MassJ.write_csv(yc, outpath)
         lines = readlines(outpath)
         @test length(lines) == 3                                   # header + 2 rows
+        @test lines[1] == "photon energy (eV),low,low_err,high,high_err,TIC,TIC_err"
+        @test length(split(lines[2], ",")) == length(split(lines[1], ","))
+        # the error cells really carry yields_err / tic_err (NaN when unestimated)
+        vals = split(lines[2], ",")
+        @test parse(Float64, vals[2]) ≈ yc.yields[1, 1]
+        @test isequal(parse(Float64, vals[3]), yc.yields_err[1, 1])
+        @test isequal(parse(Float64, vals[end]), yc.tic_err[1])
+        MassJ.write_csv(yc, outpath; errors = false)               # compact layout
+        lines = readlines(outpath)
         @test lines[1] == "photon energy (eV),low,high,TIC"
+        @test length(split(lines[2], ",")) == 4
         rm(outpath)
 
         # plot recipe smoke test
