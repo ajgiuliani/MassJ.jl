@@ -87,15 +87,26 @@ plot(drop_peaks(yc, ["precursor", "solvent"]))
 
 ## Covariance / association maps
 
-A square association map (from [`covariance_matrix`](@ref),
-[`partial_correlation`](@ref), or [`cmi_matrix`](@ref)) is drawn as a diverging
+A square association map (from `cov`,
+[`pcor`](@ref), or [`cmi`](@ref)) is drawn as a diverging
 heatmap centred on zero, so positive (same-precursor) and negative
 (different-precursor) associations read symmetrically:
 
 ```julia
 using MassJ.plots, Plots
-A = covariance_matrix(am.matrix)
+A = cov(am.matrix)
 association_map(cut_autocorrelation(A), am.mz)       # heatmap; suppress the diagonal first
+```
+
+The colour limits are **robust and symmetric by default**: the amplitude is `climscale`
+(default 6) times the larger of the median positive / median negative association, applied
+as `(-amp, amp)` so zero stays white and a few strong cross-peaks saturate (staying visible)
+instead of stretching the scale and washing the map out. Raise `climscale` for more dynamic
+range, lower it to bring up weak associations, or set `clims = (lo, hi)` by hand:
+
+```julia
+association_map(A, am.mz; climscale = 10)             # wider range, less saturation
+association_map(A, am.mz; clims = (-0.05, 0.05))      # fixed limits
 ```
 
 [`MassJ.plots.association_map_marginal`](@ref) draws the classic covariance-mapping figure —
@@ -107,6 +118,28 @@ two ions that produced it:
 association_map_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
 ```
 
-Both work with any Plots backend — `gr()` for print figures, `plotly()` for
+### Overlaying significance
+
+After attaching significance ([`jackknife`](@ref) / [`permutation`](@ref) → an
+`(estimate, pvalue)` pair, gated by [`fdr_adjust`](@ref)), you can render two related
+figures. Pass the FDR gate as `mask` to keep only the surviving edges of a *score* map —
+the rest render transparent:
+
+```julia
+jk  = jackknife(pcor, am.matrix, am.tic)
+sig = fdr_adjust(jk.pvalue; q = 0.05).significant
+association_map(jk.estimate, am.mz; mask = sig)          # score, gated by significance
+```
+
+The `mask` works on `association_map_marginal` too, and a [`correspondence`](@ref)
+result feeds straight in (`association_map(res.score, am.mz; mask = res.significant)`).
+To colour by the *p-values* instead, use [`significance_map`](@ref), which shows
+``-\log_{10} p`` (bright = significant) and, given `q`, blanks the non-significant cells:
+
+```julia
+significance_map(jk.pvalue, am.mz; q = 0.05)
+```
+
+All work with any Plots backend — `gr()` for print figures, `plotly()` for
 interactive notebooks. See [Chimeric tandem mass spectra](@ref) for the analysis that
 produces the map and its picked pairs.

@@ -9,7 +9,7 @@ each pair's covariance **volume**, and rate it by a leave-one-out jackknife
 (optionally TIC-normalised) covariance so it carries no conditioning model.
 """
 
-export MapFeature, cut_autocorrelation, map_features, covariance_features
+export MapFeature, cut_autocorrelation, map_features, covariance_features, association_features
 
 
 """
@@ -84,7 +84,7 @@ of radius `clearradius` around it (and its mirror). Stops at `nfeatures` or once
 largest remaining value falls to `minvalue`. With `cut = true` the autocorrelation
 band (half-width `halfwidth`) is suppressed first; `edge` skips peaks within that many
 pixels of the border (so an integration window fits later). Works on any symmetric
-map (covariance, `partial_correlation`, `cmi_matrix`). Returns features by descending
+map (covariance, `pcor`, `cmi`). Returns features by descending
 value with `volume`/`snr` left `NaN` — fill them via [`covariance_features`](@ref).
 """
 function map_features(A::AbstractMatrix{<:Real}, mz::AbstractVector{<:Real};
@@ -114,27 +114,28 @@ function map_features(A::AbstractMatrix{<:Real}, mz::AbstractVector{<:Real};
 end
 
 
-# Windowed covariance between column-sets from sufficient statistics.
-_covwin(G, sr, sc, n) = (G .- sr * sc' ./ n) ./ (n - 1)
 # Volume = sum of positive covariance over the window (a fixed-window 2-D integral).
 _winvolume(cw) = sum(x -> max(x, 0.0), cw)
 
-# Volume + jackknife S/N of the covariance peak at (i,j) over a ±window box.
+# Volume + jackknife S/N of the covariance peak at (i,j) over a ±window box, reusing
+# `cov` (Statistics) on the window columns (no separate covariance implementation).
 function _quantify(X::AbstractMatrix{<:Real}, i::Integer, j::Integer,
                    w::Integer, jackknife::Bool)
     N, M = size(X)
-    R = clamp(i - w, 1, M):clamp(i + w, 1, M)
-    C = clamp(j - w, 1, M):clamp(j + w, 1, M)
-    XR = X[:, R]; XC = X[:, C]
-    sR = vec(sum(XR, dims = 1)); sC = vec(sum(XC, dims = 1))
-    G  = XR' * XC
-    vol = _winvolume(_covwin(G, sR, sC, N))
+    R    = clamp(i - w, 1, M):clamp(i + w, 1, M)
+    C    = clamp(j - w, 1, M):clamp(j + w, 1, M)
+    cols = unique(vcat(collect(R), collect(C)))
+    ri   = findall(in(R), cols)              # positions of the R / C columns within `cols`
+    ci   = findall(in(C), cols)
+    block(rows) = view(cov(view(X, rows, cols)), ri, ci)
+    vol = _winvolume(block(1:N))
     jackknife || return (vol, NaN)
-    acc = 0.0; acc2 = 0.0
-    @inbounds for k in 1:N
-        xr = XR[k, :]; xc = XC[k, :]
-        vk = _winvolume(_covwin(G .- xr * xc', sR .- xr, sC .- xc, N - 1))
+    acc = 0.0; acc2 = 0.0; mask = trues(N)
+    for k in 1:N
+        mask[k] = false
+        vk = _winvolume(block(mask))
         acc += vk; acc2 += vk * vk
+        mask[k] = true
     end
     v̄  = acc / N
     se = sqrt(max((N - 1) / N * (acc2 - N * v̄^2), 0.0))
@@ -173,7 +174,7 @@ function covariance_features(spectra::AbstractVector{MSscans};
     elseif normalize !== :none
         error("covariance_features: normalize must be :none or :tic.")
     end
-    A = covariance_matrix(X)
+    A = cov(X)
     e = edge < 0 ? window : edge
     feats = map_features(A, mz; nfeatures = nfeatures, clearradius = clearradius,
                          minvalue = minvalue, edge = e, halfwidth = halfwidth, cut = true)
@@ -183,5 +184,104 @@ function covariance_features(spectra::AbstractVector{MSscans};
         out[k] = MapFeature(f.mz1, f.mz2, f.i, f.j, f.value, vol, snr)
     end
     sort!(out; by = f -> jackknife ? -f.snr : -f.value)
+    return out
+end
+
+
+# Windowed association block for the chosen measure (control restricted to the same rows).
+# All three scores are pairwise-local, so the windowed value equals the full-map value.
+function _scoreblock(measure::Symbol, Xw, cw)
+    measure === :cov  && return cov(Xw)
+    measure === :cor  && return cor(Xw)
+    measure === :pcor && return pcor(Xw, cw)
+    measure === :mi   && return mi(Xw; progress = false, parallel = false)
+    measure === :cmi  && return cmi(Xw, cw; progress = false, parallel = false)
+    error("association_features: measure must be :cov, :cor, :pcor, :mi or :cmi (got :$measure).")
+end
+
+# Volume + significance of the feature at (i,j), resampling ONLY the ±w window columns:
+# jackknife S/N (signed family) or -log10 permutation p (unsigned family). Returns (vol, sig).
+function _quantify_feat(measure::Symbol, X::AbstractMatrix{<:Real}, ctrl,
+                        i::Integer, j::Integer, w::Integer, sig::Symbol,
+                        nperm::Integer, rng)
+    N, M = size(X)
+    R    = clamp(i - w, 1, M):clamp(i + w, 1, M)
+    C    = clamp(j - w, 1, M):clamp(j + w, 1, M)
+    cols = unique(vcat(collect(R), collect(C)))
+    ri   = findall(in(R), cols); ci = findall(in(C), cols)
+    csub(sel) = ctrl === nothing ? nothing : ctrl[sel]
+    blockvol(sel) = _winvolume(view(_scoreblock(measure, view(X, sel, cols), csub(sel)), ri, ci))
+    vol = blockvol(1:N)
+    if sig === :jackknife
+        acc = 0.0; acc2 = 0.0; mask = trues(N)
+        for k in 1:N
+            mask[k] = false
+            vk = blockvol(mask); acc += vk; acc2 += vk * vk
+            mask[k] = true
+        end
+        v̄  = acc / N
+        se = sqrt(max((N - 1) / N * (acc2 - N * v̄^2), 0.0))
+        return (vol, se == 0 ? (vol == 0 ? 0.0 : Inf) : vol / se)
+    elseif sig === :permutation
+        Xw = X[:, cols]; cwv = ctrl === nothing ? nothing : collect(ctrl); cnt = 0
+        for _ in 1:nperm
+            pm = Random.randperm(rng, N)
+            Xp = copy(Xw); Xp[:, ci] .= Xw[pm, ci]        # shuffle the C-side → null the i↔j link
+            vk = _winvolume(view(_scoreblock(measure, Xp, cwv), ri, ci))
+            vk >= vol && (cnt += 1)
+        end
+        return (vol, -log10((1 + cnt) / (nperm + 1)))
+    else
+        error("association_features: significance must be :jackknife or :permutation.")
+    end
+end
+
+"""
+    association_features(spectra; measure = :cov, control = :tic, significance = :auto,
+                         nfeatures = 50, binsize = 1.0, threshold = 0.01, mzrange = nothing,
+                         window = 3, clearradius = 3, halfwidth = 1, edge = window,
+                         minvalue = 0.0, nperm = 200, rng = Random.default_rng())
+
+FCMS-style map analysis over any association `measure`. Build the pairwise map — `:cov` /
+`:cor`, or `:pcor` / `:cmi` conditioned on `control` (`:tic`, `:none`, or a per-acquisition
+vector) — pick the top correlated fragment *pairs* ([`map_features`](@ref)), and quantify
+each by its windowed 2-D `volume` and a resampled significance (stored in the feature's
+`snr` field).
+
+`significance = :auto` selects by measure, mirroring [`jackknife`](@ref) / [`permutation`](@ref):
+a leave-one-scan-out **jackknife S/N** for the signed family (`:cov`, `:cor`, `:pcor`) and a
+**permutation** `-log10(p)` for the unsigned family (`:mi`, `:cmi`); override explicitly if
+needed. Both resample only the ±`window` columns around each feature — the scores are
+pairwise-local, so this is exact and costs per-feature, not per-map.
+
+`measure = :cov` reproduces the covariance-mapping (FCMS) route; `:pcor` / `:cmi` are its
+conditioned counterparts. `:mi` / `:cmi` require the `EntropyInvariant` package. Returns a
+`Vector{MapFeature}` sorted by significance (most significant first). For statistically-gated
+*grouping* rather than pairs, use [`correspondence`](@ref).
+"""
+function association_features(spectra::AbstractVector{MSscans};
+                              measure::Symbol = :cov, control = :tic,
+                              significance::Symbol = :auto, nfeatures::Integer = 50,
+                              binsize::Real = 1.0, threshold::Real = 0.01, mzrange = nothing,
+                              window::Integer = 3, clearradius::Integer = 3,
+                              halfwidth::Integer = 1, edge::Integer = -1, minvalue::Real = 0.0,
+                              nperm::Integer = 200, rng = Random.default_rng())
+    am = abundance_matrix(spectra; binsize = binsize, threshold = threshold, mzrange = mzrange)
+    X, mz = am.matrix, am.mz
+    ctrl = control === :tic ? am.tic : control === :none ? nothing : control
+    (measure in (:pcor, :cmi) && ctrl === nothing) &&
+        error("association_features: measure :$measure requires a control (got :none).")
+    signed = measure in (:cov, :cor, :pcor)
+    sig = significance === :auto ? (signed ? :jackknife : :permutation) : significance
+    A = _scoreblock(measure, X, ctrl)                       # full map for feature picking
+    e = edge < 0 ? window : edge
+    feats = map_features(A, mz; nfeatures = nfeatures, clearradius = clearradius,
+                         minvalue = minvalue, edge = e, halfwidth = halfwidth, cut = true)
+    out = Vector{MapFeature}(undef, length(feats))
+    for (k, f) in enumerate(feats)
+        vol, s = _quantify_feat(measure, X, ctrl, f.i, f.j, window, sig, nperm, rng)
+        out[k] = MapFeature(f.mz1, f.mz2, f.i, f.j, f.value, vol, s)
+    end
+    sort!(out; by = f -> -f.snr)
     return out
 end

@@ -13,6 +13,7 @@ module plots
 using Plots, RecipesBase   # used for plotting
 using Printf               # runtime m/z formatting for annotation labels
 using LinearAlgebra: diag, checksquare   # covariance-map marginal + square check
+using Statistics: median                 # robust (median-based) colour limits
 
 
 using MassJ:MScontainer
@@ -450,48 +451,99 @@ Equivalent to `plot!`-ing each peak in turn; see `pk` for a single peak.
 end
 
 
-export association_map, association_map_marginal
+export association_map, association_map_marginal, significance_map
 
-# Colour scheme + limits for an association map: a diverging scale centred on zero for
-# a signed map (covariance, correlation) and a sequential scale from zero for a
-# non-negative one (conditional mutual information). Explicit `color`/`clims` win.
-function _map_colorscale(M; color = nothing, clims = nothing)
-    signed = minimum(M) < 0
-    m = maximum(abs, M)
+# Colour scheme + limits for an association map. Colour: a diverging scale (RdBu) for a
+# signed map (covariance, correlation), a sequential scale (viridis) from zero for a
+# non-negative one (conditional mutual information). Limits: unless `clims` is given
+# explicitly, the amplitude is *robust* — `climscale` times the larger of the median
+# positive / median negative magnitude of the off-centre values — so that a handful of
+# strong pairs saturate (staying fully visible) instead of stretching the range and
+# washing everything else out (the failure mode of a max-based scale on a sparse map). For
+# a signed map the limits are kept **symmetric** `(-amp, amp)` so that zero maps to the
+# neutral (white) colour. Larger `climscale` widens the range (less saturation, more
+# dynamic range); smaller narrows it (more sensitive to weak associations). Non-finite
+# (masked / diagonal-cut) cells are ignored throughout.
+function _map_colorscale(M; color = nothing, clims = nothing, climscale::Real = 6.0)
+    vals = filter(isfinite, vec(M))
+    signed = !isempty(vals) && minimum(vals) < 0
     color === nothing && (color = signed ? :RdBu : :viridis)
     if clims === nothing
-        clims = signed ? (m > 0 ? (-m, m) : (-1.0, 1.0)) : (0.0, m > 0 ? float(m) : 1.0)
+        if isempty(vals)
+            clims = signed ? (-1.0, 1.0) : (0.0, 1.0)
+        elseif signed
+            pos = filter(>(0), vals); neg = filter(<(0), vals)
+            mp  = isempty(pos) ? 0.0 : median(pos)
+            mn  = isempty(neg) ? 0.0 : abs(median(neg))
+            amp = climscale * max(mp, mn)
+            amp > 0 || (amp = maximum(abs, vals); amp = amp > 0 ? amp : 1.0)   # degenerate
+            clims = (-amp, amp)                             # symmetric → 0 is white
+        else
+            pos = filter(>(0), vals)
+            hi = isempty(pos) ? maximum(vals) : climscale * median(pos)
+            clims = (0.0, hi > 0 ? float(hi) : 1.0)
+        end
     end
     return color, clims
 end
 
-"""
-    association_map(A, mz = 1:size(A,1); cut = true, halfwidth = 1,
-                    color = nothing, clims = nothing, kwargs...)
+# Copy `A` to a Float matrix, blank the autocorrelation diagonal band (to `NaN`) when
+# `cut`, and blank cells where `mask` is false (to `NaN`) — the shared preparation for
+# the map plotters. `NaN` cells render transparent and are ignored by `_map_colorscale`.
+function _prepare_map(A, n; cut, halfwidth, mask)
+    mask === nothing || Base.size(mask) == (n, n) ||
+        error("association map: mask must be $(n)×$(n) to match the map.")
+    M = cut ? cut_autocorrelation(float.(A); halfwidth = halfwidth, value = NaN) : float.(A)
+    if mask !== nothing
+        @inbounds for i in eachindex(M, mask)
+            mask[i] || (M[i] = NaN)
+        end
+    end
+    return M
+end
 
-Heatmap of a square association map `A` — a covariance ([`covariance_matrix`](@ref)),
-correlation ([`partial_correlation`](@ref)), or conditional-mutual-information
-([`cmi_matrix`](@ref)) matrix — with its columns indexed by `mz`. A signed map gets a
-diverging colour scale centred on zero (positive = same precursor, negative =
-different); a non-negative map (CMI) gets a sequential scale from zero. `cut`
-suppresses the autocorrelation diagonal band (half-width `halfwidth`) so cross-peaks
-are visible. Override the scheme with `color`/`clims`. Returns a `Plots.Plot`; overlay
-picked pairs with `scatter!` on the `MapFeature` `mz1`/`mz2`. For the framed figure
-with marginal spectra see [`association_map_marginal`](@ref).
+"""
+    association_map(A, mz = 1:size(A,1); cut = true, halfwidth = 1, mask = nothing,
+                    climscale = 6, color = nothing, clims = nothing, kwargs...)
+
+Heatmap of a square association map `A` — a covariance (`cov`),
+correlation ([`pcor`](@ref)), or conditional-mutual-information
+([`cmi`](@ref)) matrix — with its columns indexed by `mz`. A signed map gets a
+diverging colour scale (positive = same precursor, negative = different); a non-negative
+map (CMI) gets a sequential scale from zero. `cut` suppresses the autocorrelation diagonal
+band (half-width `halfwidth`) so cross-peaks are visible.
+
+By default the colour limits are **robust and symmetric**: the amplitude is `climscale`
+times the larger of the median positive / median negative association, applied as
+`(-amp, amp)` so zero maps to the neutral (white) colour. A few strong cross-peaks then
+saturate (staying visible) instead of stretching the scale and washing the map out. Raise
+`climscale` for more dynamic range, lower it to bring up weak associations; or pass
+`clims = (lo, hi)` to set the range by hand (which overrides `climscale`). Returns a `Plots.Plot`; overlay picked pairs with
+`scatter!` on the `MapFeature` `mz1`/`mz2`. For the framed figure with marginal spectra see
+[`association_map_marginal`](@ref).
+
+Pass `mask` — a `Bool` matrix the same size as `A`, e.g. the FDR gate from
+[`fdr_adjust`](@ref) or a [`correspondence`](@ref) result's `significant` field — to keep
+only the edges where `mask` is true; the rest render transparent. This turns a raw score
+map into a *significance-gated* map. To plot the p-values themselves see
+[`significance_map`](@ref).
 
 ```julia
 using MassJ.plots
-association_map(MassJ.covariance_matrix(X), mz)   # or a partial_correlation / cmi_matrix map
+association_map(MassJ.cov(X), mz)                      # or a pcor / cmi map
+jk = jackknife(pcor, am.matrix, am.tic)
+association_map(jk.estimate, am.mz; mask = fdr_adjust(jk.pvalue).significant)   # gated map
 ```
 """
 function association_map(A::AbstractMatrix{<:Real},
                          mz::AbstractVector{<:Real} = 1:size(A, 1);
                          cut::Bool = true, halfwidth::Integer = 1,
-                         color = nothing, clims = nothing, kwargs...)
+                         mask::Union{Nothing,AbstractMatrix{Bool}} = nothing,
+                         climscale::Real = 6, color = nothing, clims = nothing, kwargs...)
     n = checksquare(A)
     length(mz) == n || error("association_map: length(mz) must equal size(A,1) = $n.")
-    M = cut ? cut_autocorrelation(A; halfwidth = halfwidth) : A
-    c, cl = _map_colorscale(M; color = color, clims = clims)
+    M = _prepare_map(A, n; cut = cut, halfwidth = halfwidth, mask = mask)
+    c, cl = _map_colorscale(M; color = color, clims = clims, climscale = climscale)
     return heatmap(mz, mz, M; color = c, clims = cl, xguide = "m/z", yguide = "m/z",
                    colorbar_title = "association", kwargs...)
 end
@@ -499,8 +551,8 @@ end
 
 """
     association_map_marginal(A, mz, intensity = sqrt.(max.(diag(A), 0)); cut = true,
-                             halfwidth = 1, color = nothing, clims = nothing,
-                             size = (720, 720), kwargs...)
+                             halfwidth = 1, mask = nothing, climscale = 6,
+                             color = nothing, clims = nothing, size = (720, 720), kwargs...)
 
 The classic covariance-mapping figure: the square association map `A` as a central
 heatmap (coloured as in [`association_map`](@ref)), with the 1-D marginal spectrum
@@ -509,26 +561,29 @@ heatmap (coloured as in [`association_map`](@ref)), with the 1-D marginal spectr
 produced it. `intensity` defaults to the per-bin standard deviation (√ of `A`'s
 diagonal), which is meaningful for a *covariance* map; for a correlation or CMI map
 pass the averaged or summed series spectrum instead. `cut` suppresses the
-autocorrelation band (half-width `halfwidth`). Returns a `Plots.Plot` and works with
+autocorrelation band (half-width `halfwidth`); `mask` gates the heatmap to significant
+edges, and `climscale`/`clims` set the (robust, median-based by default) colour range —
+all exactly as in [`association_map`](@ref). Returns a `Plots.Plot` and works with
 any backend (`gr()` for print, `plotly()` for interactive).
 
 ```julia
 using MassJ.plots
 am = MassJ.abundance_matrix(scans; binsize = 1.0)
-A  = MassJ.covariance_matrix(am.matrix ./ max.(am.tic, 1))   # TIC-normalised
+A  = MassJ.cov(am.matrix ./ max.(am.tic, 1))   # TIC-normalised
 association_map_marginal(A, am.mz, vec(sum(am.matrix, dims = 1)))
 ```
 """
 function association_map_marginal(A::AbstractMatrix{<:Real}, mz::AbstractVector{<:Real},
                                   intensity::AbstractVector{<:Real} = sqrt.(max.(diag(A), 0.0));
                                   cut::Bool = true, halfwidth::Integer = 1,
-                                  color = nothing, clims = nothing,
+                                  mask::Union{Nothing,AbstractMatrix{Bool}} = nothing,
+                                  climscale::Real = 6, color = nothing, clims = nothing,
                                   size = (720, 720), kwargs...)
     n = checksquare(A)
     (length(mz) == n && length(intensity) == n) ||
         error("association_map_marginal: mz and intensity must have length size(A,1) = $n.")
-    M = cut ? cut_autocorrelation(A; halfwidth = halfwidth) : A
-    c, cl = _map_colorscale(M; color = color, clims = clims)
+    M = _prepare_map(A, n; cut = cut, halfwidth = halfwidth, mask = mask)
+    c, cl = _map_colorscale(M; color = color, clims = clims, climscale = climscale)
     xl = (float(first(mz)), float(last(mz)))
 
     top = plot(mz, intensity; xlims = xl, legend = false, grid = false,
@@ -543,6 +598,52 @@ function association_map_marginal(A::AbstractMatrix{<:Real}, mz::AbstractVector{
     lay = @layout [ _         t{0.80w,0.20h}
                     s{0.20w}  h ]
     return plot(top, left, hm; layout = lay, size = size, legend = false, kwargs...)
+end
+
+
+"""
+    significance_map(P, mz = 1:size(P,1); q = nothing, transform = :neglog10,
+                     cut = true, halfwidth = 1, color = nothing, clims = nothing, kwargs...)
+
+Heatmap of a *p-value* map `P` — the `pvalue` field returned by [`jackknife`](@ref) or
+[`permutation`](@ref) — transformed so that strong evidence reads bright. With
+`transform = :neglog10` (default) each cell is shown as ``-\\log_{10} p`` on a sequential
+scale (large = significant); `transform = :none` plots `P` itself. When `q` is given,
+cells with ``p \\ge q`` are blanked (rendered transparent), leaving only the edges that
+survive an [`fdr_adjust`](@ref)-style threshold. `cut` suppresses the (untested)
+autocorrelation diagonal. Columns are indexed by `mz`. Returns a `Plots.Plot`.
+
+To instead colour a gated map by the *score* (rather than the p-value), pass the gate as
+`mask` to [`association_map`](@ref).
+
+```julia
+using MassJ.plots
+jk = jackknife(pcor, am.matrix, am.tic)
+significance_map(jk.pvalue, am.mz; q = 0.05)
+```
+"""
+function significance_map(P::AbstractMatrix{<:Real},
+                          mz::AbstractVector{<:Real} = 1:size(P, 1);
+                          q::Union{Nothing,Real} = nothing, transform::Symbol = :neglog10,
+                          cut::Bool = true, halfwidth::Integer = 1,
+                          color = nothing, clims = nothing, kwargs...)
+    n = checksquare(P)
+    length(mz) == n || error("significance_map: length(mz) must equal size(P,1) = $n.")
+    all(p -> isnan(p) || (0 <= p <= 1), P) ||
+        error("significance_map: P must contain p-values in [0, 1].")
+    V = transform === :neglog10 ? -log10.(clamp.(float.(P), 1e-300, 1.0)) :
+        transform === :none     ? float.(P) :
+        error("significance_map: transform must be :neglog10 or :none.")
+    if q !== nothing
+        @inbounds for i in eachindex(V, P)
+            (isnan(P[i]) || P[i] >= q) && (V[i] = NaN)
+        end
+    end
+    Vc = cut ? cut_autocorrelation(V; halfwidth = halfwidth, value = NaN) : V
+    c, cl = _map_colorscale(Vc; color = color, clims = clims)
+    ctitle = transform === :neglog10 ? "-log10 p" : "p-value"
+    return heatmap(mz, mz, Vc; color = c, clims = cl, xguide = "m/z", yguide = "m/z",
+                   colorbar_title = ctitle, kwargs...)
 end
 
 

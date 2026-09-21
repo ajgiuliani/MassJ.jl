@@ -37,7 +37,7 @@ group give worked examples.
 - [`trim_yields`](@ref) / [`restrict_x`](@ref) / [`drop_peaks`](@ref)
 
 **Chimeric spectra**
-- [`abundance_matrix`](@ref) / [`partial_correlation`](@ref) / [`cmi_matrix`](@ref)
+- [`abundance_matrix`](@ref) / [`pcor`](@ref) / [`cmi`](@ref)
 - [`cluster_ions`](@ref) / [`cluster_spectra`](@ref)
 
 **Ecosystem interoperability**
