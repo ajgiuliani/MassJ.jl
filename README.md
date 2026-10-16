@@ -70,10 +70,11 @@ peaks = [Peak(110.5, "fragment_a"; tol = 0.5),
 
 yc = yields("data/UVPD/", peaks; x0 = 3.0, step = 0.1,
             xlabel = "photon energy (eV)")
-yc = yc |> normalize_tic |> y -> normalize_flux(y, "flux.txt")
+yc_frac = normalize_tic(yc)                         # fraction of ions in each peak
+yc_norm = normalize_external(yc_frac, "flux.txt")   # then divide by the photon flux
 
-plot(yc)                                 # ribbons show per-scan SEM
-write_csv(yc, "yields.csv")
+plot(yc_norm)                            # ribbons show per-scan SEM
+MassJ.write_csv(yc_norm, "yields.csv")       # write_csv is not exported
 ```
 
 ## Documentation
