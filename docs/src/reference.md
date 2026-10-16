@@ -221,6 +221,7 @@ MassJ.group_yields
 MassJ.with_yields
 Base.getindex(yc::YieldCurve, label::AbstractString)
 MassJ.read_peaklist
+MassJ.fragment_peaks
 MassJ.write_csv
 ```
 
