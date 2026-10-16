@@ -90,17 +90,165 @@ end
 
 
 """
-    load_imzml_all(filename::String)
-Load all spectra from an imzML file. Returns a `Vector{MSscan}`.
-The spatial coordinates (x, y) are stored in the `metadata` dict of each scan.
-Requires the companion `.ibd` file in the same directory.
+    precompute_group_flags(ref_groups)
+Resolve, once per file, the array-type / precision / compression / external-data
+flags carried by each `referenceableParamGroup`. Returns a dict mapping group id
+to a NamedTuple of booleans, so per-spectrum parsing can look these up instead of
+re-scanning cvParam accession lists for every `<binaryDataArray>`.
 """
-function load_imzml_all(filename::String)
+function precompute_group_flags(ref_groups::Dict{String, Vector{Tuple{String,String}}})
+    cache = Dict{String, NamedTuple{(:is_mz,:is_int,:is_external,:is_64bit,:is_zlib),NTuple{5,Bool}}}()
+    for (gid, params) in ref_groups
+        is_mz = false; is_int = false; is_ext = false; is_64 = false; is_zlib = false
+        for (acc, _) in params
+            acc == CV_MZ_ARRAY          && (is_mz   = true)
+            acc == CV_INT_ARRAY         && (is_int  = true)
+            acc == CV_IMS_EXTERNAL_DATA && (is_ext  = true)
+            acc == CV_64BIT             && (is_64   = true)
+            acc == CV_ZLIB             && (is_zlib = true)
+        end
+        cache[gid] = (is_mz=is_mz, is_int=is_int, is_external=is_ext, is_64bit=is_64, is_zlib=is_zlib)
+    end
+    return cache
+end
+
+
+"""
+    resolve_bda_flags(bda::XMLElement, group_flags)
+Single-pass resolution of everything needed to read one `<binaryDataArray>`:
+array type, precision, compression, external-data flag, and the external offset /
+length / encoded-length. Iterates the element's children exactly once, merging
+direct cvParams with any `referenceableParamGroupRef`-resolved flags (cached in
+`group_flags`). Replaces the previous ~8 separate child-iteration passes.
+"""
+function resolve_bda_flags(bda::XMLElement,
+                           group_flags::Dict{String, NamedTuple{(:is_mz,:is_int,:is_external,:is_64bit,:is_zlib),NTuple{5,Bool}}})
+    is_mz = false; is_int = false; is_ext = false; is_64 = false; is_zlib = false
+    offset = 0; arr_len = 0; enc_len = 0
+    for child in child_elements(bda)
+        cname = name(child)
+        if cname == "cvParam"
+            acc = attribute(child, "accession")
+            acc === nothing && continue
+            if acc == CV_MZ_ARRAY
+                is_mz = true
+            elseif acc == CV_INT_ARRAY
+                is_int = true
+            elseif acc == CV_IMS_EXTERNAL_DATA
+                is_ext = true
+            elseif acc == CV_64BIT
+                is_64 = true
+            elseif acc == CV_ZLIB
+                is_zlib = true
+            elseif acc == CV_IMS_EXT_OFFSET
+                v = attribute(child, "value"); v !== nothing && (offset = parse(Int, v))
+            elseif acc == CV_IMS_EXT_LENGTH
+                v = attribute(child, "value"); v !== nothing && (arr_len = parse(Int, v))
+            elseif acc == CV_IMS_EXT_ENC_LEN
+                v = attribute(child, "value"); v !== nothing && (enc_len = parse(Int, v))
+            end
+        elseif cname == "referenceableParamGroupRef"
+            ref = attribute(child, "ref")
+            if ref !== nothing
+                g = get(group_flags, ref, nothing)
+                if g !== nothing
+                    is_mz  |= g.is_mz;  is_int  |= g.is_int; is_ext |= g.is_external
+                    is_64  |= g.is_64bit; is_zlib |= g.is_zlib
+                end
+            end
+        end
+    end
+    return (is_mz=is_mz, is_int=is_int, is_external=is_ext, is_64bit=is_64,
+            is_zlib=is_zlib, offset=offset, arr_len=arr_len, enc_len=enc_len)
+end
+
+
+"""
+    ImzmlStreamFallback(reason)
+Raised internally by the fast streaming imzML reader ([`load_imzml_stream`](@ref))
+when it meets a layout it does not handle (irregular structure, inline binary,
+precursor data, …). [`load_imzml_all`](@ref) catches it, warns, and retries with
+the slower but fully general DOM parser.
+"""
+struct ImzmlStreamFallback <: Exception
+    reason::String
+end
+Base.showerror(io::IO, e::ImzmlStreamFallback) = print(io, "ImzmlStreamFallback: ", e.reason)
+
+
+"""
+    read_ibd_array!(ibd_io, offset, enc_len, arr_len, is_64bit, is_zlib, bytebuf) -> Vector{Float64}
+Read one binary array from the open `.ibd` stream and return it as `Float64`.
+Shared by both the DOM and streaming imzML readers so they are byte-for-byte
+identical. Skips the seek when already positioned (sequential `.ibd` layout),
+reads uncompressed data with `read!` into the reusable `bytebuf` (no per-array
+allocation), and converts to `Float64` in a single pass (no `ltoh.`/`convert`).
+"""
+function read_ibd_array!(ibd_io::IO, offset::Int, enc_len::Int, arr_len::Int,
+                         is_64bit::Bool, is_zlib::Bool, bytebuf::Vector{UInt8})
+    if position(ibd_io) != offset
+        seek(ibd_io, offset)
+    end
+    if is_zlib
+        # compressed: decompressed size is unknown, must allocate
+        raw_data = Libz.inflate(read(ibd_io, enc_len))
+    else
+        # uncompressed: read! into the reusable buffer (no per-array alloc)
+        resize!(bytebuf, enc_len)
+        read!(ibd_io, bytebuf)
+        raw_data = bytebuf
+    end
+    out = Vector{Float64}(undef, arr_len)
+    if is_64bit
+        src = reinterpret(Float64, raw_data)
+        @inbounds @simd for j in 1:arr_len
+            out[j] = src[j]
+        end
+    else
+        src = reinterpret(Float32, raw_data)
+        @inbounds @simd for j in 1:arr_len
+            out[j] = Float64(src[j])
+        end
+    end
+    return out
+end
+
+
+"""
+    load_imzml_all(filename::String; progress::Bool=true)
+Load all spectra from an imzML file. Returns an `MSrun`. The spatial coordinates
+(x, y) are stored in the `metadata` dict of each scan. Requires the companion
+`.ibd` file in the same directory.
+
+Uses the fast DOM-free streaming reader ([`load_imzml_stream`](@ref)) and
+transparently falls back to the general DOM reader ([`load_imzml_all_dom`](@ref))
+— with a warning — for files whose layout the streamer does not handle.
+"""
+function load_imzml_all(filename::String; progress::Bool=true)
+    try
+        return load_imzml_stream(filename; progress=progress)
+    catch err
+        reason = err isa ImzmlStreamFallback ? err.reason : sprint(showerror, err)
+        @warn "imzML: fast streaming reader could not parse this file; falling back to the slower DOM parser." reason
+        return load_imzml_all_dom(filename)
+    end
+end
+
+
+"""
+    load_imzml_all_dom(filename::String)
+General-purpose DOM-based imzML reader (LightXML). Slower than
+[`load_imzml_stream`](@ref) but handles arbitrary imzML layouts; used as the
+fallback path. Returns an `MSrun`.
+"""
+function load_imzml_all_dom(filename::String)
     xdoc = parse_file(filename)
     mzml = find_mzml_root(xdoc)
 
     # Parse referenceableParamGroups (used by ProteoWizard-generated imzML)
     ref_groups = parse_referenceable_param_groups(mzml)
+    # Resolve per-file array-type/precision/compression flags once
+    group_flags = precompute_group_flags(ref_groups)
 
     # Determine .ibd file path
     basepath = filename[1:findlast('.', filename)-1]
@@ -148,7 +296,7 @@ function load_imzml_all(filename::String)
     countStr = attribute(specList, "count")
     scanCount = countStr !== nothing ? parse(Int, countStr) : 0
 
-    scans = Vector{MSscan}(undef, scanCount)
+    scans = Vector{MSscans}(undef, scanCount)
 
     # Open .ibd and parse spectra
     open(ibd_path, "r") do ibd_io
@@ -159,6 +307,9 @@ function load_imzml_all(filename::String)
         shared_mz = Float64[]
         shared_mz_read = false
 
+        # Reusable byte buffer for uncompressed reads (avoids a per-array alloc)
+        bytebuf = UInt8[]
+
         index = 1
         for spec in child_elements(specList)
             if name(spec) != "spectrum"
@@ -167,12 +318,13 @@ function load_imzml_all(filename::String)
 
             scan = load_imzml_spectrum(spec, index, ibd_io,
                                        is_continuous, shared_mz, shared_mz_read,
-                                       ref_groups)
+                                       group_flags, bytebuf)
             scans[index] = scan
 
-            # After first spectrum in continuous mode, cache the shared m/z
+            # After first spectrum in continuous mode, capture the shared m/z by
+            # reference (no copy): all subsequent spectra reuse this same array.
             if is_continuous && !shared_mz_read && !isempty(scan.mz)
-                append!(shared_mz, scan.mz)
+                shared_mz = scan.mz
                 shared_mz_read = true
             end
 
@@ -181,22 +333,24 @@ function load_imzml_all(filename::String)
     end
 
     free(xdoc)
-    return scans[1:min(scanCount, length(scans))]
+    return MSrun(scans[1:min(scanCount, length(scans))])
 end
 
 
 """
     load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
                         is_continuous::Bool, shared_mz::Vector{Float64},
-                        shared_mz_read::Bool,
-                        ref_groups::Dict{String, Vector{Tuple{String,String}}})
+                        shared_mz_read::Bool, group_flags, bytebuf=UInt8[])
 Parse a single <spectrum> element from imzML and read its binary data from the .ibd file.
-Resolves `referenceableParamGroupRef` elements via `ref_groups`.
+Binary-array flags are resolved per `<binaryDataArray>` via `resolve_bda_flags`, using
+the per-file `group_flags` cache (see [`precompute_group_flags`](@ref)). `bytebuf` is a
+caller-owned scratch buffer reused across spectra for uncompressed reads.
 """
 function load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
                               is_continuous::Bool, shared_mz::Vector{Float64},
                               shared_mz_read::Bool,
-                              ref_groups::Dict{String, Vector{Tuple{String,String}}}=Dict{String, Vector{Tuple{String,String}}}())
+                              group_flags::Dict{String, NamedTuple{(:is_mz,:is_int,:is_external,:is_64bit,:is_zlib),NTuple{5,Bool}}},
+                              bytebuf::Vector{UInt8}=UInt8[])
     # MS level
     msLevel = parse(Int, get_cv_value(spec, CV_MS_LEVEL, "1"))
 
@@ -317,63 +471,31 @@ function load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
                 continue
             end
 
-            # Check array type using both direct cvParams and referenced groups
-            is_mz = has_cv_param_resolved(bda, CV_MZ_ARRAY, ref_groups)
-            is_int = has_cv_param_resolved(bda, CV_INT_ARRAY, ref_groups)
-            if !is_mz && !is_int
+            # Single pass: array type, precision, compression, offset/length
+            f = resolve_bda_flags(bda, group_flags)
+            if !f.is_mz && !f.is_int
+                continue
+            end
+            if !f.is_external
+                continue
+            end
+            if f.arr_len == 0
                 continue
             end
 
-            # Check if external data
-            if !has_cv_param_resolved(bda, CV_IMS_EXTERNAL_DATA, ref_groups)
+            # In continuous mode all spectra share one m/z axis: reuse the same
+            # array by reference (safe — no code path mutates scan.mz in place).
+            if is_continuous && f.is_mz && shared_mz_read
+                mz = shared_mz
                 continue
             end
 
-            # Get offset and length
-            offset_str = get_cv_value(bda, CV_IMS_EXT_OFFSET, "0")
-            arr_len_str = get_cv_value(bda, CV_IMS_EXT_LENGTH, "0")
-            enc_len_str = get_cv_value(bda, CV_IMS_EXT_ENC_LEN, "0")
-
-            offset = parse(Int, offset_str)
-            arr_len = parse(Int, arr_len_str)
-            enc_len = parse(Int, enc_len_str)
-
-            if arr_len == 0
-                continue
-            end
-
-            # In continuous mode, reuse shared m/z array
-            if is_continuous && is_mz && shared_mz_read
-                mz = copy(shared_mz)
-                continue
-            end
-
-            # Determine precision (check both direct and referenced)
-            is_64bit = has_cv_param_resolved(bda, CV_64BIT, ref_groups)
-
-            # Read from .ibd file
-            seek(ibd_io, offset)
-            raw_data = read(ibd_io, enc_len)
-
-            # Check for zlib compression (check both direct and referenced)
-            if has_cv_param_resolved(bda, CV_ZLIB, ref_groups)
-                raw_data = Libz.inflate(raw_data)
-            end
-
-            if is_64bit
-                arr = reinterpret(Float64, raw_data)
-            else
-                arr = reinterpret(Float32, raw_data)
-            end
-
-            # imzML uses little-endian (same as host on x86)
-            arr = ltoh.(arr)
-            arr = convert(Vector{Float64}, copy(arr))
-
-            if is_mz
-                mz = arr
-            elseif is_int
-                int_arr = arr
+            out = read_ibd_array!(ibd_io, f.offset, f.enc_len, f.arr_len,
+                                  f.is_64bit, f.is_zlib, bytebuf)
+            if f.is_mz
+                mz = out
+            elseif f.is_int
+                int_arr = out
             end
         end
     end
@@ -397,7 +519,7 @@ function load_imzml_spectrum(spec::XMLElement, scan_index::Int, ibd_io::IO,
         metadata["position_z"] = pos_z
     end
 
-    return MSscan(scan_index, rt, tic, mz, int_arr, msLevel,
+    return MSscans(scan_index, rt, tic, mz, int_arr, msLevel,
                   basePeakMz, basePeakIntensity, precursorMz, polarity,
                   activationMethod, collisionEnergy,
                   chargeState, spectrumType, -1.0, 0.0, :none, metadata)

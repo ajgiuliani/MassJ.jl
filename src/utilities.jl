@@ -6,7 +6,7 @@ Utility functions to work on MScontainer data types.
 # User Interface.
 # --------------
 
-export avg, num2pnt
+export avg, num2pnt, nscans, stdev, sem, measurements, withunits
 
 
 
@@ -14,24 +14,11 @@ export avg, num2pnt
 # ------------------------
 
 """
-    /(a::MSscan, N::Real)
-Divide the intensity and the tic data of a MSscan by a number.
+    /(a::MSscans, N::Real)
+Divide the intensity, tic and (when present) variance of a spectrum by a number.
 ```julia-repl
 julia> scans[1] / 1.0e2
-MassJ.MSscan(1, 0.1384, 50819.5, [140. ....
-```
-"""
-function /(a::MSscan, N::Real)
-    return MSscan(a.num, a.rt, a.tic / N, a.mz, a.int ./ N, a.level, a.basePeakMz, a.basePeakIntensity / N, a.precursor, a.polarity, a.activationMethod, a.collisionEnergy)
-end
-
-
-"""
-    /(a::MSscans, N::Real)
-Divide the intensity, tic and variance of a MSscans by a number.
-```julia-repl
-julia> a / 1.0e2
-MassJ.MSscans(1, 0.1384, 50819.5, [140. ....
+MassJ.MSscans(num=1, MS1+, ...
 ```
 """
 function /(a::MSscans, N::Real)
@@ -39,23 +26,11 @@ function /(a::MSscans, N::Real)
 end
 
 """
-    *(a::MSscan, N::Real)
-Multiply the intensity and the tic data of a MSscan by a number.
+    *(a::MSscans, N::Real)
+Multiply the intensity, tic and (when present) variance of a spectrum by a number.
 ```julia-repl
 julia> scans[1] * 1.0e2
-MassJ.MSscan(1, 0.1384, 50819.5, [140. ....
-```
-"""
-function *(a::MSscan, N::Real)
-    return MSscan(a.num, a.rt, a.tic * N, a.mz, a.int .* N, a.level, a.basePeakMz, a.basePeakIntensity * N, a.precursor, a.polarity, a.activationMethod, a.collisionEnergy)
-end
-
-"""
-    *(a::MSscans, N::Real)
-Multiply the intensity, tic and variance of a MSscans by a number.
-```julia-repl
-julia> a * 1.0e2
-MassJ.MSscans(1, 0.1384, 50819.5, [140. ....
+MassJ.MSscans(num=1, MS1+, ...
 ```
 """
 function *(a::MSscans, N::Real)
@@ -139,63 +114,47 @@ function -(a::MScontainer, b::MScontainer)
         extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
         int = a.int - [extrap(x) for x in a.mz ]
         mz = a.mz
-        if a isa MSscans
-            if b isa MSscans
-                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
-                s = a.s + [extrap2(x) for x in a.mz]
-            else
-                s = a.s
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
-                s = [extrap2(x) for x in a.mz]
-            end            
+        if !isempty(b.s)
+            extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
+            bs = [extrap2(x) for x in a.mz]
+            s = isempty(a.s) ? bs : a.s + bs
+        elseif !isempty(a.s)
+            s = a.s
         end
 
     elseif length(a.mz) < length(b.mz)
         extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
         int = [extrap(x) for x in b.mz ] - b.int
         mz = b.mz
-        if a isa MSscans
+        if !isempty(a.s)
             extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
-            if b isa MSscans
-                s = [extrap2(x) for x in b.mz] + b.s
-            else
-                s = [extrap2(x) for x in b.mz]
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                s = b.s
-            end            
+            as = [extrap2(x) for x in b.mz]
+            s = isempty(b.s) ? as : as + b.s
+        elseif !isempty(b.s)
+            s = b.s
         end
 
     elseif length(a.mz) == length(b.mz)
         mz = a.mz
         int = a.int - b.int
-        if a isa MSscans
-            if b isa MSscans
-                s = a.s + b.s
-            else
-                s = a.s
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                s = b.s
-            end
-        end         
-
+        if !isempty(a.s) && !isempty(b.s)
+            s = a.s + b.s
+        elseif !isempty(a.s)
+            s = a.s
+        elseif !isempty(b.s)
+            s = b.s
+        end
     end
 
     basePeakIntensity = maximum(int)
     basePeakMz = mz[num2pnt(int, basePeakIntensity)]
-    
+
     level = vcat(a.level, b.level)
     precursor = vcat(a.precursor, b.precursor)
     polarity = vcat(a.polarity, b.polarity)
     activationMethod = vcat( a.activationMethod,  b.activationMethod)
     collisionEnergy = vcat(a.collisionEnergy, b.collisionEnergy)
-    
+
     return  MSscans(num, rt, tic, mz, int, level, basePeakMz, basePeakIntensity, precursor, polarity, activationMethod, collisionEnergy, s)
 end
 
@@ -222,51 +181,36 @@ function +(a::MScontainer, b::MScontainer)
         extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
         int = a.int + [extrap(x) for x in a.mz ]
         mz = a.mz
-        if a isa MSscans
-            if b isa MSscans
-                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
-                s = a.s + [extrap2(x) for x in a.mz]
-            else
-                s = a.s
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
-                s = [extrap2(x) for x in a.mz]
-            end            
+        if !isempty(b.s)
+            extrap2 = Interpolations.LinearInterpolation(b.mz, b.s, extrapolation_bc = Line())
+            bs = [extrap2(x) for x in a.mz]
+            s = isempty(a.s) ? bs : a.s + bs
+        elseif !isempty(a.s)
+            s = a.s
         end
-      
+
     elseif length(a.mz) < length(b.mz)
         extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
         int = [extrap(x) for x in b.mz ] + b.int
         mz = b.mz
-        if a isa MSscans
+        if !isempty(a.s)
             extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
-            if b isa MSscans
-                s = [extrap2(x) for x in b.mz] + b.s
-            else
-                s = [extrap2(x) for x in b.mz]
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                s = b.s
-            end            
+            as = [extrap2(x) for x in b.mz]
+            s = isempty(b.s) ? as : as + b.s
+        elseif !isempty(b.s)
+            s = b.s
         end
-            
+
     elseif length(a.mz) == length(b.mz)
         mz = a.mz
         int = a.int + b.int
-        if a isa MSscans
-            if b isa MSscans
-                s = a.s + b.s
-            else
-                s = a.s
-            end
-        elseif a isa MSscan
-            if b isa MSscans
-                s = b.s
-            end
-        end         
+        if !isempty(a.s) && !isempty(b.s)
+            s = a.s + b.s
+        elseif !isempty(a.s)
+            s = a.s
+        elseif !isempty(b.s)
+            s = b.s
+        end
     end
 
     basePeakIntensity = maximum(int)
@@ -303,45 +247,33 @@ function avg(a::MScontainer, b::MScontainer)
 #    int = Vector{Float64}(undef,0)
     mz  = Vector{Float64}(undef,0)
     
+    n = length(a.num)   # scans already accumulated in `a` (1 for a raw scan)
     if length(a.mz) > length(b.mz)
         # interpolating b.int to the a.mz values and adding the result to a.int
         extrap = Interpolations.LinearInterpolation(b.mz, b.int, extrapolation_bc = Line())
-#        int = a.int + [extrap(x) for x in a.mz]
         mz = a.mz
-        if a isa MSscans
-            m = a.int + ([extrap(x) for x in a.mz] - a.int) / (length(a.num)+1 )
-            s = a.s + ([extrap(x) for x in a.mz] - m) .* ([extrap(x) for x in a.mz] - a.int)
-#            s = (a.s .* a.s) + ([extrap(x) for x in a.mz] - m) .* ([extrap(x) for x in a.mz] - a.int)
-        elseif a isa MSscan
-            m = a.int + ([extrap(x) for x in a.mz] - a.int) / 2
-            s = ([extrap(x) for x in a.mz] - m) .* ([extrap(x) for x in a.mz] - a.int)
-        end
+        bext = [extrap(x) for x in a.mz]
+        m = a.int + (bext - a.int) / (n + 1)
+        delta = (bext - m) .* (bext - a.int)
+        s = isempty(a.s) ? delta : a.s + delta
     elseif length(a.mz) < length(b.mz)
         # interpoling a.int to the b.mz values and adding the result to b.int
         extrap = Interpolations.LinearInterpolation(a.mz, a.int, extrapolation_bc = Line())
-#        int = [extrap(x) for x in b.mz] + b.int
         mz = b.mz
-        if a isa MSscans
+        aext = [extrap(x) for x in b.mz]
+        m = aext + (b.int - aext) / (n + 1)
+        delta = (b.int - m) .* (b.int - aext)
+        if isempty(a.s)
+            s = delta
+        else
             extrap2 = Interpolations.LinearInterpolation(a.mz, a.s, extrapolation_bc = Line())
-            m = [extrap(x) for x in b.mz]  + (b.int -[extrap(x) for x in b.mz] ) / (length(a.num)+1 )
-            s = [extrap2(x) for x in b.mz] + (b.int - m) .* (b.int - [extrap(x) for x in b.mz ])
-#            s = ([extrap2(x) for x in b.mz] .* [extrap2(x) for x in b.mz]) + (b.int - m) .* (b.int - [extrap(x) for x in b.mz ])
-        elseif a isa MSscan
-            m = [extrap(x) for x in b.mz] + (b.int - [extrap(x) for x in b.mz] ) / 2
-            s = (b.int - m) .* (b.int - [extrap(x) for x in b.mz ])
+            s = [extrap2(x) for x in b.mz] + delta
         end
     elseif length(a.mz) == length(b.mz)
-        #    else
         mz = a.mz
-#        int = a.int + b.int
-        if a isa MSscans
-            m = a.int + (b.int - a.int) / (length(a.num)+1 )
-            s = a.s  + ( (b.int - m) .* (b.int - a.int) )
-#            s = (a.s .* a.s)  + ( (b.int - m) .* (b.int - a.int) )
-        elseif a isa MSscan
-            m = a.int + (b.int - a.int) / 2
-            s = (b.int - m) .* (b.int - a.int)
-        end
+        m = a.int + (b.int - a.int) / (n + 1)
+        delta = (b.int - m) .* (b.int - a.int)
+        s = isempty(a.s) ? delta : a.s + delta
     end
 
     basePeakIntensity = maximum(m)
@@ -362,17 +294,87 @@ function standard_deviation(a::MSscans, N::Int)
 end
 
 
+### Uncertainty accessors (public)
+
+"""
+    nscans(spec::MSscans) -> Int
+Number of scans averaged into `spec` (1 for a single raw scan).
+"""
+nscans(spec::MSscans) = length(spec.num)
+
+"""
+    stdev(spec::MSscans) -> Vector{Float64}
+Per-m/z **sample standard deviation** of an averaged spectrum — the spread of the
+replicate intensities, as produced by `average(...; stats = true)`. Returns an
+empty vector when no replicate statistics are available (a single scan, or
+`stats = false`). See also [`sem`](@ref), [`nscans`](@ref).
+"""
+stdev(spec::MSscans) = spec.s
+
+"""
+    sem(spec::MSscans) -> Vector{Float64}
+Per-m/z **standard error of the mean** intensity, `stdev(spec) ./ sqrt(nscans(spec))`
+— the 1-σ uncertainty on each averaged intensity. Empty when no replicate
+statistics are available. See also [`stdev`](@ref).
+"""
+sem(spec::MSscans) = isempty(spec.s) ? Float64[] : spec.s ./ sqrt(nscans(spec))
+
+"""
+    measurements(spec::MSscans; kind = :sem)
+    measurements(yc::YieldCurve)
+
+Return the data as [Measurements.jl](https://github.com/JuliaPhysics/Measurements.jl)
+`value ± uncertainty` numbers, so that further arithmetic propagates the
+uncertainty automatically. Requires the `Measurements` package to be loaded
+(`using Measurements`).
+
+* `measurements(spec)` → vector of `intensity ± σ` using the standard error of
+  the mean (`kind = :sem`, default) or the sample standard deviation
+  (`kind = :std`); needs replicate statistics (`average(...; stats = true)`).
+* `measurements(yc)` → matrix of `yield ± yields_err`.
+
+See also [`stdev`](@ref), [`sem`](@ref).
+"""
+function measurements end
+measurements(args...; kwargs...) =
+    error("measurements requires the Measurements package. Run `using Measurements` to enable it.")
+
+"""
+    withunits(scan::MSscans)
+    withunits(ic::IonCurrent)
+
+Return the **physical-axis** quantities of a spectrum or ion-current trace tagged
+with [Unitful.jl](https://github.com/PainterQubits/Unitful.jl) units, for
+unit-safe arithmetic and auto-labelled plots. Requires the `Unitful` package to
+be loaded (`using Unitful`).
+
+* `withunits(scan)` → `(; retention_time [s], collision_energy [eV], compensation_voltage [V])`.
+* `withunits(ic)` → `(; x, ic)` with the abscissa in `s` (`:rt`) or `V` (`:cv`).
+
+m/z (a dimensionless ratio) and intensity (arbitrary units) are intentionally
+left untagged. Drift time is also left untagged because the field may hold either
+a drift time (ms) or a reduced mobility 1/K₀ depending on the instrument. Computed
+masses can be tagged manually with `UnitfulAtomic` (`m * u"u"`).
+"""
+function withunits end
+withunits(args...; kwargs...) =
+    error("withunits requires the Unitful package. Run `using Unitful` to enable it.")
+
+
 
 ### Utility functions
 
 """
     add_ion_current(x::AbstractArray, y::AbstractArray, a::Real, b::Real)
-Returns sum the ion current (int) within the m/z range defined by the a and b input values.
+Returns the summed ion current (int) for the points whose m/z falls within the
+range `[a, b]`. The m/z axis `x` is assumed sorted ascending. Returns `0.0` when
+no point lies in the window — essential for sparse/centroid spectra, where a
+nearest-index window would otherwise leak the closest out-of-range peak.
 """
 function add_ion_current(x::AbstractArray, y::AbstractArray, a::Real, b::Real)
-    ia = num2pnt(x, a)
-    ib = num2pnt(x, b)
-    return sum( y[ia:ib] )
+    lo = searchsortedfirst(x, a)
+    hi = searchsortedlast(x, b)
+    return lo > hi ? 0.0 : sum(@view y[lo:hi])
 end
 
 
@@ -475,11 +477,11 @@ Savitzky-Golay filter removes high frequency noise from data. Parameters:
 """
 function savitzky_golay(int::AbstractArray, order::Int, window::Int, deriv::Int)
     if window % 2 != 1
-        return ErrorException("Window has to be an odd number.")
+        error("Window has to be an odd number.")
     elseif window < 1
-        return ErrorException("window has to be a positive number.")
+        error("window has to be a positive number.")
     elseif window < order + 2
-        return ErrorException("window is too small for the order.")
+        error("window is too small for the order.")
     end
     order_range = range(1, length=(order+1))
     half_window = Int( (window-1) / 2 )

@@ -33,7 +33,7 @@ const CV_INV_K0            = "MS:1002815"
 const CV_FAIMS_CV          = "MS:1001581"
 const CV_SELEXION_CV       = "MS:1003371"
 
-# Optional cvParams populated into MSscan.metadata when present in the source
+# Optional cvParams populated into `MSscans`.metadata when present in the source
 # mzML. Locations: see _read_mzml_extra_metadata.
 const CV_SPECTRUM_TITLE       = "MS:1000796"   # in <spectrum>
 const CV_LOWEST_OBSERVED_MZ   = "MS:1000528"   # in <spectrum>
@@ -300,7 +300,7 @@ end
 
 """
     load_mzml_all(filename::String)
-Load all spectra from an mzML file. Returns a Vector{MSscan}.
+Load all spectra from an mzML file. Returns an `MSrun`.
 """
 function load_mzml_all(filename::String)
     xdoc = parse_file(filename)
@@ -327,16 +327,18 @@ function load_mzml_all(filename::String)
     countStr  = attribute(specList, "count")
     scanCount = countStr !== nothing ? parse(Int, countStr) : 0
 
-    # Buffer with abstract element type — narrowed below. Also remember
-    # whether each spectrum carried the MassJ "saved_as_scalar" marker so we
-    # can unwrap to a bare value if exactly one was marked.
-    buf       = Vector{MScontainer}(undef, scanCount)
+    # Run-level default instrument configuration, used when a scan omits its own ref.
+    default_ic = attribute(run_elem, "defaultInstrumentConfigurationRef")
+
+    # Remember whether each spectrum carried the MassJ "saved_as_scalar" marker
+    # so we can unwrap to a bare value if exactly one was marked.
+    buf       = Vector{MSscans}(undef, scanCount)
     scalar_of = Vector{Bool}(undef, scanCount)
     index = 1
     for spec in child_elements(specList)
         if name(spec) == "spectrum"
             scalar_of[index] = _mzml_is_saved_as_scalar(spec)
-            buf[index]       = load_mzml_spectrum(spec, index)
+            buf[index]       = load_mzml_spectrum(spec, index; default_ic_ref = default_ic)
             index += 1
         end
     end
@@ -345,36 +347,24 @@ function load_mzml_all(filename::String)
     raw         = buf[1:index-1]
     scalar_vec  = scalar_of[1:index-1]
 
-    # Bit-symmetric scalar round-trip: a file with exactly one spectrum that
-    # was saved from a bare MSscan or MSscans returns the bare value (no
-    # MSrun wrapper, no file-level metadata).
+    # Bit-symmetric scalar round-trip: a file with exactly one spectrum that was
+    # saved from a bare spectrum returns the bare value (no MSrun wrapper, no
+    # file-level metadata).
     if length(raw) == 1 && scalar_vec[1]
         return raw[1]
     end
 
-    # Multi-spectrum mzML files — wrap in MSrun so the file-level metadata
-    # rides along. The empty case keeps the legacy Vector{MSscan} shape so
-    # users who don't read MassJ-extension files aren't surprised.
-    if isempty(raw)
-        return MSrun(MSscan[], file_md, chromatograms)
-    elseif all(x -> x isa MSscan, raw)
-        scans = convert(Vector{MSscan}, raw)
-        return MSrun(scans, file_md, chromatograms)
-    elseif all(x -> x isa MSscans, raw)
-        # Vector{MSscans} happens for files saved by MassJ from a vector of
-        # averaged spectra; keep the existing legacy return type so the
-        # round-trip type-symmetry still holds for that case.
-        return convert(Vector{MSscans}, raw)
-    else
-        return raw  # mixed (rare)
-    end
+    # Multi-spectrum mzML files — wrap in MSrun so the file-level metadata and
+    # any pre-computed chromatograms ride along. MSrun is an
+    # AbstractVector{MSscans}, so it behaves like the spectrum vector itself.
+    return MSrun(raw, file_md, chromatograms)
 end
 
 
 """
     _mzml_is_saved_as_scalar(spec::XMLElement) -> Bool
 True when the spectrum carries the MassJ "saved_as_scalar" `userParam`,
-written by [`save_mzml`](@ref) for a bare `MSscan` / `MSscans` input.
+written by [`save_mzml`](@ref) for a bare spectrum input.
 """
 function _mzml_is_saved_as_scalar(spec::XMLElement)
     for child in child_elements(spec)
@@ -398,12 +388,13 @@ function load_mzml(filename::String, target_num::Int)
 
     run_elem = find_element(mzml, "run")
     specList = find_element(run_elem, "spectrumList")
+    default_ic = attribute(run_elem, "defaultInstrumentConfigurationRef")
 
     index = 1
     for spec in child_elements(specList)
         if name(spec) == "spectrum"
             if index == target_num
-                scan = load_mzml_spectrum(spec, index)
+                scan = load_mzml_spectrum(spec, index; default_ic_ref = default_ic)
                 free(xdoc)
                 return scan
             end
@@ -417,10 +408,12 @@ end
 
 
 """
-    load_mzml_spectrum(spec::XMLElement, scan_index::Int)
-Parse a single <spectrum> element and return an MSscan.
+    load_mzml_spectrum(spec::XMLElement, scan_index::Int; default_ic_ref = nothing)
+Parse a single <spectrum> element and return an MSscans. `default_ic_ref` supplies the run's
+`defaultInstrumentConfigurationRef` used when a scan omits its own `instrumentConfigurationRef`.
 """
-function load_mzml_spectrum(spec::XMLElement, scan_index::Int)
+function load_mzml_spectrum(spec::XMLElement, scan_index::Int;
+                            default_ic_ref::Union{AbstractString,Nothing} = nothing)
     # MS level
     msLevel = parse(Int, get_cv_value(spec, CV_MS_LEVEL, "0"))
 
@@ -450,11 +443,15 @@ function load_mzml_spectrum(spec::XMLElement, scan_index::Int)
     driftTime = -1.0
     compensationVoltage = 0.0
     mobilityType = :none
+    ic_ref = nothing   # per-scan instrumentConfigurationRef
 
     scanListElem = find_element(spec, "scanList")
     if scanListElem !== nothing
         for scanElem in child_elements(scanListElem)
             if name(scanElem) == "scan"
+                # Instrument configuration reference (falls back to run default below)
+                ic_ref = attribute(scanElem, "instrumentConfigurationRef")
+
                 # Retention time
                 rtParam = get_cv_param(scanElem, CV_SCAN_START_TIME)
                 if rtParam !== nothing
@@ -606,13 +603,28 @@ function load_mzml_spectrum(spec::XMLElement, scan_index::Int)
         end
     end
 
-    scan = MSscan(scan_index, rt, tic, mz, int_arr, msLevel,
-                  basePeakMz, basePeakIntensity, precursorMz, polarity,
-                  activationMethod, collisionEnergy,
-                  chargeState, spectrumType, driftTime, compensationVoltage,
-                  mobilityType, _read_mzml_extra_metadata(spec))
+    extra_md = _read_mzml_extra_metadata(spec)
+    ref = ic_ref !== nothing ? ic_ref : default_ic_ref
+    ref !== nothing && (extra_md["instrument_configuration_ref"] = String(ref))
 
-    # Promote to MSscans if the MassJ export marker is present.
+    # Some writers (e.g. ViMMS) omit the base-peak / TIC cvParams; derive them from
+    # the peak data so BasePeak chromatograms and spectrum normalisation still work.
+    if !isempty(int_arr)
+        if basePeakIntensity <= 0.0
+            bi = argmax(int_arr)
+            basePeakIntensity = int_arr[bi]
+            isempty(mz) || (basePeakMz = mz[bi])
+        end
+        tic <= 0.0 && (tic = sum(int_arr))
+    end
+
+    scan = MSscans(scan_index, rt, tic, mz, int_arr, msLevel,
+                   basePeakMz, basePeakIntensity, precursorMz, polarity,
+                   activationMethod, collisionEnergy,
+                   chargeState, spectrumType, driftTime, compensationVoltage,
+                   mobilityType, extra_md)
+
+    # Reconstruct a composite spectrum if the MassJ export marker is present.
     if _mzml_is_msscans(spec)
         variance = _mzml_extract_variance(spec)
         return _msscans_from_userParams(spec, scan, variance)
@@ -622,14 +634,14 @@ end
 
 
 """
-    _msscans_from_userParams(spec::XMLElement, scan::MSscan,
+    _msscans_from_userParams(spec::XMLElement, scan::MSscans,
                              variance::Vector{Float64}) -> MSscans
-Build an `MSscans` from the vector-valued provenance fields stored as MassJ
-`userParam` children of `spec`. Any field missing from the file falls back to
-the scalar from `scan` wrapped in a 1-element vector (so partially-formed
-files still load cleanly).
+Rebuild a composite `MSscans` from the vector-valued provenance fields stored as
+MassJ `userParam` children of `spec`. Any field missing from the file falls back
+to the corresponding provenance vector of the single-scan base `scan` (so
+partially-formed files still load cleanly).
 """
-function _msscans_from_userParams(spec::XMLElement, scan::MSscan,
+function _msscans_from_userParams(spec::XMLElement, scan::MSscans,
                                   variance::Vector{Float64})
     num     = _get_vec_userParam(spec, "MassJ:num",                 Int)
     rtvec   = _get_vec_userParam(spec, "MassJ:rt",                  Float64)
@@ -643,20 +655,20 @@ function _msscans_from_userParams(spec::XMLElement, scan::MSscan,
     cv      = _get_vec_userParam(spec, "MassJ:compensationVoltage", Float64)
 
     return MSscans(
-        something(num,     [scan.num]),
-        something(rtvec,   [scan.rt]),
+        something(num,     scan.num),
+        something(rtvec,   scan.rt),
         scan.tic, scan.mz, scan.int,
-        something(level,   [scan.level]),
+        something(level,   scan.level),
         scan.basePeakMz, scan.basePeakIntensity,
-        something(precvec, [scan.precursor]),
-        something(pol,     [scan.polarity]),
-        something(am,      [scan.activationMethod]),
-        something(ce,      [scan.collisionEnergy]),
+        something(precvec, scan.precursor),
+        something(pol,     scan.polarity),
+        something(am,      scan.activationMethod),
+        something(ce,      scan.collisionEnergy),
         variance,
-        something(chg,     [scan.chargeState]),
+        something(chg,     scan.chargeState),
         scan.spectrumType,
-        something(dt,      [scan.driftTime]),
-        something(cv,      [scan.compensationVoltage]),
+        something(dt,      scan.driftTime),
+        something(cv,      scan.compensationVoltage),
         scan.mobilityType,
         scan.metadata,
     )
@@ -739,33 +751,6 @@ function _mzml_extract_variance(spec::XMLElement)
 end
 
 
-"""
-    _promote_to_msscans(scan::MSscan, variance::Vector{Float64}) -> MSscans
-Wrap a single [`MSscan`](@ref) into an [`MSscans`](@ref) by promoting the
-scalar provenance fields to length-1 vectors and attaching `variance` as the
-Welford `s` accumulator. Used by [`load`](@ref) when it sees a MassJ MSscans
-marker in an mzML / mzXML file.
-"""
-function _promote_to_msscans(scan::MSscan, variance::Vector{Float64})
-    return MSscans(
-        [scan.num],
-        [scan.rt],
-        scan.tic, scan.mz, scan.int,
-        [scan.level],
-        scan.basePeakMz, scan.basePeakIntensity,
-        [scan.precursor],
-        [scan.polarity],
-        [scan.activationMethod],
-        [scan.collisionEnergy],
-        variance,
-        [scan.chargeState],
-        scan.spectrumType,
-        [scan.driftTime],
-        [scan.compensationVoltage],
-        scan.mobilityType,
-        scan.metadata,
-    )
-end
 
 
 """
@@ -828,7 +813,7 @@ Keys populated (when present in the source mzML):
 | `"scan_window_lower"`  | MS:1000501 scan window lower limit | `<scanWindow>` inside `<scan>` |
 | `"scan_window_upper"`  | MS:1000500 scan window upper limit | `<scanWindow>` inside `<scan>` |
 
-Used by [`load_mzml_spectrum`](@ref) to populate `MSscan.metadata`.
+Used by [`load_mzml_spectrum`](@ref) to populate `MSscans.metadata`.
 """
 function _read_mzml_extra_metadata(spec::XMLElement)
     md = Dict{String,Any}()
@@ -1129,18 +1114,18 @@ end
 
 
 """
-    _read_mzml_chromatograms(run_elem::XMLElement) -> Vector{Chromatogram}
+    _read_mzml_chromatograms(run_elem::XMLElement) -> Vector{IonCurrent}
 Parse the `<chromatogramList>` (sibling of `<spectrumList>`) into a vector of
-[`Chromatogram`](@ref)s. Only chromatograms carrying the `MS:1000235` (total
-ion current chromatogram) marker are loaded; other chromatogram types
-(extracted ion, base peak, ...) are skipped with a warning. Returns an empty
-vector when the element is absent.
+[`IonCurrent`](@ref) traces (axis `:rt`). Only chromatograms carrying the
+`MS:1000235` (total ion current chromatogram) marker are loaded; other
+chromatogram types (extracted ion, base peak, ...) are skipped with a warning.
+Returns an empty vector when the element is absent.
 
 The binary-array decoding pipeline is the same as for spectrum arrays:
 base64 → optional zlib → reinterpret as Float64/Float32 → host order.
 """
 function _read_mzml_chromatograms(run_elem::XMLElement)
-    out = Chromatogram[]
+    out = IonCurrent[]
     chList = find_element(run_elem, "chromatogramList")
     chList === nothing && return out
 
@@ -1148,7 +1133,7 @@ function _read_mzml_chromatograms(run_elem::XMLElement)
         name(chrom) == "chromatogram" || continue
 
         if !has_cv_param(chrom, CV_TIC_CHROMATOGRAM)
-            @warn "skipping non-TIC chromatogram (MassJ only round-trips TIC chromatograms)" id=attribute(chrom, "id")
+            @debug "skipping non-TIC chromatogram (MassJ only round-trips TIC chromatograms)" id=attribute(chrom, "id")
             continue
         end
 
@@ -1188,8 +1173,7 @@ function _read_mzml_chromatograms(run_elem::XMLElement)
         end
 
         if !isempty(time_arr) && !isempty(int_arr)
-            push!(out, Chromatogram(time_arr, int_arr,
-                                    isempty(int_arr) ? 0.0 : maximum(int_arr)))
+            push!(out, IonCurrent(time_arr, int_arr; axis = :rt))
         end
     end
     return out

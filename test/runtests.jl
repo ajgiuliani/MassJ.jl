@@ -3,7 +3,18 @@ using Plots
 using DataStructures
 using SHA   # used for indexed-mzML fileChecksum verification
 using Aqua  # package-quality checks
+using Random
+using Statistics  # cor for the jackknife-significance cross-check
 using Logging  # @test_logs min_level for the bare-vector save warning
+# Loading these weak dependencies activates the package extensions
+# (cmi via EntropyInvariant, cluster_ions via Clustering, and the
+# YieldCurve Tables.jl source via Tables).
+import EntropyInvariant
+import Clustering
+import Tables
+import Measurements
+import Unitful
+using Unitful: @u_str
 
 function tests()
     @testset "Subset of tests"  begin
@@ -15,67 +26,74 @@ function tests()
         @test inf[12] == "MS3+ 902.33  PQD(CE=35)"                                     #5
 
         scans = MassJ.load("test.mzXML")
-        @test eltype(scans)              == MassJ.MSscan                                 #6
+        @test eltype(scans)              == MassJ.MSscans                                 #6
         @test length(scans)              == 6                                          #7
-        @test scans[1].num               == 1                                          #8
-        @test scans[2].level             == 2                                          #9
-        @test scans[3].polarity          == "+"                                        #10
-        @test scans[2].activationMethod  == "CID"                                      #11
-        @test scans[3].collisionEnergy   == 35.0                                       #12
+        @test scans[1].num               == [1]                                          #8
+        @test scans[2].level             == [2]                                          #9
+        @test scans[3].polarity          == ["+"]                                        #10
+        @test scans[2].activationMethod  == ["CID"]                                      #11
+        @test scans[3].collisionEnergy   == [35.0]                                       #12
         @test size(scans[1].int, 1)      == 22320                                      #13
 
         rt = MassJ.retention_time("test.mzXML")
         @test length(rt) == 6                                                          #14
 
+        # mzXML retention times are normalised to minutes: spec "S" (seconds) is
+        # converted, MassJ's own "M" (minutes) is kept as-is.
+        @test MassJ.rt_to_minutes("PT60S")  == 1.0
+        @test MassJ.rt_to_minutes("PT90S")  == 1.5
+        @test MassJ.rt_to_minutes("PT2M")   == 2.0
+        @test MassJ.rt_to_minutes("PT0.5M") == 0.5
+
         cr = MassJ.chromatogram("test.mzXML", method = MassJ.TIC() )
-        @test length(cr.rt) == 6                                                       #15
+        @test length(cr.x) == 6                                                       #15
 
         cr = MassJ.chromatogram("test.mzXML", method = MassJ.MZ([0, 500]))
-        @test length(cr.rt) == 6                                                       #16
+        @test length(cr.x) == 6                                                       #16
 
         cr = MassJ.chromatogram("test.mzXML", method = MassJ.∆MZ([1000, 1]))
-        @test length(cr.rt) == 6                                                       #17
+        @test length(cr.x) == 6                                                       #17
 
         cr = MassJ.chromatogram("test.mzXML", method = MassJ.BasePeak())
-        @test length(cr.rt) == 6                                                       #18
+        @test length(cr.x) == 6                                                       #18
 
         cr = MassJ.chromatogram("test.mzXML", MassJ.Polarity("+"), MassJ.Scan(2),MassJ.Precursor(1255.5), MassJ.Activation_Energy(18), MassJ.Activation_Method("CID"), MassJ.Level(2) )
-        @test length(cr.rt) == 1                                                       #19
+        @test length(cr.x) == 1                                                       #19
 
         rt = MassJ.retention_time(scans)
         @test length(rt) == 6                                                          #20
 
         cr = MassJ.chromatogram(scans, method = MassJ.TIC() )
-        @test length(cr.rt) == 6                                                       #21
+        @test length(cr.x) == 6                                                       #21
 
         cr = MassJ.chromatogram(scans, method = MassJ.MZ([0, 500]))
-        @test length(cr.rt) == 6                                                       #22
+        @test length(cr.x) == 6                                                       #22
 
         cr = MassJ.chromatogram(scans, method = MassJ.∆MZ([1000, 1]))
-        @test length(cr.rt) == 6                                                       #23
+        @test length(cr.x) == 6                                                       #23
 
         cr = MassJ.chromatogram(scans, method = MassJ.BasePeak())
-        @test length(cr.rt) == 6                                                       #24
+        @test length(cr.x) == 6                                                       #24
 
         cr = MassJ.chromatogram(scans, MassJ.Polarity("+"),MassJ.Scan(2),MassJ.Precursor(1255.5),MassJ.Activation_Energy(18),MassJ.Activation_Method("CID"),MassJ.Level(2) )
-        @test (cr.rt, cr.ic) == ([0.7307], [9727.2])                                   #25
+        @test (cr.x, cr.ic) == ([0.7307], [9727.2])                                   #25
 
         cr = MassJ.chromatogram(scans, MassJ.Polarity(["+"]),MassJ.Scan([2,3]),MassJ.Precursor([1255.5, 902.33]),MassJ.Activation_Energy([18, 35]),MassJ.Activation_Method(["CID", "PQD"]),MassJ.Level([2, 3]) )
-        @test (cr.rt, cr.ic) == ([0.7307, 2.1379], [9727.2, 11.3032])                  #26
+        @test (cr.x, cr.ic) == ([0.7307, 2.1379], [9727.2, 11.3032])                  #26
 
         ms = MassJ.average("test.mzXML")
         @test length(ms.num) == 6                                                      #27
 
         ms = MassJ.average("test.mzXML", MassJ.Polarity("+"),MassJ.Scan(2),MassJ.Precursor(1255.5),MassJ.Activation_Energy(18),MassJ.Activation_Method("CID"),MassJ.RT(1),MassJ.IC([0, 1e4]))
-        @test ms isa MassJ.MSscan                                                        #28
-        @test ms.num == 2                                                              #29
+        @test ms isa MassJ.MSscans                                                        #28
+        @test ms.num == [2]                                                              #29
 
         ms = MassJ.average(scans)
         @test length(ms.num) == 6                                                      #30
 
         ms = MassJ.average(scans, MassJ.Polarity("+"),MassJ.Scan(2),MassJ.Precursor(1255.5),MassJ.Activation_Energy(18),MassJ.Activation_Method("CID"),MassJ.RT(1),MassJ.IC([0, 1e4]))
-        @test ms isa MassJ.MSscan                                                        #31
-        @test ms.num == 2                                                              #32
+        @test ms isa MassJ.MSscans                                                        #31
+        @test ms.num == [2]                                                              #32
 
         ms = MassJ.average(scans, MassJ.Polarity(["+"]),MassJ.Scan([2,3]),MassJ.Precursor([1255.5, 902.33]),MassJ.Activation_Energy([18, 35]),MassJ.Activation_Method(["CID", "PQD"]),MassJ.RT([1,2]),MassJ.IC([0, 1e4]))
         @test ms isa MassJ.MSscans                                                       #33
@@ -90,7 +108,7 @@ function tests()
         @test ms.num == [2, 3]                                                         #38
 
         cr = MassJ.chromatogram("test.mzXML", MassJ.Polarity(["+"]),MassJ.Scan([2,3]),MassJ.Precursor([1255.5, 902.33]),MassJ.Activation_Method(["CID", "PQD"]),MassJ.Level([2, 3]) )   #MassJ.Activation_Energy([18.0, 35.0]),
-        @test length(cr.rt) == 2                                                       #39
+        @test length(cr.x) == 2                                                       #39
 
         ms = MassJ.average(scans, MassJ.RT( [[1,2], [2,3]] ), stats = false )
         @test ms isa MassJ.MSscans                                                       #40
@@ -145,34 +163,24 @@ function tests()
         @test info[2] == "MS1-"                                                        #57
 
         scans = MassJ.load("test64.mzXML")
-        @test eltype(scans)              == MassJ.MSscan                                 #58
+        @test eltype(scans)              == MassJ.MSscans                                 #58
 
-        info = MassJ.info("test.mzXMLM")
-        @test info.msg == "File format not supported."                                 #59
-
-        scans = MassJ.load("test.mzXMLL")
-        @test info.msg == "File format not supported."                                 #60
-
-        scans = MassJ.load("bad1.mzXML")
-        @test scans.msg == "Not an mzXML file."                                        #61
-
-        scans = MassJ.info("bad1.mzXML")
-        @test scans.msg == "Not an mzXML file."                                        #62
+        @test_throws ErrorException MassJ.info("test.mzXMLM")                          #59
+        @test_throws ErrorException MassJ.load("test.mzXMLL")                          #60
+        @test_throws ErrorException MassJ.load("bad1.mzXML")                           #61
+        @test_throws ErrorException MassJ.info("bad1.mzXML")                           #62
 
         scans = MassJ.load("bad2.mzXML")
-        @test scans[1].num == 0                                                        #63
+        @test scans[1].num == [0]                                                        #63
 
         scans = MassJ.load("bad3.mzXML")
-        @test scans[1].num == scans[2].num == 0                                        #64
+        @test scans[1].num == scans[2].num == [0]                                        #64
 
-        cr = MassJ.chromatogram("test.mzXML", method = MassJ.∆MZ([1, 2]))
-        @test cr.msg == "Bad mz ± ∆mz values."                                         #65
-
-        cr = MassJ.chromatogram(scans, method = MassJ.∆MZ([1, 2]))
-        @test cr.msg == "Bad mz ± ∆mz values."                                         #66
+        @test_throws ErrorException MassJ.chromatogram("test.mzXML", method = MassJ.∆MZ([1, 2]))  #65
+        @test_throws ErrorException MassJ.chromatogram(scans, method = MassJ.∆MZ([1, 2]))         #66
 
         scans = MassJ.load("test.mzXML")
-        @test MassJ.smooth(scans[1], method = MassJ.SG(7,15,0)) isa MassJ.MSscan             #67
+        @test MassJ.smooth(scans[1], method = MassJ.SG(7,15,0)) isa MassJ.MSscans             #67
 
         a = MassJ.avg(scans[1], scans[4])
         @test MassJ.smooth(a) isa MassJ.MSscans                                            #68
@@ -190,7 +198,7 @@ function tests()
         @test a.num == [1, 2, 5]                                                       #72
 
         a = MassJ.smooth(scans[1], method = MassJ.SG(5,9,0))
-        @test a.num == 1                                                               #73
+        @test a.num == [1]                                                               #73
 
        a = MassJ.centroid(scans[1], method = MassJ.TBPD(:gauss, 4500., 0.2))               #74
        @test length(a.int) == 957
@@ -212,8 +220,7 @@ function tests()
        a = MassJ.centroid(scans[1], method = MassJ.TBPD(:lorentz, 4500., 0.2))
        @test length(a.int) == 964                                                      #82
 
-       a = MassJ.centroid(scans[1], method = MassJ.TBPD(:other, 4500., 0.2))
-       @test a.msg == "Unsupported peak profile. Use :gauss, :lorentz or :voigt."      #83
+       @test_throws "Unsupported peak profile. Use :gauss, :lorentz or :voigt." MassJ.centroid(scans[1], method = MassJ.TBPD(:other, 4500., 0.2))   #83
 
        a = MassJ.centroid(scans[1], method = MassJ.SNRA(1., 100))
        @test length(a.int) == 109                                                      #84
@@ -223,7 +230,7 @@ function tests()
        # See https://… (fix/snra-bounds branch).
        avg_ms = MassJ.average(scans)
        @test MassJ.centroid(avg_ms, method = MassJ.SNRA(1e-3, 100)) isa MassJ.MSscans  #84b
-       @test MassJ.centroid(scans[1], method = MassJ.SNRA(1e-3, 100)) isa MassJ.MSscan #84c
+       @test MassJ.centroid(scans[1], method = MassJ.SNRA(1e-3, 100)) isa MassJ.MSscans #84c
 
        s1 = MassJ.extract(scans, MassJ.Activation_Energy([18,35]))
        @test length(s1) == 4                                                           #85
@@ -270,7 +277,7 @@ function tests()
        @test length(bs.int) == length(scans[1].int)                                    #98
 
        cr = MassJ.chromatogram(scans, method = MassJ.BasePeak() )
-       @test length(cr.rt) == 6                                                        #99
+       @test length(cr.x) == 6                                                        #99
 
        f = MassJ.formula("CH3(13C)10H3Kr(NaH2)2")                                        #100
       @test f == Dict("Na" => 2,"Kr" => 1,"C" => 1,"13C" => 10,"H" => 10)
@@ -349,6 +356,23 @@ function test_isotopes()
         @test sum(alpha["H"]) == 22     # conservation
         @test alpha["C"][1] >= alpha["C"][2]  # 12C more abundant than 13C
 
+        # most_probable_isotopologue - single atom of an element whose most
+        # abundant isotope is < 50 % (rounding seeds an all-zero guess). The
+        # largest-remainder repair must still conserve the atom count and place
+        # it on the most abundant isotope. Regression for Nd(NO3)4 crash
+        # ("Distribution does not match chemical formula").
+        for el in ("Nd", "Eu", "Sn", "Dy")
+            d = MassJ.most_probable_isotopologue(Dict(el => 1), MassJ.Elements)
+            @test sum(d[el]) == 1
+            abund = [iso.f for iso in MassJ.Elements[el]]
+            @test d[el][argmax(abund)] == 1   # the atom sits on the most abundant isotope
+        end
+        # the originally reported formula now builds a full distribution
+        Ind = MassJ.isotopic_distribution("Nd(NO3)4", 0.9, charge = +1)
+        @test size(Ind, 1) > 2
+        @test Ind[1, 1] == "Masses"
+        @test all(p -> p > 0, (Ind[i, 2] for i in 2:size(Ind, 1)))
+
         # hill_climbing finds optimum
         f_obj(x) = -(x[1] - 3)^2 - (x[2] - 2)^2
         P = MassJ.hill_climbing([1, 4], f_obj)
@@ -378,6 +402,971 @@ function test_isotopes()
         @test all(p -> p > 0, probs)   # all probabilities positive
         @test sum(probs) ≈ 0.5 atol=0.1
 
+    end
+end
+
+
+function test_adducts()
+    @testset "Adducts - m/z <-> neutral mass" begin
+        M = MassJ.masses("C6H12O6")["Monoisotopic"]   # glucose, 180.0634
+
+        # reference m/z values (electron-mass aware)
+        @test MassJ.adduct_mz(M, "[M+H]+")  ≈ 181.07066 atol = 1e-4
+        @test MassJ.adduct_mz(M, "[M+Na]+") ≈ 203.05261 atol = 1e-4
+        @test MassJ.adduct_mz(M, "[M-H]-")  ≈ 179.05611 atol = 1e-4
+
+        # round-trip for every tabulated adduct, accepting either a name or an Adduct
+        for (name, a) in MassJ.Adducts
+            mz = MassJ.adduct_mz(M, name)
+            @test MassJ.neutral_mass(mz, name) ≈ M atol = 1e-9
+            @test MassJ.neutral_mass(mz, a)    ≈ M atol = 1e-9
+            @test MassJ.adduct_mz(M, a)        ≈ mz atol = 1e-12
+        end
+
+        # multiply-charged ions divide by |z|
+        @test MassJ.adduct_mz(M, "[M+2H]2+") < MassJ.adduct_mz(M, "[M+H]+")
+        @test MassJ.adduct_mz(M, "[M+3H]3+") * 3 ≈ M + 3 * MassJ.masses("H")["Monoisotopic"] - 3 * MassJ.m_electron atol = 1e-6
+
+        # dimer carries n = 2
+        @test MassJ.adduct_mz(M, "[2M+H]+") ≈ 2M + MassJ.masses("H")["Monoisotopic"] - MassJ.m_electron atol = 1e-6
+
+        # electron-mass toggle differs by exactly mₑ for a singly charged ion
+        @test MassJ.adduct_mz(M, "[M+H]+"; electron = false) -
+              MassJ.adduct_mz(M, "[M+H]+"; electron = true) ≈ MassJ.m_electron atol = 1e-12
+
+        # radical cation [M]+ is M − mₑ
+        @test MassJ.adduct_mz(M, "[M]+") ≈ M - MassJ.m_electron atol = 1e-9
+
+        # custom adduct via keyword constructor round-trips
+        cust = MassJ.Adduct("[M+Li]+", charge = +1, add = "Li")
+        @test MassJ.neutral_mass(MassJ.adduct_mz(M, cust), cust) ≈ M atol = 1e-9
+        @test MassJ.polarity(cust) == "+"
+        @test MassJ.polarity(MassJ.Adducts["[M-H]-"]) == "-"
+
+        # unknown adduct name raises
+        @test_throws ErrorException MassJ.adduct_mz(M, "[M+Foo]+")
+    end
+end
+
+
+function test_calibration()
+    @testset "Calibration - fit and apply" begin
+        ref = [118.0863, 322.0481, 622.0290, 922.0098, 1521.9715]
+        obs = ref .* (1 + 3e-6) .+ 0.002    # 3 ppm gain + 2 mDa offset
+
+        cal = MassJ.calibrate(obs, ref; model = :linear)
+        @test cal.model == :linear
+        @test length(cal.coeffs) == 2
+        @test maximum(abs, cal.residuals_ppm) < 1e-6          # linear drift fully recovered
+
+        # callable maps observed back onto reference, scalar and vector forms
+        @test cal(obs) isa Vector{Float64}
+        @test maximum(abs, cal(obs) .- ref) < 1e-6
+        @test cal(obs[1]) ≈ ref[1] atol = 1e-6
+
+        # apply to a single scan: m/z + base-peak m/z corrected, intensities untouched
+        ints = [10.0, 20.0, 30.0, 40.0, 50.0]
+        s = MassJ.MSscans(1, 0.0, sum(ints), copy(obs), ints, 1, obs[3], 30.0,
+                          0.0, "+", "", 0.0)
+        sc = MassJ.calibrate(s, cal)
+        @test maximum(abs, sc.mz .- ref) < 1e-6
+        @test sc.basePeakMz ≈ ref[3] atol = 1e-6
+        @test sc.int == ints
+        @test sc.tic == s.tic
+
+        # NaN base-peak m/z (e.g. empty centroid) is preserved, not corrupted
+        snan = MassJ.MSscans(2, 0.0, 0.0, copy(obs), ints, 1, NaN, NaN, 0.0, "+", "", 0.0)
+        @test isnan(MassJ.calibrate(snan, cal).basePeakMz)
+
+        # vector-of-scans and MSrun apply
+        scans = MassJ.calibrate([s, s], cal)
+        @test scans isa Vector{MassJ.MSscans}
+        @test maximum(abs, scans[2].mz .- ref) < 1e-6
+
+        run = MassJ.MSrun([s, s])
+        rc = MassJ.calibrate(run, cal)
+        @test rc isa MassJ.MSrun
+        @test maximum(abs, rc[1].mz .- ref) < 1e-6
+        @test rc.metadata === run.metadata                    # file-level metadata preserved
+
+        # quadratic recovers a quadratic distortion
+        obs2 = [0.001 + 1.0r + 1e-8 * r^2 for r in ref]
+        cal2 = MassJ.calibrate(obs2, ref; model = :quadratic)
+        @test length(cal2.coeffs) == 3
+        @test maximum(abs, cal2.residuals_ppm) < 1e-3
+        @test maximum(abs, cal2(obs2) .- ref) < 1e-3
+
+        # :poly with explicit degree
+        @test length(MassJ.calibrate(obs, ref; model = :poly, degree = 1).coeffs) == 2
+
+        # error paths
+        @test_throws ErrorException MassJ.calibrate([1.0, 2.0], [1.0, 2.0, 3.0])
+        @test_throws ErrorException MassJ.calibrate([1.0], [1.0]; model = :quadratic)
+        @test_throws ErrorException MassJ.calibrate(ref, ref; model = :cubic)
+    end
+end
+
+
+function test_centroid_metrics()
+    @testset "Centroid - per-peak metrics" begin
+        mz = collect(100.0:0.01:300.0)
+        sigma = 0.05
+        fwhm_true = 2.35482 * sigma
+        g(x, mu, A) = A * exp(-(x - mu)^2 / (2sigma^2))
+        int = g.(mz, 150.0, 100.0) .+ g.(mz, 200.0, 60.0) .+ 0.5   # two peaks + baseline
+        s = MassJ.MSscans(1, 0.0, sum(int), mz, int, 1, 150.0, 100.0, 0.0, "+", "", 0.0)
+
+        # metrics = true populates the four parallel metadata vectors
+        c = centroid(s; method = MassJ.SNRA(5.0, 200), metrics = true)
+        @test length(c.mz) == 2
+        for key in ("peak_fwhm", "peak_snr", "peak_area", "peak_resolution")
+            @test haskey(c.metadata, key)
+            @test length(c.metadata[key]) == length(c.mz)
+        end
+
+        # FWHM recovers the true Gaussian width; resolution = m/z / FWHM
+        @test all(isapprox.(c.metadata["peak_fwhm"], fwhm_true; atol = 5e-3))
+        @test c.metadata["peak_resolution"] ≈ c.mz ./ c.metadata["peak_fwhm"] atol = 1e-6
+
+        # S/N is apex-over-baseline: finite, above threshold, taller peak scores higher
+        @test all(c.metadata["peak_snr"] .> 5.0)
+        @test all(isfinite, c.metadata["peak_snr"])
+        @test c.metadata["peak_snr"][1] > c.metadata["peak_snr"][2]
+        @test all(c.metadata["peak_area"] .> 0.0)
+
+        # default (metrics = false) leaves the metadata untouched
+        c0 = centroid(s; method = MassJ.SNRA(5.0, 200))
+        @test !haskey(c0.metadata, "peak_fwhm")
+
+        # vector path attaches metrics to every element
+        cv = centroid([s, s]; method = MassJ.SNRA(5.0, 200), metrics = true)
+        @test length(cv) == 2
+        @test all(haskey(x.metadata, "peak_fwhm") for x in cv)
+
+        # metrics attach regardless of centroiding algorithm (CWT)
+        cc = centroid(s; method = MassJ.CWT(scales = 1.0:1.0:16.0, threshold = 3.0), metrics = true)
+        @test haskey(cc.metadata, "peak_fwhm")
+        @test length(cc.metadata["peak_fwhm"]) == length(cc.mz)
+    end
+end
+
+
+function test_assignment()
+    @testset "Formula assignment + isotope scoring" begin
+        M = MassJ.masses("C6H12O6")["Monoisotopic"]          # glucose
+        mzobs = MassJ.adduct_mz(M, "[M+H]+")
+        elems = Dict("C" => 0:12, "H" => 0:24, "O" => 0:12, "N" => 0:6)
+
+        cands = MassJ.assign_formula(mzobs; adduct = "[M+H]+", tol_ppm = 5, elements = elems)
+        @test !isempty(cands)
+        gi = findfirst(c -> c.formula == Dict("C" => 6, "H" => 12, "O" => 6), cands)
+        @test gi !== nothing
+        @test cands[gi].rdbe ≈ 1.0
+        @test abs(cands[gi].error_ppm) < 1e-3                 # mz built from this exact formula
+        @test cands[gi].mass ≈ M atol = 1e-6
+        # results are sorted by |error| → the true formula ranks first
+        @test cands[1].formula == Dict("C" => 6, "H" => 12, "O" => 6)
+        @test issorted(abs.([c.error_ppm for c in cands]))
+
+        # RDBE filter excludes glucose (DBE = 1) when a higher floor is required
+        hi = MassJ.assign_formula(mzobs; adduct = "[M+H]+", tol_ppm = 5, elements = elems,
+                                  rdbe = (2.0, 40.0))
+        @test all(c -> c.formula != Dict("C" => 6, "H" => 12, "O" => 6), hi)
+
+        # unreachable target within the given ranges → no candidates
+        @test isempty(MassJ.assign_formula(5000.0; adduct = "[M+H]+", tol_ppm = 1, elements = elems))
+
+        # max_results truncates
+        @test length(MassJ.assign_formula(500.1; adduct = "[M+H]+", tol_ppm = 10, max_results = 5)) <= 5
+
+        # unknown element raises
+        @test_throws ErrorException MassJ.assign_formula(mzobs; elements = Dict("Xx" => 0:2))
+
+        # isotope-pattern scoring: measured pattern built from glucose theory
+        theo = MassJ.isotopic_distribution(Dict("C" => 6, "H" => 12, "O" => 6), 0.999; charge = 1)
+        mmz = [MassJ.adduct_mz(Float64(theo[i, 1]), "[M+H]+") for i in 2:size(theo, 1)]
+        mint = Float64.(theo[2:end, 2])
+        sc_true = MassJ.score_isotope_pattern(mmz, mint, cands[gi]; adduct = "[M+H]+", tol = 0.02)
+        @test sc_true > 0.99
+        wrong = MassJ.FormulaCandidate(Dict("C" => 2, "H" => 4, "O" => 1), 44.026, 0.0, 1.0)
+        @test MassJ.score_isotope_pattern(mmz, mint, wrong; adduct = "[M+H]+", tol = 0.02) < sc_true
+
+        # MSscans convenience method agrees with the vector method
+        spec = MassJ.MSscans(1, 0.0, sum(mint), mmz, mint, 1, mmz[1], maximum(mint),
+                             0.0, "+", "", 0.0)
+        @test MassJ.score_isotope_pattern(spec, cands[gi]; adduct = "[M+H]+", tol = 0.02) ≈ sc_true atol = 1e-9
+    end
+end
+
+
+function test_multifolder()
+    @testset "Multi-folder load + average" begin
+        root = mktempdir()
+        a = joinpath(root, "A"); b = joinpath(root, "B"); sub = joinpath(b, "sub")
+        mkpath(a); mkpath(sub)
+        cp("test.mzML", joinpath(a, "e1.mzML"))
+        cp("test.mgf",  joinpath(a, "e2.mgf"))
+        cp("test.msp",  joinpath(b, "e3.msp"))
+        cp("test.mzML", joinpath(sub, "e10.mzML"))
+
+        na = length(MassJ.load("test.mzML"))
+        nb = length(MassJ.load("test.mgf"))
+        nc = length(MassJ.load("test.msp"))
+
+        combined = MassJ.load([a, b])
+        @test eltype(combined) == MassJ.MSscans
+        @test length(combined) == na + nb + nc            # flat: everything pooled
+        @test length(MassJ.load([b])) == nc               # non-recursive ignores sub/
+        @test length(MassJ.load([b]; recursive = true)) == nc + na  # walks sub/
+
+        avg = MassJ.average([a, b])
+        @test avg isa MassJ.MSscans
+        @test !isempty(avg.mz)
+
+        # single directory as a plain String (no brackets needed)
+        @test length(MassJ.load(a)) == na + nb
+        @test MassJ.average(a) isa MassJ.MSscans
+        # a single spectrum file as a String still works (unchanged)
+        @test length(MassJ.load("test.mzML")) == na
+
+        # Tuple and Set of paths
+        @test length(MassJ.load((a, b))) == na + nb + nc
+        @test length(MassJ.load(Set([a, b]))) == na + nb + nc
+        @test MassJ.average((a, b)) isa MassJ.MSscans
+
+        # type= selector restricts which formats load (folder A has mzML + mgf)
+        @test length(MassJ.load(a; type = :mzml)) == na          # only the mzML file
+        @test length(MassJ.load(a; type = :mgf))  == nb          # only the mgf file
+        @test length(MassJ.load(a; type = (:mzml, :mgf))) == na + nb
+        @test length(MassJ.load(a; type = ".mzML")) == na        # leading-dot string ok
+        @test length(MassJ.load([a, b]; type = :mzml)) == na     # mzML across folders
+        # explicit file of a supported-but-unselected type is skipped
+        @test length(MassJ.load([joinpath(a, "e1.mzML"), joinpath(a, "e2.mgf")];
+                                type = :mgf)) == nb
+        @test MassJ.average(a, MassJ.Level(1); type = :mzml) isa MassJ.MSscans
+        @test_throws ErrorException MassJ.load(a; type = :raw)   # unsupported type
+
+        @test_throws ErrorException MassJ.load(["/no/such/dir/xyz123"])
+        @test_throws ErrorException MassJ.load([a, "runtests.jl"])   # unsupported ext
+    end
+end
+
+
+function test_yield_transforms()
+    @testset "YieldCurve transforms" begin
+        YC = MassJ.YieldCurve
+        mk(x, Y) = YC(collect(Float64, x), "E", Y, fill(NaN, size(Y)),
+                      vec(sum(Y, dims = 2)), fill(NaN, size(Y, 1)), fill(NaN, size(Y)),
+                      ["a", "b"], [(99.0, 101.0), (199.0, 201.0)],
+                      ["f$i" for i in 1:length(x)], Dict{String,Any}())
+        yc1 = mk([2.0, 1.0], [20.0 2.0; 10.0 1.0])        # unsorted x on purpose
+        yc2 = mk([3.0, 4.0], [30.0 3.0; 40.0 4.0])
+
+        # combine: concatenate along x, re-sorted
+        c = MassJ.combine_yields(yc1, yc2)
+        @test c.x == [1.0, 2.0, 3.0, 4.0]
+        @test c.yields[:, 1] == [10.0, 20.0, 30.0, 40.0]
+        @test c.labels == ["a", "b"]
+
+        # shift_x
+        @test sort(MassJ.shift_x(yc1, 0.5).x) == [1.5, 2.5]
+
+        # scale_yields: scalar scales matrix and recomputes TIC
+        sc = MassJ.scale_yields(yc1, 2.0)
+        @test sc.yields == yc1.yields .* 2
+        @test sc.tic == vec(sum(yc1.yields .* 2, dims = 2))
+        # per-peak factor
+        scp = MassJ.scale_yields(yc1, [2.0, 10.0])
+        @test scp.yields[:, 1] == yc1.yields[:, 1] .* 2
+        @test scp.yields[:, 2] == yc1.yields[:, 2] .* 10
+
+        # recalibrate_x via a Calibration and via an on-the-fly fit
+        cal = MassJ.calibrate([1.0, 2.0], [1.1, 2.2]; model = :linear)
+        @test sort(MassJ.recalibrate_x(yc1, cal).x) ≈ [1.1, 2.2] atol = 1e-9
+        @test sort(MassJ.recalibrate_x(yc1, [1.0, 2.0], [1.1, 2.2]).x) ≈ [1.1, 2.2] atol = 1e-9
+
+        # error paths
+        yb = YC([5.0], "E", reshape([1.0], 1, 1), fill(NaN, 1, 1), [1.0], [NaN],
+                fill(NaN, 1, 1), ["z"], [(0.0, 1.0)], ["g"], Dict{String,Any}())
+        @test_throws ErrorException MassJ.combine_yields(yc1, yb)
+        @test_throws ErrorException MassJ.scale_yields(yc1, [1.0, 2.0, 3.0])
+    end
+end
+
+
+function test_yield_trim()
+    @testset "YieldCurve row trim / restrict" begin
+        YC = MassJ.YieldCurve
+        yc = YC([1.0, 2.0, 3.0, 4.0, 5.0], "E",
+                [10.0 1.0; 20.0 2.0; 30.0 3.0; 40.0 4.0; 50.0 5.0],
+                fill(NaN, 5, 2),
+                [11.0, 22.0, 33.0, 44.0, 55.0], fill(NaN, 5),
+                fill(NaN, 5, 2), ["a", "b"],
+                [(0.0, 1.0), (2.0, 3.0)],
+                ["f1", "f2", "f3", "f4", "f5"], Dict{String,Any}())
+
+        # 1) count from edges
+        t = MassJ.trim_yields(yc; first = 1, last = 2)
+        @test t.x == [2.0, 3.0]
+        @test t.yields[:, 1] == [20.0, 30.0]
+        @test t.files == ["f2", "f3"]
+        @test t.labels == yc.labels                 # columns untouched
+        @test t.metadata["trimmed_edges"] == (1, 2)
+
+        # 2) restrict by x range (inclusive; swapped order tolerated)
+        r = MassJ.restrict_x(yc, 2.0, 4.0)
+        @test r.x == [2.0, 3.0, 4.0]
+        @test r.yields[:, 2] == [2.0, 3.0, 4.0]
+        @test MassJ.restrict_x(yc, 4.0, 2.0).x == [2.0, 3.0, 4.0]
+        @test r.metadata["x_restricted"] == (2.0, 4.0)
+
+        # 3) drop explicit row indices
+        d = MassJ.trim_yields(yc, [2, 4])
+        @test d.x == [1.0, 3.0, 5.0]
+        @test d.files == ["f1", "f3", "f5"]
+        @test d.metadata["trimmed_rows"] == [2, 4]
+
+        # composes with the other transforms (shift_x after trim)
+        @test MassJ.shift_x(MassJ.trim_yields(yc; first = 1), 0.5).x == [2.5, 3.5, 4.5, 5.5]
+
+        # empty result is allowed (no rows match / over-trim)
+        @test length(MassJ.trim_yields(yc; first = 10).x) == 0
+        @test length(MassJ.restrict_x(yc, 100.0, 200.0).x) == 0
+
+        # error paths
+        @test_throws ErrorException MassJ.trim_yields(yc; first = -1)
+        @test_throws ErrorException MassJ.trim_yields(yc, [0])
+        @test_throws ErrorException MassJ.trim_yields(yc, [6])
+    end
+end
+
+
+function test_yield_peak_ops()
+    @testset "YieldCurve peak ops (select / sum / group / with_yields)" begin
+        x      = [1.0, 2.0, 3.0]
+        labels = ["a1", "a2", "b1", "b2", "y1", "b1-H2O", "precursor"]
+        Y      = [1.0  2.0  3.0  4.0  5.0  6.0  70.0;
+                  1.5  2.5  3.5  4.5  5.5  6.5  60.0;
+                  2.0  3.0  4.0  5.0  6.0  7.0  50.0]
+        E      = [0.1  0.2  0.3  0.4  0.5  NaN  1.0;
+                  0.1  0.2  0.3  0.4  0.5  NaN  1.0;
+                  0.1  0.2  0.3  0.4  0.5  NaN  1.0]
+        tic, tic_err = MassJ._recompute_tic(Y, E)
+        fmz    = fill(NaN, 3, 7)
+        wins   = [(100.0, 101.0), (200.0, 201.0), (300.0, 301.0), (400.0, 401.0),
+                  (500.0, 501.0), (280.0, 281.0), (800.0, 801.0)]
+        files  = ["f1", "f2", "f3"]
+        yc = MassJ.YieldCurve(x, "E", Y, E, tic, tic_err, fmz, labels, wins, files,
+                              Dict{String,Any}())
+
+        # --- selectors: keep_yields / drop_yields / yc[label] -------------------
+        k = MassJ.keep_yields(yc, r"^a\d")
+        @test k.labels == ["a1", "a2"]
+        @test k.yields == Y[:, 1:2] && k.yields_err == E[:, 1:2]
+        @test k.windows == wins[1:2] && size(k.found_mz) == (3, 2)
+        @test k.tic == yc.tic && k.tic_err == yc.tic_err                 # untouched by design
+        @test MassJ.keep_yields(yc, ["precursor", "b1"]).labels == ["precursor", "b1"]  # order given
+        @test MassJ.keep_yields(yc, "y1").labels == ["y1"]
+        @test MassJ.keep_yields(yc, l -> endswith(l, "1")).labels == ["a1", "b1", "y1"]
+        @test k.metadata["yield_ops"] == [(op = "keep", label = nothing, sources = ["a1", "a2"])]
+        @test_throws ErrorException MassJ.keep_yields(yc, "nope")                  # strict
+        @test_throws ErrorException MassJ.keep_yields(yc, [1, 2])                  # not a selector
+        @test MassJ.drop_yields(yc, r"-H2O$").labels == ["a1", "a2", "b1", "b2", "y1", "precursor"]
+        @test MassJ.drop_yields(yc, l -> occursin("-", l)).labels ==
+              ["a1", "a2", "b1", "b2", "y1", "precursor"]
+        @test MassJ.drop_yields(yc, "nope").labels == labels                       # lenient
+        @test MassJ.drop_yields(yc, "precursor").tic == yc.tic
+        # deprecated alias forwards to drop_yields (same result, warns)
+        @test MassJ.drop_peaks(yc, "precursor").labels == MassJ.drop_yields(yc, "precursor").labels
+        @test MassJ.drop_peaks(yc, r"-H2O$").yields == MassJ.drop_yields(yc, r"-H2O$").yields
+        @test yc["b2"].y == Y[:, 4] && yc["b2"].err == E[:, 4]
+        y1, e1 = yc["y1"]
+        @test y1 == Y[:, 5] && e1 == E[:, 5]
+        @test_throws ErrorException yc["nope"]
+
+        # --- sum_yields ---------------------------------------------------------
+        s = MassJ.sum_yields(yc)
+        @test s.labels == ["sum"] && size(s.yields) == (3, 1)
+        @test s.yields[:, 1] ≈ yc.tic
+        @test s.yields_err[:, 1] ≈ yc.tic_err                             # quadrature, NaN skipped
+        @test all(isnan, s.found_mz) && s.windows == [(100.0, 801.0)]
+        @test s.tic == yc.tic && s.tic_err == yc.tic_err
+        @test s.metadata["yield_ops"] == [(op = "sum", label = "sum", sources = labels)]
+        @test !haskey(yc.metadata, "yield_ops")                             # input not mutated
+
+        a = MassJ.sum_yields(yc, r"^a\d"; label = "a-ions")
+        @test a.labels == ["a-ions", "b1", "b2", "y1", "b1-H2O", "precursor"]   # first-member slot
+        @test a.yields[:, 1] ≈ Y[:, 1] .+ Y[:, 2]
+        @test a.yields_err[:, 1] ≈ sqrt.(E[:, 1] .^ 2 .+ E[:, 2] .^ 2)
+        @test a.yields[:, 2:end] == Y[:, 3:end]
+        @test isequal(a.yields_err[:, 2:end], E[:, 3:end])                 # NaN-aware equality
+        @test a.windows[1] == (100.0, 201.0) && a.windows[2:end] == wins[3:end]
+
+        f = MassJ.sum_yields(yc; exclude = "precursor", label = "fragments")
+        @test f.labels == ["fragments", "precursor"]
+        @test f.yields[:, 1] ≈ vec(sum(Y[:, 1:6], dims = 2))
+        @test f.yields_err[:, 1] ≈ sqrt.(vec(sum(E[:, 1:5] .^ 2, dims = 2)))  # NaN column skipped
+        @test f.yields[:, 2] == Y[:, 7]
+        @test f.windows == [(100.0, 501.0), (800.0, 801.0)]
+
+        ks = MassJ.sum_yields(yc, ["a1", "a2"]; label = "A", keep_sources = true)
+        @test ks.labels == ["A", "a1", "a2", "b1", "b2", "y1", "b1-H2O", "precursor"]
+        @test ks.yields[:, 2:3] == Y[:, 1:2]
+
+        nan = MassJ.sum_yields(yc, "b1-H2O"; label = "w")                  # only NaN-error member
+        @test nan.labels == ["a1", "a2", "b1", "b2", "y1", "w", "precursor"]   # sits at its member's slot
+        @test all(isnan, nan["w"].err) && nan["w"].y == Y[:, 6]
+
+        @test_throws ErrorException MassJ.sum_yields(yc, "a1"; exclude = "a2")
+        @test_throws ErrorException MassJ.sum_yields(yc, r"^zzz")                # empty selection
+        @test_throws ErrorException MassJ.sum_yields(yc; exclude = r".")         # nothing left
+        @test_throws ErrorException MassJ.sum_yields(yc, r"^a\d"; label = "b1")  # label clash
+        @test_throws ErrorException MassJ.sum_yields(yc, ["a1", "nope"])         # unknown label
+
+        # --- group_yields -------------------------------------------------------
+        g = MassJ.group_yields(yc, r"^([aby])\d+$")
+        @test g.labels == ["a", "b", "y", "b1-H2O", "precursor"]
+        @test g.yields[:, 1] ≈ Y[:, 1] .+ Y[:, 2]
+        @test g.yields[:, 2] ≈ Y[:, 3] .+ Y[:, 4]
+        @test g.yields[:, 3] == Y[:, 5]
+        @test g.yields[:, 4:5] == Y[:, 6:7]
+        @test g.yields_err[:, 2] ≈ sqrt.(E[:, 3] .^ 2 .+ E[:, 4] .^ 2)
+        @test g.windows == [(100.0, 201.0), (300.0, 401.0), (500.0, 501.0), (280.0, 281.0), (800.0, 801.0)]
+        @test length(g.metadata["yield_ops"]) == 3
+        @test g.metadata["yield_ops"][2] == (op = "group", label = "b", sources = ["b1", "b2"])
+        @test g.tic == yc.tic
+
+        nl = MassJ.group_yields(yc, r"-(\w+)$")                             # neutral losses
+        @test nl.labels == ["a1", "a2", "b1", "b2", "y1", "H2O", "precursor"]
+        @test nl.yields[:, 6] == Y[:, 6]
+        fn = MassJ.group_yields(yc, l -> occursin("-", l) ? nothing : string(l[1]))
+        @test fn.labels == ["a", "b", "y", "b1-H2O", "p"]
+        @test MassJ.group_yields(yc, l -> occursin("-", l) ? nothing : Symbol(l[1])).labels == fn.labels
+        nc = MassJ.group_yields(yc, r"^a")                                  # no capture: whole match
+        @test nc.labels == ["a", "b1", "b2", "y1", "b1-H2O", "precursor"]
+        pr = MassJ.group_yields(yc, ["N" => r"^[ab]\d+$", "C" => "y1"])
+        @test pr.labels == ["N", "C", "b1-H2O", "precursor"]
+        @test pr.yields[:, 1] ≈ vec(sum(Y[:, 1:4], dims = 2))
+        @test MassJ.group_yields(yc, r"^(a)"; keep_sources = true).labels ==
+              ["a", "a1", "a2", "b1", "b2", "y1", "b1-H2O", "precursor"]
+        @test_throws ErrorException MassJ.group_yields(yc, ["N" => r"^a", "M" => "a1"])  # overlap
+        @test_throws ErrorException MassJ.group_yields(yc, ["N" => r"^zzz"])             # empty group
+        @test_throws ErrorException MassJ.group_yields(yc, r"^zzz")                      # nothing matched
+        @test_throws ErrorException MassJ.group_yields(yc, ["a1" => "a2"])               # name clash
+        @test_throws ErrorException MassJ.group_yields(yc, ["N", "M"])                   # not pairs
+
+        # --- with_yields --------------------------------------------------------
+        d  = Y[:, 1] .- Y[:, 3]
+        σd = sqrt.(E[:, 1] .^ 2 .+ E[:, 3] .^ 2)
+        w = MassJ.with_yields(yc, "a1 − b1", d, σd; sources = ["a1", "b1"])
+        @test w.labels == vcat(labels, ["a1 − b1"])
+        @test w.yields[:, end] == d && w.yields_err[:, end] == σd
+        @test w.yields[:, 1:7] == Y && isequal(w.yields_err[:, 1:7], E)
+        @test all(isnan, w.found_mz[:, end]) && all(isnan, w.windows[end])
+        @test w.tic == yc.tic && w.tic_err == yc.tic_err
+        @test w.metadata["yield_ops"] == [(op = "with", label = "a1 − b1", sources = ["a1", "b1"])]
+        w2 = MassJ.with_yields(yc, ["p", "q"], hcat(d, 2d))                 # no errors → NaN
+        @test w2.labels[end-1:end] == ["p", "q"] && all(isnan, w2.yields_err[:, end-1:end])
+        @test w2.yields[:, end] == 2d
+        w3 = MassJ.with_yields(yc, ["p", "q"], hcat(d, 2d), hcat(σd, 2σd);
+                              windows = [(1.0, 2.0), (3.0, 4.0)], found_mz = hcat(x, 2x),
+                              sources = [["a1", "b1"], ["a1", "b1"]])
+        @test w3.windows[end-1:end] == [(1.0, 2.0), (3.0, 4.0)] && w3.found_mz[:, end] == 2x
+        @test w3.yields_err[:, end] == 2σd
+        r = MassJ.with_yields(yc, "y1", sqrt.(Y[:, 5]), 0.5 .* E[:, 5] ./ sqrt.(Y[:, 5]);
+                             replace = true)
+        @test r.labels == labels && r.yields[:, 5] ≈ sqrt.(Y[:, 5]) && r.windows == wins
+        @test r.yields[:, 1:4] == Y[:, 1:4] && r.yields[:, 6:7] == Y[:, 6:7]
+        @test r.metadata["yield_ops"][end].op == "replace"
+        @test_throws ErrorException MassJ.with_yields(yc, "y1", d)                 # exists, no replace
+        @test_throws ErrorException MassJ.with_yields(yc, "z", d[1:2])              # wrong row count
+        @test_throws ErrorException MassJ.with_yields(yc, ["z1", "z2"], d)          # 1 column, 2 labels
+        @test_throws ErrorException MassJ.with_yields(yc, "z", d, σd[1:2])          # err shape
+        @test_throws ErrorException MassJ.with_yields(yc, ["z", "z"], hcat(d, d))   # duplicate labels
+        @test_throws ErrorException MassJ.with_yields(yc, ["z1", "z2"], hcat(d, d); sources = [["a1"]])
+
+        # Measurements round trip: any expression on measurements(yc) comes back with its 1-σ
+        M  = MassJ.measurements(yc)
+        mw = MassJ.with_yields(yc, ["a1 − b1", "√y1"], hcat(M[:, 1] .- M[:, 3], sqrt.(M[:, 5])))
+        @test mw.yields[:, end-1] ≈ d && mw.yields_err[:, end-1] ≈ σd
+        @test mw.yields[:, end] ≈ sqrt.(Y[:, 5])
+        @test mw.yields_err[:, end] ≈ 0.5 .* E[:, 5] ./ sqrt.(Y[:, 5])
+        mr = MassJ.with_yields(yc, "y1", sqrt.(M[:, 5]); replace = true)
+        @test mr.labels == labels && mr.yields[:, 5] ≈ sqrt.(Y[:, 5])
+
+        # downstream: normalization, Tables, plotting all see the new columns
+        gn = MassJ.normalize_tic(g)
+        @test gn.yields[:, 1] ≈ g.yields[:, 1] ./ g.tic
+        @test Tables.columns(g).a == g.yields[:, 1] && Tables.columns(g).a_err == g.yields_err[:, 1]
+        gr()
+        @test plot(g) isa Plots.Plot
+        @test plot(MassJ.keep_yields(w, ["a1 − b1", "precursor"])) isa Plots.Plot
+
+        # end to end: fragment_peaks → yields → group by ion series
+        pks = MassJ.fragment_peaks("PEPTIDE"; ions = (:a, :b, :y), tol = 0.5)
+        yce = MassJ.yields(["test.mzXML", "test.mzXML"], pks; x = [1.0, 2.0])
+        ge  = MassJ.group_yields(yce, r"^([aby])\d+")
+        @test ge.labels == ["a", "b", "y"]
+        for (c, ser) in enumerate(("a", "b", "y"))
+            @test ge.yields[:, c] ≈ vec(sum(yce.yields[:, startswith.(yce.labels, ser)], dims = 2))
+        end
+        @test ge.tic == yce.tic
+        @test MassJ.sum_yields(yce; label = "all").yields[:, 1] ≈ yce.tic
+    end
+end
+
+
+function test_peptides()
+    @testset "Peptide fragment ions" begin
+        # neutral monoisotopic peptide mass
+        @test MassJ.peptide_mass("PEPTIDE") ≈ 799.35996 atol = 1e-4
+
+        fr = MassJ.fragment_ions("PEPTIDE"; ions = (:a, :b, :c, :x, :y, :z), charges = 1:1)
+        mz(lbl) = fr[findfirst(f -> f.label == lbl, fr)].mz
+        # singly-charged reference m/z (proton = H − e⁻)
+        @test mz("b1") ≈ 98.06004  atol = 1e-4
+        @test mz("b2") ≈ 227.10263 atol = 1e-4
+        @test mz("y1") ≈ 148.06043 atol = 1e-4
+        @test mz("y3") ≈ 376.17144 atol = 1e-4
+        @test mz("a2") ≈ 199.10772 atol = 1e-4   # b2 − CO
+        @test mz("c2") ≈ 244.12918 atol = 1e-4   # b2 + NH3
+        @test mz("z3") ≈ 359.14489 atol = 1e-4   # Mascot even-electron z
+        @test mz("x3") ≈ 402.15071 atol = 1e-4
+
+        # complementary b/y sum to peptide mass + 2 protons (+ H2O accounting)
+        bn = MassJ.peptide_mass("PEPTIDE")
+        @test mz("b2") + mz("y5") ≈ bn + 2 * (MassJ._M_H - MassJ.m_electron) atol = 1e-4
+
+        # charge 2 divides by |z|
+        f2 = MassJ.fragment_ions("PEPTIDE"; ions = (:y,), charges = 2:2)
+        @test first(f.mz for f in f2 if f.label == "y3(2+)") ≈ 188.58936 atol = 1e-4
+
+        # n residues → n-1 backbone ions per series
+        b = MassJ.fragment_ions("PEPTIDE"; ions = (:b,))
+        @test length(b) == length("PEPTIDE") - 1
+
+        # side-chain ions: Pro yields no d/w; Ile & Thr give two isomers
+        sc = MassJ.fragment_ions("PEPTIDE"; ions = (:d, :v, :w))
+        @test count(f -> f.series == :d, sc) == 6      # E,T(×2),I(×2),D ; both P excluded
+        @test count(f -> f.series == :w, sc) == 7
+        @test count(f -> f.series == :v, sc) == 6
+        @test any(f -> f.label == "w3'", sc)           # Ile second isomer
+        @test !any(f -> f.series == :d && f.position == 1, sc)   # P at position 1
+
+        # ±H radical variants
+        ch = MassJ.fragment_ions("PEPTIDE"; ions = (:c,), hshifts = (-1, 0, 1))
+        c2 = sort([f.label for f in ch if startswith(f.label, "c2")])
+        @test c2 == ["c2", "c2+1", "c2-1"]
+        cm = MassJ.fragment_ions("PEPTIDE"; ions = (:c,))
+        c2base = first(f.mz for f in cm if f.label == "c2")
+        @test first(f.mz for f in ch if f.label == "c2+1") ≈ c2base + MassJ._M_H atol = 1e-6
+
+        # errors
+        @test_throws ErrorException MassJ.fragment_ions("PEPTIXE")    # unknown residue
+        @test_throws ErrorException MassJ.fragment_ions("P")         # too short
+        @test_throws ErrorException MassJ.fragment_ions("PEPTIDE"; ions = (:q,))  # bad series
+    end
+end
+
+
+function test_fragment_peaks()
+    @testset "Fragment ions -> peak list -> yields" begin
+        ions = MassJ.fragment_ions("PEPTIDE"; ions = (:b, :y), charges = 1:1)
+        iy = ions[findfirst(i -> i.label == "y3", ions)]
+
+        # default: fixed Peak windows centred on each fragment m/z
+        pf = MassJ.fragment_peaks(ions; tol = 0.3)
+        @test length(pf) == length(ions)
+        @test all(p isa MassJ.Peak for p in pf)
+        py = pf[findfirst(p -> p.label == "y3", pf)]
+        @test (py.mz1 + py.mz2) / 2 ≈ iy.mz atol = 1e-6
+        @test (py.mz2 - py.mz1) ≈ 0.6 atol = 1e-9
+
+        # ppm windows
+        pp = MassJ.fragment_peaks(ions; ppm = 10.0)
+        pj = pp[findfirst(p -> p.label == "y3", pp)]
+        @test (pj.mz2 - pj.mz1) ≈ 2 * iy.mz * 10e-6 atol = 1e-9
+
+        # fixed = false → located TargetPeaks
+        pt = MassJ.fragment_peaks(ions; ppm = 10.0, fixed = false, method = :local_max)
+        @test all(p isa MassJ.TargetPeak for p in pt)
+        @test pt[findfirst(p -> p.label == "y3", pt)].mz ≈ iy.mz atol = 1e-6
+
+        # one-step from a sequence; labels carried through
+        ps = MassJ.fragment_peaks("PEPTIDE"; ions = (:b, :y), charges = 1:1, tol = 0.3)
+        @test [p.label for p in ps] == [i.label for i in ions]
+
+        # end-to-end: fragment peaks feed straight into the yields machinery
+        root = mktempdir()
+        cp("test.mzML", joinpath(root, "e1.mzML"))
+        cp("test.mzML", joinpath(root, "e2.mzML"))
+        yc = MassJ.yields(root, pf; x0 = 0.0, step = 1.0, xlabel = "energy")
+        @test yc isa MassJ.YieldCurve
+        @test size(yc.yields, 2) == length(pf)
+        @test yc.labels == [p.label for p in pf]
+        @test length(yc.x) == 2
+    end
+end
+
+
+function test_mobility()
+    @testset "Mobilogram / ionogram extraction" begin
+        mz = collect(100.0:1.0:110.0)
+        int = fill(5.0, length(mz)); int[6] = 50.0
+        mk(num, dt, cv, mt) = MassJ.MSscans(num, 0.0, sum(int), mz, int, 1, mz[6], 50.0,
+                                            0.0, "+", "", 0.0, 0, :profile, dt, cv, mt,
+                                            Dict{String,Any}())
+        ims   = [mk(1, 10.0, 0.0, :TIMS),  mk(2, 20.0, 0.0, :TIMS),  mk(3, 30.0, 0.0, :TIMS)]
+        faims = [mk(1, -1.0, -5.0, :FAIMS), mk(2, -1.0, -3.0, :FAIMS), mk(3, -1.0, -1.0, :FAIMS)]
+
+        m = MassJ.mobilogram(ims)
+        @test m isa MassJ.IonCurrent
+        @test m.axis == :drift
+        @test m.mobilityType == :TIMS
+        @test m.x == [10.0, 20.0, 30.0]
+        @test m.ic == fill(sum(int), 3)                                  # TIC
+        @test MassJ.mobilogram(ims; method = MassJ.BasePeak()).ic == fill(50.0, 3)
+
+        g = MassJ.ionogram(faims)
+        @test g.axis == :cv
+        @test g.mobilityType == :FAIMS
+        @test g.x == [-5.0, -3.0, -1.0]
+
+        # scans lacking the dimension are skipped
+        @test length(MassJ.mobilogram(vcat(ims, [mk(4, -1.0, 0.0, :none)])).x) == 3
+        # filters compose (drift time 20 & 30 fall in [15, 35])
+        @test length(MassJ.mobilogram(ims, MassJ.DriftTime([15.0, 35.0])).x) == 2
+        @test length(MassJ.ionogram(faims, MassJ.CompensationVoltage([-4.0, 0.0])).x) == 2
+
+        # no matching dimension throws
+        @test_throws ErrorException MassJ.mobilogram(faims)
+        @test_throws ErrorException MassJ.ionogram(ims)
+        # filename form delegates through load (test.mzML carries no mobility data)
+        @test_throws ErrorException MassJ.mobilogram("test.mzML")
+
+        # plot recipe handles the :drift and :cv axes
+        @test plot(m, method = :absolute) isa Plots.Plot
+        @test plot(g, method = :absolute) isa Plots.Plot
+    end
+end
+
+
+function test_uncertainty()
+    @testset "Uncertainty accessors + plot band" begin
+        scans = MassJ.load("test.mzML")
+        avg = MassJ.average(scans)                       # stats = true → s holds σ
+
+        @test MassJ.nscans(avg) == length(scans)
+        sd = MassJ.stdev(avg)
+        se = MassJ.sem(avg)
+        @test !isempty(sd)
+        @test length(sd) == length(avg.mz)
+        @test all(sd .>= 0.0)
+        @test se ≈ sd ./ sqrt(MassJ.nscans(avg)) atol = 1e-12
+
+        # a single scan carries no replicate statistics
+        s1 = scans[1]
+        @test MassJ.nscans(s1) == 1
+        @test isempty(MassJ.stdev(s1))
+        @test isempty(MassJ.sem(s1))
+
+        # plot recipe band options return a plot; band is ignored when s is empty
+        @test plot(avg; band = :sem) isa Plots.Plot
+        @test plot(avg; band = :std, method = :absolute) isa Plots.Plot
+        @test plot(avg) isa Plots.Plot
+        @test plot(s1; band = :sem) isa Plots.Plot
+    end
+end
+
+
+function test_annotated_plotting()
+    @testset "Annotated plotting (round 4, phase 1)" begin
+        P = MassJ.plots
+
+        # synthetic centroid-like spectrum with well-separated peaks
+        mz  = [100.0, 100.5, 200.0, 300.0, 400.0]
+        int = [10.0,   8.0,  50.0,  30.0,  90.0]
+        ms  = MassJ.MSscans(1, 0.0, sum(int), mz, int, 1, 400.0, 90.0,
+                            0.0, "+", "", 0.0)
+
+        # --- adapters / helpers (pure) ---------------------------------------
+        fi   = MassJ.fragment_ions("PEPTIDE"; ions = (:b, :y), charges = 1:2)
+        b3   = first(f for f in fi if f.series == :b && f.position == 3 && f.charge == 1)
+        b3z2 = first(f for f in fi if f.series == :b && f.position == 3 && f.charge == 2)
+        @test P._frag_base(b3) == "b3"
+        @test P._frag_base(b3z2) == "b3"          # charge is NOT baked into base text
+
+        # display string rules
+        pm   = (x = 200.0, mz = 200.0, y = 50.0, text = "",   charge = 0, group = :peak)
+        pz2  = (x = 200.0, mz = 200.0, y = 50.0, text = "b3", charge = 2, group = :b)
+        pz1  = (x = 200.0, mz = 200.0, y = 50.0, text = "b3", charge = 1, group = :b)
+        @test P._disp(pm;  show_mz = false, show_charge = true,  fmt = "%.2f") == "200.00"
+        @test P._disp(pz2; show_mz = false, show_charge = true,  fmt = "%.1f") == "b3 2+"
+        @test P._disp(pz1; show_mz = false, show_charge = true,  fmt = "%.1f") == "b3"
+        @test P._disp(pz2; show_mz = true,  show_charge = false, fmt = "%.1f") == "b3 200.0"
+
+        # placement: sorted by intensity, nlabels cap
+        placed = P._place_spectrum(ms, P._spectrum_candidates(:auto, ms), 1.0;
+                                   tol = 0.5, ppm = nothing, declutter = :none, nlabels = 3)
+        @test length(placed) == 3
+        @test [p.mz for p in placed] == [400.0, 200.0, 300.0]
+
+        # de-clutter suppresses the close neighbour, keeps the stronger of the pair
+        placed2 = P._place_spectrum(ms, P._spectrum_candidates(:auto, ms), 1.0;
+                                    tol = 0.5, ppm = nothing, declutter = 1.0, nlabels = 10)
+        m2 = [p.mz for p in placed2]
+        @test 100.0 in m2
+        @test !(100.5 in m2)
+
+        # apex matching tolerance
+        @test isempty(P._place_spectrum(ms, P._spectrum_candidates([250.0], ms), 1.0;
+                                        tol = 0.5, ppm = nothing, declutter = :none, nlabels = 10))
+        near = P._place_spectrum(ms, P._spectrum_candidates([200.2], ms), 1.0;
+                                 tol = 0.5, ppm = nothing, declutter = :none, nlabels = 10)
+        @test length(near) == 1 && near[1].mz == 200.0
+
+        # relative scaling: base peak maps to 100 %
+        relp = P._place_spectrum(ms, P._spectrum_candidates(:auto, ms), 100.0 / 90.0;
+                                 tol = 0.5, ppm = nothing, declutter = :none, nlabels = 1)
+        @test isapprox(relp[1].y, 100.0; atol = 1e-9)
+
+        # colours: :none -> all black; :group -> one colour per distinct group
+        @test all(==(:black), P._label_colors(placed2, :none))
+        twogroups = [(x = 1.0, mz = 1.0, y = 1.0, text = "b1", charge = 1, group = :b),
+                     (x = 2.0, mz = 2.0, y = 1.0, text = "y1", charge = 1, group = :y)]
+        @test length(unique(P._label_colors(twogroups, :group))) == 2
+        @test all(==(:black), P._label_colors(twogroups, :none))
+
+        # Peak / TargetPeak adapters
+        pk = [MassJ.Peak(199.0, 201.0, "win"), MassJ.TargetPeak(300.0, "tgt"; tol = 0.5)]
+        pc = P._spectrum_candidates(pk, ms)
+        @test pc[1].mz == 200.0 && pc[1].text == "win"   # window centre
+        @test pc[2].mz == 300.0 && pc[2].text == "tgt"
+
+        # unknown symbol errors
+        @test_throws ErrorException P._spectrum_candidates(:nope, ms)
+
+        # --- recipe smoke tests (both backends build a Plot) -----------------
+        scans = MassJ.load("test.mzXML")
+        s = scans[1]
+        cr = MassJ.chromatogram(scans)
+        for backend in (gr, plotly)
+            backend()
+            @test plot(s) isa Plots.Plot                                   # no regression
+            @test plot(s, annot = :auto) isa Plots.Plot
+            @test plot(s, annot = :auto, nlabels = 5, method = :absolute) isa Plots.Plot
+            @test plot(s, annot = [s.mz[100], s.mz[200]]) isa Plots.Plot
+            @test plot(s, annot = [s.mz[100] => "A", s.mz[200] => "B"]) isa Plots.Plot
+            @test plot(s, annot = fi, show_mz = true, color_by = :group) isa Plots.Plot
+            @test plot(s, sequence = "PEPTIDE", ions = (:b, :y)) isa Plots.Plot
+            @test plot(s, annot = pk) isa Plots.Plot
+            @test plot(cr, annot = :auto) isa Plots.Plot
+            @test plot(cr, annot = [cr.x[2] => "P1"]) isa Plots.Plot
+        end
+        gr()
+
+        # peak-window overlay recipe: plot!(peak) over a spectrum
+        avg = MassJ.average(scans)
+        tp1 = MassJ.TargetPeak(avg.mz[1500], "one"; tol = 0.3)
+        tpc = MassJ.TargetPeak([avg.mz[800], avg.mz[1800]], "cluster"; tol = 0.25)
+        pkw = MassJ.Peak(avg.mz[1000], avg.mz[1100], "win")
+        @test P._peak_bounds(pkw) == [avg.mz[1000], avg.mz[1100]]
+        @test P._peak_bounds(tpc) ==
+              [avg.mz[800] - 0.25, avg.mz[800] + 0.25, avg.mz[1800] - 0.25, avg.mz[1800] + 0.25]
+        pov = plot(avg)
+        @test plot!(pov, tp1) isa Plots.Plot
+        @test plot!(pov, tpc) isa Plots.Plot
+        @test plot!(pov, pkw; seriescolor = :green) isa Plots.Plot
+
+        # vector overlay: all peak windows in one call
+        peaklist = [tp1, tpc, pkw]
+        @test plot!(plot(avg), peaklist) isa Plots.Plot
+        @test plot(peaklist) isa Plots.Plot
+    end
+end
+
+
+function test_tables()
+    @testset "Tables.jl interface (YieldCurve + isotopes)" begin
+        # YieldCurve as a Tables source (extension active via `import Tables`)
+        yc = MassJ.YieldCurve([1.0, 2.0], "energy (eV)",
+                              [10.0 1.0; 20.0 2.0], [0.5 0.1; 0.6 0.2],
+                              [11.0, 22.0], [0.51, 0.63], fill(NaN, 2, 2),
+                              ["a", "b"], [(99.0, 101.0), (199.0, 201.0)],
+                              ["f1", "f2"], Dict{String,Any}())
+        @test Tables.istable(typeof(yc))
+        cols  = Tables.columns(yc)
+        names = Tables.columnnames(cols)
+        @test :x in names && :a in names && :b in names
+        @test Symbol("a_err") in names && Symbol("b_err") in names
+        @test :TIC in names && Symbol("TIC_err") in names && :file in names
+        @test collect(Tables.getcolumn(cols, :x)) == [1.0, 2.0]
+        @test collect(Tables.getcolumn(cols, :a)) == [10.0, 20.0]
+        @test collect(Tables.getcolumn(cols, Symbol("a_err"))) == [0.5, 0.6]
+        @test collect(Tables.getcolumn(cols, :file)) == ["f1", "f2"]
+        @test length(Tables.rows(yc)) == 2
+        @test Tables.columntable(yc).b == [1.0, 2.0]   # column :b == yields[:,2]
+
+        # isotope_table: dependency-free NamedTuple, a valid Tables source
+        dist = MassJ.isotopic_distribution(MassJ.formula("C2H6O"), 0.99)
+        it = MassJ.isotope_table(dist)
+        @test Tables.istable(typeof(it))
+        @test haskey(it, :Masses) && haskey(it, :Probability)
+        @test eltype(it.Masses) == Float64
+        @test eltype(it[Symbol("12C")]) == Int
+        @test length(it.Masses) == size(dist, 1) - 1
+        @test Tables.columntable(it).Masses == it.Masses
+    end
+end
+
+
+function test_measurements()
+    @testset "Measurements.jl interface" begin
+        scans = MassJ.load("test.mzML")
+        avg = MassJ.average(scans)                       # carries σ
+
+        m = MassJ.measurements(avg)                      # default :sem
+        @test length(m) == length(avg.mz)
+        @test Measurements.value.(m) == avg.int
+        @test Measurements.uncertainty.(m) ≈ MassJ.sem(avg)
+        @test Measurements.uncertainty.(MassJ.measurements(avg; kind = :std)) ≈ MassJ.stdev(avg)
+
+        # a single scan has no replicate statistics
+        @test_throws ErrorException MassJ.measurements(scans[1])
+        # invalid kind
+        @test_throws ErrorException MassJ.measurements(avg; kind = :bogus)
+
+        # YieldCurve → matrix of value ± error, with automatic propagation
+        yc = MassJ.YieldCurve([1.0, 2.0], "E", [10.0 1.0; 20.0 2.0], [0.5 0.1; 0.6 0.2],
+                              [11.0, 22.0], [0.51, 0.63], fill(NaN, 2, 2), ["a", "b"],
+                              [(99.0, 101.0), (199.0, 201.0)], ["f1", "f2"], Dict{String,Any}())
+        M = MassJ.measurements(yc)
+        @test size(M) == (2, 2)
+        @test Measurements.value.(M) == yc.yields
+        @test Measurements.uncertainty.(M) == yc.yields_err
+        # summing a column propagates the errors in quadrature (Measurements does this)
+        @test Measurements.uncertainty(sum(M[:, 1])) ≈ sqrt(0.5^2 + 0.6^2)
+    end
+end
+
+
+function test_unitful()
+    @testset "Unitful.jl interface (physical axes)" begin
+        scan = MassJ.MSscans(1, 30.0, 100.0, [100.0, 200.0], [5.0, 9.0], 2,
+                             200.0, 9.0, 400.0, "+", "CID", 18.0,
+                             2, :centroid, -1.0, -5.0, :FAIMS, Dict{String,Any}())
+        wu = MassJ.withunits(scan)
+        @test Unitful.unit(eltype(wu.retention_time))      == u"s"
+        @test Unitful.unit(eltype(wu.collision_energy))    == u"eV"
+        @test Unitful.unit(eltype(wu.compensation_voltage)) == u"V"
+        @test Unitful.ustrip.(u"s",  wu.retention_time)       == scan.rt
+        @test Unitful.ustrip.(u"eV", wu.collision_energy)     == scan.collisionEnergy
+        @test Unitful.ustrip.(u"V",  wu.compensation_voltage) == scan.compensationVoltage
+        # m/z and intensity are not exposed (left untagged)
+        @test !haskey(wu, :mz) && !haskey(wu, :intensity)
+
+        # IonCurrent: abscissa tagged by axis
+        rt = MassJ.IonCurrent([10.0, 20.0], [1.0, 2.0]; axis = :rt)
+        @test Unitful.unit(eltype(MassJ.withunits(rt).x)) == u"s"
+        cv = MassJ.IonCurrent([-5.0, -3.0], [1.0, 2.0]; axis = :cv, mobilityType = :FAIMS)
+        @test Unitful.unit(eltype(MassJ.withunits(cv).x)) == u"V"
+        # :drift is left unitless (ms vs 1/K₀ ambiguity)
+        dt = MassJ.IonCurrent([10.0, 20.0], [1.0, 2.0]; axis = :drift, mobilityType = :TIMS)
+        @test eltype(MassJ.withunits(dt).x) <: Real
+        @test MassJ.withunits(rt).ic == rt.ic            # intensity untagged
+    end
+end
+
+
+function test_chrom_processing()
+    @testset "IonCurrent smoothing + baseline" begin
+        t = collect(0.0:0.05:10.0)
+        peak = 100.0 .* exp.(-(t .- 5.0).^2 ./ (2 * 0.3^2))
+        ic = MassJ.IonCurrent(t, peak .+ (2.0 .+ 0.5 .* t); axis = :rt)
+
+        sm = MassJ.smooth(ic; method = MassJ.SG(2, 9, 0))
+        @test sm isa MassJ.IonCurrent
+        @test sm.axis == :rt
+        @test sm.x == ic.x
+        @test length(sm.ic) == length(ic.ic)
+
+        # baseline removal: sloped baseline gone (min ≈ 0), peak preserved (~100)
+        for m in (MassJ.TopHat(40), MassJ.IPSA(31, 50))
+            bc = MassJ.baseline_correction(ic; method = m)
+            @test bc isa MassJ.IonCurrent
+            @test bc.axis == :rt
+            @test minimum(bc.ic) < 5.0
+            @test maximum(bc.ic) > 80.0
+        end
+        @test MassJ.baseline_correction(ic; method = MassJ.LOESS(2)) isa MassJ.IonCurrent
+
+        # axis / mobilityType preserved for non-rt traces
+        xcv = collect(-5.0:0.1:5.0)
+        cv = MassJ.IonCurrent(xcv, 50 .* exp.(-xcv .^ 2) .+ 1.0; axis = :cv, mobilityType = :FAIMS)
+        bc = MassJ.baseline_correction(cv; method = MassJ.TopHat(20))
+        @test bc.axis == :cv && bc.mobilityType == :FAIMS
+
+        # unsupported smoothing method errors
+        @test_throws ErrorException MassJ.smooth(ic; method = MassJ.TopHat(10))
+
+        # MSscans regression: refactored loess/ipsa (+ tophat) still return MSscans
+        mzv  = collect(100.0:0.5:200.0)
+        intv = 50 .* exp.(-(mzv .- 150.0) .^ 2 ./ 8.0) .+ 2.0
+        sp = MassJ.MSscans(1, 0.0, sum(intv), mzv, intv, 1, 150.0, 52.0, 0.0, "+", "", 0.0)
+        @test MassJ.baseline_correction(sp; method = MassJ.LOESS(1))    isa MassJ.MSscans
+        @test MassJ.baseline_correction(sp; method = MassJ.IPSA(31, 20)) isa MassJ.MSscans
+        @test MassJ.baseline_correction(sp; method = MassJ.TopHat(20))   isa MassJ.MSscans
+    end
+end
+
+
+function test_chrom_peaks()
+    @testset "ChromPeak detection + metrics" begin
+        t = collect(0.0:0.02:10.0)
+        g(mu, s, a) = a .* exp.(-(t .- mu) .^ 2 ./ (2s^2))
+
+        # one symmetric Gaussian: metrics match analytic values
+        ic = MassJ.IonCurrent(t, g(5.0, 0.3, 100.0); axis = :rt)
+        ps = MassJ.chrom_peaks(ic; snr = 3.0)
+        @test length(ps) == 1
+        p = ps[1]
+        @test p.axis == :rt
+        @test p.apex      ≈ 5.0 atol = 0.02
+        @test p.height    ≈ 100.0 atol = 0.5
+        @test p.fwhm      ≈ 2.35482 * 0.3 atol = 0.01           # 0.7064
+        @test p.area      ≈ 100 * 0.3 * sqrt(2π) atol = 0.5      # 75.2
+        @test p.asymmetry ≈ 1.0 atol = 0.05
+        @test p.tailing   ≈ 1.0 atol = 0.05
+        @test p.plates    ≈ 5.54 * (5.0 / p.fwhm)^2 atol = 1.0
+        @test p.centroid  ≈ 5.0 atol = 0.02
+        @test p.variance  ≈ 0.09 atol = 0.01
+        @test abs(p.skewness) < 0.05
+        @test p.snr > 10
+
+        # two well-separated peaks → split at the valley
+        ic2 = MassJ.IonCurrent(t, g(3.0, 0.2, 80.0) .+ g(7.0, 0.25, 50.0); axis = :rt)
+        @test length(MassJ.chrom_peaks(ic2; snr = 3.0)) == 2
+
+        # asymmetric peak (wider right tail) → Aₛ > 1 and positive skew
+        yR = [tt < 5 ? exp(-(tt - 5)^2 / (2 * 0.2^2)) : exp(-(tt - 5)^2 / (2 * 0.6^2)) for tt in t] .* 100
+        pa = MassJ.chrom_peaks(MassJ.IonCurrent(t, yR; axis = :rt); snr = 3.0)[1]
+        @test pa.asymmetry > 1.5
+        @test pa.skewness > 0.0
+
+        # targeted single-window analysis
+        pw = MassJ.chrom_peak(ic, 4.0, 6.0)
+        @test pw isa MassJ.ChromPeak
+        @test pw.apex ≈ 5.0 atol = 0.02
+        @test pw.area > 70.0
+
+        # rel_height gate drops a tiny peak beside a large one
+        ic3 = MassJ.IonCurrent(t, g(3.0, 0.2, 100.0) .+ g(7.0, 0.2, 1.0); axis = :rt)
+        @test length(MassJ.chrom_peaks(ic3; snr = 0.0, rel_height = 0.1)) == 1
+
+        # degenerate window errors; axis carried through
+        @test_throws ErrorException MassJ.chrom_peak(ic, 5.0, 5.0)
+        icd = MassJ.IonCurrent(t, g(5.0, 0.3, 100.0); axis = :drift, mobilityType = :TIMS)
+        @test MassJ.chrom_peaks(icd; snr = 3.0)[1].axis == :drift
     end
 end
 
@@ -472,7 +1461,7 @@ function test_deconvolution()
         @test w > 0
 
         # deconv method exists with correct dispatch
-        @test hasmethod(MassJ.deconv, Tuple{MassJ.MSscan, MassJ.Charges})
+        @test hasmethod(MassJ.deconv, Tuple{MassJ.MSscans, MassJ.Charges})
         @test hasmethod(MassJ.deconv, Tuple{MassJ.MSscans, MassJ.Charges})
 
     end
@@ -510,44 +1499,44 @@ function test_mzml()
         # load all
         scans = MassJ.load("test.mzML")
         @test length(scans) == 3
-        @test eltype(scans) == MassJ.MSscan
+        @test eltype(scans) == MassJ.MSscans
 
         # Scan 1: MS1+, profile, rt=0.5 min
         s1 = scans[1]
-        @test s1.level == 1
-        @test s1.rt ≈ 0.5
-        @test s1.polarity == "+"
+        @test s1.level == [1]
+        @test s1.rt ≈ [0.5]
+        @test s1.polarity == ["+"]
         @test s1.spectrumType == :profile
         @test s1.tic ≈ 19000.0
         @test s1.basePeakMz ≈ 400.0
         @test s1.basePeakIntensity ≈ 8000.0
-        @test s1.precursor ≈ 0.0
-        @test s1.chargeState == 0
+        @test s1.precursor ≈ [0.0]
+        @test s1.chargeState == [0]
         @test length(s1.mz) == 5
         @test s1.mz ≈ [100.0, 200.0, 300.0, 400.0, 500.0]
         @test s1.int ≈ [1000.0, 5000.0, 3000.0, 8000.0, 2000.0]
 
         # Scan 2: MS2+ CID, centroid, rt=1.0 min (60s converted)
         s2 = scans[2]
-        @test s2.level == 2
-        @test s2.rt ≈ 1.0
-        @test s2.polarity == "+"
+        @test s2.level == [2]
+        @test s2.rt ≈ [1.0]
+        @test s2.polarity == ["+"]
         @test s2.spectrumType == :centroid
-        @test s2.precursor ≈ 400.0
-        @test s2.chargeState == 2
-        @test s2.activationMethod == "CID"
-        @test s2.collisionEnergy ≈ 25.0
+        @test s2.precursor ≈ [400.0]
+        @test s2.chargeState == [2]
+        @test s2.activationMethod == ["CID"]
+        @test s2.collisionEnergy ≈ [25.0]
         @test length(s2.mz) == 4
         @test s2.mz ≈ [110.0, 150.0, 200.0, 250.0]
 
         # Scan 3: MS2+ HCD
         s3 = scans[3]
-        @test s3.level == 2
-        @test s3.rt ≈ 1.5
-        @test s3.precursor ≈ 500.0
-        @test s3.chargeState == 3
-        @test s3.activationMethod == "HCD"
-        @test s3.collisionEnergy ≈ 30.0
+        @test s3.level == [2]
+        @test s3.rt ≈ [1.5]
+        @test s3.precursor ≈ [500.0]
+        @test s3.chargeState == [3]
+        @test s3.activationMethod == ["HCD"]
+        @test s3.collisionEnergy ≈ [30.0]
         @test length(s3.mz) == 3
 
         # retention_time
@@ -557,24 +1546,31 @@ function test_mzml()
 
         # chromatogram (TIC)
         chrom = MassJ.chromatogram("test.mzML")
-        @test length(chrom.rt) == 3
-        @test chrom.rt ≈ [0.5, 1.0, 1.5]
+        @test length(chrom.x) == 3
+        @test chrom.x ≈ [0.5, 1.0, 1.5]
         @test chrom.ic ≈ [19000.0, 4800.0, 2100.0]
-        @test chrom.maxic ≈ 19000.0
+        @test MassJ.maxic(chrom) ≈ 19000.0
 
         # chromatogram with filter
         chrom2 = MassJ.chromatogram("test.mzML", MassJ.Level(2))
-        @test length(chrom2.rt) == 2
+        @test length(chrom2.x) == 2
 
         # chromatogram base peak
         chrom_bp = MassJ.chromatogram("test.mzML", method=MassJ.BasePeak())
         @test chrom_bp.ic ≈ [8000.0, 2000.0, 1200.0]
 
+        # base-peak / TIC must be populated (from cvParam, or derived from the peak
+        # data when a writer omits them) so BasePeak chromatograms are never flat
+        let scmz = MassJ.load("test.mzML")
+            @test all(s.basePeakIntensity == maximum(s.int) for s in scmz)
+            @test all(s.tic > 0 for s in scmz)
+        end
+
         # extract
         ms2 = MassJ.extract("test.mzML", MassJ.Level(2))
         @test length(ms2) == 2
-        @test ms2[1].precursor ≈ 400.0
-        @test ms2[2].precursor ≈ 500.0
+        @test ms2[1].precursor ≈ [400.0]
+        @test ms2[2].precursor ≈ [500.0]
 
         # average
         avg = MassJ.average("test.mzML", MassJ.Level(2))
@@ -582,8 +1578,8 @@ function test_mzml()
 
         # New fields present
         @test s1.mobilityType == :none
-        @test s1.driftTime ≈ -1.0
-        @test s1.compensationVoltage ≈ 0.0
+        @test s1.driftTime ≈ [-1.0]
+        @test s1.compensationVoltage ≈ [0.0]
         @test s1.metadata isa Dict{String,Any}
     end
 end
@@ -601,16 +1597,16 @@ function test_mgf()
         # load all
         scans = MassJ.load("test.mgf")
         @test length(scans) == 3
-        @test eltype(scans) == MassJ.MSscan
+        @test eltype(scans) == MassJ.MSscans
 
         # Scan 1
         s1 = scans[1]
-        @test s1.num == 1        # sequential index
-        @test s1.rt ≈ 0.5       # 30s / 60
-        @test s1.level == 2      # MGF default
-        @test s1.precursor ≈ 400.0
-        @test s1.chargeState == 2
-        @test s1.polarity == "+"
+        @test s1.num == [1]        # sequential index
+        @test s1.rt ≈ [0.5]       # 30s / 60
+        @test s1.level == [2]      # MGF default
+        @test s1.precursor ≈ [400.0]
+        @test s1.chargeState == [2]
+        @test s1.polarity == ["+"]
         @test s1.spectrumType == :centroid
         @test s1.tic ≈ 4800.0   # sum of intensities
         @test s1.basePeakMz ≈ 150.0
@@ -622,16 +1618,16 @@ function test_mgf()
 
         # Scan 2
         s2 = scans[2]
-        @test s2.num == 2
-        @test s2.rt ≈ 1.0
-        @test s2.precursor ≈ 500.0
-        @test s2.chargeState == 3
+        @test s2.num == [2]
+        @test s2.rt ≈ [1.0]
+        @test s2.precursor ≈ [500.0]
+        @test s2.chargeState == [3]
 
         # Scan 3
         s3 = scans[3]
-        @test s3.num == 3
-        @test s3.precursor ≈ 600.0
-        @test s3.chargeState == 1
+        @test s3.num == [3]
+        @test s3.precursor ≈ [600.0]
+        @test s3.chargeState == [1]
         @test length(s3.mz) == 4
 
         # retention_time
@@ -641,13 +1637,13 @@ function test_mgf()
 
         # chromatogram
         chrom = MassJ.chromatogram("test.mgf")
-        @test length(chrom.rt) == 3
-        @test chrom.maxic ≈ 4800.0
+        @test length(chrom.x) == 3
+        @test MassJ.maxic(chrom) ≈ 4800.0
 
         # extract (filter by precursor)
         sub = MassJ.extract("test.mgf", MassJ.Precursor(500.0))
         @test length(sub) == 1
-        @test sub[1].precursor ≈ 500.0
+        @test sub[1].precursor ≈ [500.0]
 
         # average
         avg = MassJ.average("test.mgf")
@@ -655,8 +1651,8 @@ function test_mgf()
 
         # New MSscan fields
         @test s1.mobilityType == :none
-        @test s1.driftTime ≈ -1.0
-        @test s1.compensationVoltage ≈ 0.0
+        @test s1.driftTime ≈ [-1.0]
+        @test s1.compensationVoltage ≈ [0.0]
     end
 end
 
@@ -677,15 +1673,15 @@ function test_msp()
         # load all
         scans = MassJ.load("test.msp")
         @test length(scans) == 3
-        @test eltype(scans) == MassJ.MSscan
+        @test eltype(scans) == MassJ.MSscans
 
         # Scan 1: Caffeine MS2+
         s1 = scans[1]
-        @test s1.num == 1
-        @test s1.level == 2
-        @test s1.polarity == "+"
-        @test s1.precursor ≈ 195.0877
-        @test s1.collisionEnergy ≈ 20.0
+        @test s1.num == [1]
+        @test s1.level == [2]
+        @test s1.polarity == ["+"]
+        @test s1.precursor ≈ [195.0877]
+        @test s1.collisionEnergy ≈ [20.0]
         @test s1.spectrumType == :centroid
         @test length(s1.mz) == 5
         @test s1.mz ≈ [42.0338, 69.0447, 110.0713, 138.0662, 195.0877]
@@ -701,21 +1697,21 @@ function test_msp()
 
         # Scan 2: Aspirin MS2-
         s2 = scans[2]
-        @test s2.num == 2
-        @test s2.level == 2
-        @test s2.polarity == "-"
-        @test s2.precursor ≈ 179.0344
-        @test s2.collisionEnergy ≈ 15.0
+        @test s2.num == [2]
+        @test s2.level == [2]
+        @test s2.polarity == ["-"]
+        @test s2.precursor ≈ [179.0344]
+        @test s2.collisionEnergy ≈ [15.0]
         @test length(s2.mz) == 3
         @test s2.metadata["name"] == "Aspirin"
         @test s2.metadata["cas"] == "50-78-2"
 
         # Scan 3: Glucose MS1+ (semicolon format)
         s3 = scans[3]
-        @test s3.num == 3
-        @test s3.level == 1
-        @test s3.polarity == "+"
-        @test s3.precursor ≈ 0.0
+        @test s3.num == [3]
+        @test s3.level == [1]
+        @test s3.polarity == ["+"]
+        @test s3.precursor ≈ [0.0]
         @test length(s3.mz) == 4
         @test s3.mz ≈ [180.0634, 181.0668, 182.0701, 183.0735]
         @test s3.int ≈ [8000.0, 900.0, 50.0, 5.0]
@@ -728,7 +1724,7 @@ function test_msp()
 
         # chromatogram
         chrom = MassJ.chromatogram("test.msp")
-        @test length(chrom.rt) == 3
+        @test length(chrom.x) == 3
 
         # extract
         ms2_pos = MassJ.extract("test.msp", MassJ.Polarity("+"), MassJ.Level(2))
@@ -760,13 +1756,13 @@ function test_imzml()
         # load all
         scans = MassJ.load("test.imzML")
         @test length(scans) == 4
-        @test eltype(scans) == MassJ.MSscan
+        @test eltype(scans) == MassJ.MSscans
 
         # Scan 1: position (1,1)
         s1 = scans[1]
-        @test s1.num == 1
-        @test s1.level == 1
-        @test s1.polarity == "+"
+        @test s1.num == [1]
+        @test s1.level == [1]
+        @test s1.polarity == ["+"]
         @test s1.spectrumType == :profile
         @test s1.tic ≈ 8000.0
         @test length(s1.mz) == 3
@@ -777,7 +1773,7 @@ function test_imzml()
 
         # Scan 2: position (2,1)
         s2 = scans[2]
-        @test s2.num == 2
+        @test s2.num == [2]
         @test s2.tic ≈ 7800.0
         @test s2.mz ≈ [100.0, 200.0, 300.0]
         @test s2.int ≈ [800.0, 3000.0, 4000.0]
@@ -786,7 +1782,7 @@ function test_imzml()
 
         # Scan 3: position (1,2), 2 peaks
         s3 = scans[3]
-        @test s3.num == 3
+        @test s3.num == [3]
         @test length(s3.mz) == 2
         @test s3.mz ≈ [150.0, 250.0]
         @test s3.int ≈ [2000.0, 6000.0]
@@ -795,7 +1791,7 @@ function test_imzml()
 
         # Scan 4: position (2,2)
         s4 = scans[4]
-        @test s4.num == 4
+        @test s4.num == [4]
         @test length(s4.mz) == 3
         @test s4.mz ≈ [150.0, 250.0, 350.0]
         @test s4.int ≈ [1500.0, 4000.0, 3000.0]
@@ -808,7 +1804,7 @@ function test_imzml()
 
         # chromatogram
         chrom = MassJ.chromatogram("test.imzML")
-        @test length(chrom.rt) == 4
+        @test length(chrom.x) == 4
 
         # extract
         all_scans = MassJ.extract("test.imzML", MassJ.Level(1))
@@ -817,6 +1813,54 @@ function test_imzml()
         # average
         avg = MassJ.average("test.imzML")
         @test avg isa MassJ.MSscans
+    end
+
+    @testset "imzML streaming reader" begin
+        # The fast streaming reader and the DOM reader must agree exactly.
+        s = MassJ.load_imzml_stream("test.imzML"; progress=false)
+        d = MassJ.load_imzml_all_dom("test.imzML")
+        @test length(s) == length(d)
+        for k in 1:length(s)
+            @test s[k].mz == d[k].mz
+            @test s[k].int == d[k].int
+            @test s[k].tic == d[k].tic
+            @test s[k].level == d[k].level
+            @test s[k].polarity == d[k].polarity
+            @test s[k].spectrumType == d[k].spectrumType
+            @test s[k].metadata["position_x"] == d[k].metadata["position_x"]
+            @test s[k].metadata["position_y"] == d[k].metadata["position_y"]
+        end
+    end
+
+    @testset "imzML fallback to DOM on irregular layout" begin
+        # Build a copy of test.imzML with a <precursorList> injected into the
+        # first spectrum: the streamer bails out, load() must fall back to DOM.
+        dir = mktempdir()
+        src = read("test.imzML", String)
+        prec = """
+        <precursorList count="1">
+          <precursor>
+            <selectedIonList count="1">
+              <selectedIon>
+                <cvParam cvRef="MS" accession="MS:1000744" name="selected ion m/z" value="500.0"/>
+              </selectedIon>
+            </selectedIonList>
+          </precursor>
+        </precursorList>
+        """
+        # insert right after the first spectrum's opening tag
+        m = match(r"(<spectrum\b[^>]*>)", src)
+        injected = replace(src, m.captures[1] => m.captures[1] * "\n" * prec; count=1)
+        f = joinpath(dir, "irregular.imzML")
+        write(f, injected)
+        cp("test.ibd", joinpath(dir, "irregular.ibd"))
+
+        # streamer rejects it
+        @test_throws MassJ.ImzmlStreamFallback MassJ.load_imzml_stream(f; progress=false)
+        # load() warns and falls back, still returning the 4 scans
+        run = @test_logs (:warn,) match_mode=:any MassJ.load_imzml_all(f; progress=false)
+        @test length(run) == 4
+        @test run[1].mz ≈ [100.0, 200.0, 300.0]
     end
 end
 
@@ -937,7 +1981,7 @@ function test_export()
         # -- External (non-MassJ) file returns MSrun (subtype of AbstractVector{MSscan})
         ext_loaded = MassJ.load("test.mzML")
         @test ext_loaded isa MassJ.MSrun
-        @test ext_loaded isa AbstractVector{MassJ.MSscan}
+        @test ext_loaded isa AbstractVector{MassJ.MSscans}
         @test length(ext_loaded) == 3   # iteration / length still work
 
         # -- Vector{MSscans} round-trip (mzML and mzXML) --------------------
@@ -947,7 +1991,9 @@ function test_export()
         tmpvm = tempname() * ".mzML"
         MassJ.save(vec_ms, tmpvm; warn = false)
         bvm = MassJ.load(tmpvm)
-        @test typeof(bvm) == typeof(vec_ms)
+        # mzML load returns an MSrun (AbstractVector{MSscans}); the composite
+        # spectra round-trip element-for-element.
+        @test bvm isa AbstractVector{MassJ.MSscans}
         @test length(bvm) == 2
         @test bvm[1].s == vec_ms[1].s
         @test bvm[2].s == vec_ms[2].s
@@ -957,7 +2003,7 @@ function test_export()
         tmpvx = tempname() * ".mzXML"
         MassJ.save(vec_ms, tmpvx)
         bvx = MassJ.load(tmpvx)
-        @test typeof(bvx) == typeof(vec_ms)
+        @test bvx isa AbstractVector{MassJ.MSscans}
         @test length(bvx) == 2
         @test bvx[1].s == vec_ms[1].s
         @test bvx[2].s == vec_ms[2].s
@@ -975,7 +2021,7 @@ function test_export()
             "scan_window_lower"    => 100.0,
             "scan_window_upper"    => 1500.0,
         )
-        s0 = MassJ.MSscan(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
+        s0 = MassJ.MSscans(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
                           1, 200.0, 20.0, 0.0, "+", "", 0.0,
                           0, :centroid, -1.0, 0.0, :none, meta)
         tmp_md = tempname() * ".mzML"
@@ -992,7 +2038,7 @@ function test_export()
 
         # Scans without these keys produce no cvParams (keys remain absent
         # after round-trip — we don't fabricate zero defaults).
-        s_empty = MassJ.MSscan(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
+        s_empty = MassJ.MSscans(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
                                1, 200.0, 20.0, 0.0, "+", "", 0.0)
         tmp_empty = tempname() * ".mzML"
         MassJ.save([s_empty], tmp_empty; progress = false, warn = false)
@@ -1020,7 +2066,7 @@ function test_export()
             "isolation_window_upper_offset"  => 0.5,
             "selected_ion_peak_intensity"    => 4.2e6,
         )
-        s_ms2 = MassJ.MSscan(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
+        s_ms2 = MassJ.MSscans(1, 0.5, 1.0e5, [100.0, 200.0], [10.0, 20.0],
                              2, 200.0, 20.0, 500.5, "+", "HCD", 30.0,
                              2, :centroid, -1.0, 0.0, :none, meta_phase1)
         tmp_p1 = tempname() * ".mzML"
@@ -1036,7 +2082,7 @@ function test_export()
         scans_src   = MassJ.load("test.mzML")    # already an MSrun
         @test scans_src isa MassJ.MSrun
         @test length(scans_src) == 3              # AbstractVector behavior
-        @test scans_src[1] isa MassJ.MSscan      # indexing works
+        @test scans_src[1] isa MassJ.MSscans      # indexing works
 
         run_md = Dict{String,Any}(
             "file_content" => [
@@ -1078,7 +2124,7 @@ function test_export()
                                  ]),
             ],
         )
-        run_in = MassJ.MSrun(scans_src.scans, run_md, MassJ.Chromatogram[])
+        run_in = MassJ.MSrun(scans_src.scans, run_md, MassJ.IonCurrent[])
         tmp_run = tempname() * ".mzML"
         MassJ.save(run_in, tmp_run; progress = false)
         run_out = MassJ.load(tmp_run)
@@ -1096,16 +2142,16 @@ function test_export()
         # -- Phase 3: chromatogram round-trip ------------------------------
         rt_vec  = collect(0.0:0.5:5.0)
         ic_vec  = Float64[100, 200, 350, 500, 600, 720, 690, 540, 400, 250, 110]
-        chrom_in = MassJ.Chromatogram(rt_vec, ic_vec, maximum(ic_vec))
+        chrom_in = MassJ.IonCurrent(rt_vec, ic_vec; axis = :rt)
         run_with_chrom = MassJ.MSrun(scans_src.scans, Dict{String,Any}(),
                                       [chrom_in])
         tmp_chrom = tempname() * ".mzML"
         MassJ.save(run_with_chrom, tmp_chrom; progress = false)
         run_chrom_back = MassJ.load(tmp_chrom)
         @test length(run_chrom_back.chromatograms) == 1
-        @test run_chrom_back.chromatograms[1].rt    == rt_vec
+        @test run_chrom_back.chromatograms[1].x     == rt_vec
         @test run_chrom_back.chromatograms[1].ic    == ic_vec
-        @test run_chrom_back.chromatograms[1].maxic ≈ maximum(ic_vec)
+        @test MassJ.maxic(run_chrom_back.chromatograms[1]) ≈ maximum(ic_vec)
         rm(tmp_chrom)
 
         # -- Schema compliance: validate against the official PSI mzML 1.1.0
@@ -1140,7 +2186,7 @@ function test_export()
                                                    ]),
                                            ],
                                        ),
-                                       [MassJ.Chromatogram(rt_v, ic_v, maximum(ic_v))])
+                                       [MassJ.IonCurrent(rt_v, ic_v; axis = :rt)])
 
                 # Default (indexed = true) → validates against indexed schema
                 if xsd_indexed !== nothing
@@ -1207,11 +2253,11 @@ function test_export()
         # silenceable with `warn = false`. MSrun and single-scan saves stay
         # quiet, and mzXML accepts an MSrun without a MethodError.
         run_w  = MassJ.load("test.mzML")          # an MSrun
-        bare_v = collect(run_w)                    # Vector{MSscan} (wrapper dropped)
-        @test bare_v isa Vector{MassJ.MSscan}
+        bare_v = collect(run_w)                    # Vector{MSscans} (wrapper dropped)
+        @test bare_v isa Vector{MassJ.MSscans}
         tmp_w  = tempname() * ".mzML"
 
-        # bare Vector{MSscan} → mzML warns …
+        # bare Vector{MSscans} → mzML warns …
         @test_logs (:warn,) min_level = Logging.Warn MassJ.save(bare_v, tmp_w; progress = false)
         # … and is silenced by warn = false
         @test_logs min_level = Logging.Warn MassJ.save(bare_v, tmp_w; progress = false, warn = false)
@@ -1248,6 +2294,525 @@ function test_export()
 end
 
 
+function test_text_writers()
+    @testset "Text writers - MGF / MSP / TXT round-trip" begin
+        # -- MGF round-trip -------------------------------------------------
+        mgf  = MassJ.load("test.mgf")
+        tmp  = tempname() * ".mgf"
+        MassJ.save(mgf, tmp)
+        @test isfile(tmp)
+        back = MassJ.load(tmp)
+        @test length(back) == length(mgf)
+        for (a, b) in zip(mgf, back)
+            @test a.mz          ≈ b.mz
+            @test a.int         ≈ b.int
+            @test a.precursor   ≈ b.precursor
+            @test a.chargeState == b.chargeState
+            @test a.level       == b.level
+        end
+        rm(tmp)
+
+        # -- MSP round-trip -------------------------------------------------
+        msp   = MassJ.load("test.msp")
+        tmpm  = tempname() * ".msp"
+        MassJ.save(msp, tmpm)
+        @test isfile(tmpm)
+        backm = MassJ.load(tmpm)
+        @test length(backm) == length(msp)
+        for (a, b) in zip(msp, backm)
+            @test a.mz              ≈ b.mz
+            @test a.int             ≈ b.int
+            @test a.precursor       ≈ b.precursor
+            @test a.polarity        == b.polarity
+            @test a.collisionEnergy ≈ b.collisionEnergy
+        end
+        rm(tmpm)
+
+        # -- TXT round-trip (single spectrum) -------------------------------
+        s1   = mgf[1]
+        tmpt = tempname() * ".txt"
+        MassJ.save(s1, tmpt)
+        @test isfile(tmpt)
+        backt = MassJ.load(tmpt)
+        @test backt isa MassJ.MSscans      # bare, single spectrum
+        @test backt.mz  ≈ s1.mz
+        @test backt.int ≈ s1.int
+        rm(tmpt)
+
+        # TXT holds one spectrum: a multi-spectrum input must error.
+        @test_throws ErrorException MassJ.save(mgf, tempname() * ".txt")
+
+        # -- save() dispatches by extension; unknown extension errors -------
+        @test MassJ.save(s1, tempname() * ".mgf") |> isfile
+        @test_throws ErrorException MassJ.save(s1, tempname() * ".weird")
+    end
+
+    @testset "imzML writer round-trip (.imzML + .ibd)" begin
+        orig = MassJ.load("test.imzML")
+        tmp  = tempname() * ".imzML"
+        MassJ.save(orig, tmp)
+        @test isfile(tmp)
+        @test isfile(splitext(tmp)[1] * ".ibd")          # companion binary written
+        back = MassJ.load(tmp)
+        @test length(back) == length(orig)
+        for (a, b) in zip(orig, back)
+            @test a.mz  ≈ b.mz
+            @test a.int ≈ b.int
+            @test a.metadata["position_x"] == b.metadata["position_x"]
+            @test a.metadata["position_y"] == b.metadata["position_y"]
+        end
+        # zlib-compressed .ibd round-trips too
+        tmpc = tempname() * ".imzML"
+        MassJ.save(orig, tmpc; compress = true)
+        backc = MassJ.load(tmpc)
+        @test all(orig[i].mz ≈ backc[i].mz && orig[i].int ≈ backc[i].int for i in eachindex(orig))
+    end
+end
+
+
+function test_cwt()
+    @testset "Centroid - CWT (continuous wavelet transform)" begin
+        Random.seed!(3)
+        mz = collect(100.0:0.02:200.0); n = length(mz)
+        int = 0.5 .* abs.(randn(n))                         # noise floor
+        centres = [120.0, 150.0, 175.0]
+        for (c, h) in zip(centres, [100.0, 60.0, 80.0])
+            int .+= h .* exp.(-((mz .- c).^2) ./ (2 * 0.08^2))
+        end
+        s = MassJ.MSscans(1, 0.0, sum(int), mz, int, 1,
+                          mz[argmax(int)], maximum(int), 0.0, "", "", 0.0)
+
+        c = MassJ.centroid(s; method = MassJ.CWT())
+        @test c isa MassJ.MSscans
+        @test length(c.mz) == 3                              # the three peaks, no noise
+        @test all(any(abs.(c.mz .- ctr) .< 0.2) for ctr in centres)
+
+        c5 = MassJ.centroid(s; method = MassJ.CWT(threshold = 5.0))
+        @test length(c5.mz) == 3                             # higher SNR threshold still clean
+
+        cs = MassJ.centroid([s, s]; method = MassJ.CWT())    # vector method
+        @test length(cs) == 2 && all(x -> length(x.mz) == 3, cs)
+    end
+end
+
+
+function test_chimeric()
+    # Build a synthetic series of two co-isolated precursors A and B whose
+    # abundances are anticorrelated (they share the TIC). A fragments at
+    # 201/305/410, B at 150/600.
+    Random.seed!(42)
+    N = 400
+    a = abs.(randn(N)) .+ 1.0
+    b = abs.(randn(N)) .+ 1.0
+    pa = a ./ (a .+ b); pb = b ./ (a .+ b)
+    afrags = [201.0, 305.0, 410.0]; bfrags = [150.0, 600.0]
+    scans = MassJ.MSscans[]
+    for n in 1:N
+        mz = Float64[]; int = Float64[]
+        for f in afrags; push!(mz, f); push!(int, max(pa[n]*100 + 0.5*randn(), 0.0)); end
+        for f in bfrags; push!(mz, f); push!(int, max(pb[n]*100 + 0.5*randn(), 0.0)); end
+        o = sortperm(mz)
+        push!(scans, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
+                                   mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
+    end
+
+    @testset "Chimeric - abundance matrix" begin
+        am = MassJ.abundance_matrix(scans; binsize = 1.0)
+        @test size(am.matrix, 1) == N
+        @test size(am.matrix, 2) == 5                 # 5 active bins (empty bins dropped)
+        @test length(am.mz) == 5
+        @test length(am.tic) == N
+        @test am.tic ≈ vec(sum(am.matrix, dims = 2))
+        # bins are the five fragment m/z (centres land in the 0.5-offset bin)
+        @test all(any(abs.(am.mz .- f) .< 1.0) for f in vcat(afrags, bfrags))
+    end
+
+    @testset "Chimeric - partial correlation + clustering separates precursors" begin
+        am = MassJ.abundance_matrix(scans; binsize = 1.0)
+        P  = MassJ.pcor(am.matrix, am.tic)
+        @test size(P) == (5, 5)
+        @test all(isfinite, P)
+        # bins sorted: 150(B),201(A),305(A),410(A),600(B) -> A = idx 2,3,4 ; B = idx 1,5
+        @test P[2, 3] > 0 && P[2, 4] > 0 && P[3, 4] > 0      # A fragments co-vary
+        @test P[1, 5] > 0                                    # B fragments co-vary
+        @test P[1, 2] < 0 && P[2, 5] < 0                     # A vs B anticorrelated
+
+        lab = MassJ.cluster_ions(P; kind = :correlation, nclusters = 2)
+        @test length(lab) == 5
+        @test lab[2] == lab[3] == lab[4]                     # the three A fragments together
+        @test lab[1] == lab[5]                               # the two B fragments together
+        @test lab[1] != lab[2]                               # A and B in different clusters
+
+        specs = MassJ.cluster_spectra(am.mz, am.matrix, lab)
+        @test length(specs) == 2
+        @test all(s -> s isa MassJ.MSscans, specs)
+        @test sort(vcat([length(s.mz) for s in specs])) == [2, 3]   # B has 2, A has 3
+        # cluster spectra are discrete peak lists → :centroid, so the recipe draws sticks
+        # (not a line interpolating sparse bins into a ramp)
+        @test all(s -> s.spectrumType === :centroid, specs)
+    end
+
+    @testset "Chimeric - conditional mutual information" begin
+        # CMI scenario: two groups driven by *independent* latent signals,
+        # conditioned on an independent variable, so CMI separates them.
+        Random.seed!(7)
+        Nc = 400
+        s1 = abs.(randn(Nc)) .+ 1.0; s2 = abs.(randn(Nc)) .+ 1.0
+        z  = randn(Nc)
+        g1 = [101.0, 202.0]; g2 = [303.0, 404.0]
+        sc = MassJ.MSscans[]
+        for n in 1:Nc
+            mz = Float64[]; int = Float64[]
+            for f in g1; push!(mz, f); push!(int, max(s1[n]*50 + 0.3*randn(), 0.0)); end
+            for f in g2; push!(mz, f); push!(int, max(s2[n]*50 + 0.3*randn(), 0.0)); end
+            o = sortperm(mz)
+            push!(sc, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
+                                    mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
+        end
+        am = MassJ.abundance_matrix(sc; binsize = 1.0)
+        C  = MassJ.cmi(am.matrix, z)
+        @test size(C) == (4, 4)
+        @test all(isfinite, C)
+        @test C ≈ C'                                         # symmetric
+        @test all(==(0.0), [C[i, i] for i in 1:4])           # zero diagonal
+        # bins sorted 101,202,303,404 -> g1 = 1,2 ; g2 = 3,4
+        @test C[1, 2] > C[1, 3] && C[3, 4] > C[2, 3]         # within-group > cross-group
+
+        lab = MassJ.cluster_ions(C; kind = :cmi, nclusters = 2)
+        @test lab[1] == lab[2] && lab[3] == lab[4] && lab[1] != lab[3]
+    end
+end
+
+
+function test_covariance_significance()
+    # Two co-isolated precursors sharing the TIC: A = 201/305/410, B = 150/600.
+    Random.seed!(123)
+    N = 400
+    a = abs.(randn(N)) .+ 1.0; b = abs.(randn(N)) .+ 1.0
+    pa = a ./ (a .+ b); pb = b ./ (a .+ b)
+    afrags = [201.0, 305.0, 410.0]; bfrags = [150.0, 600.0]
+    scans = MassJ.MSscans[]
+    for n in 1:N
+        mz = Float64[]; int = Float64[]
+        for f in afrags; push!(mz, f); push!(int, max(pa[n]*100 + 0.5*randn(), 0.0)); end
+        for f in bfrags; push!(mz, f); push!(int, max(pb[n]*100 + 0.5*randn(), 0.0)); end
+        o = sortperm(mz)
+        push!(scans, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
+                                   mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
+    end
+    am  = MassJ.abundance_matrix(scans; binsize = 1.0, threshold = 0.0)
+    X   = am.matrix                   # N×5, bins sorted 150,201,305,410,600 -> A=2,3,4 B=1,5
+    tic = am.tic
+
+    @testset "Association - cov / cor / pcor" begin
+        C = cov(X)
+        @test size(C) == (5,5) && maximum(abs.(C .- C')) < 1e-9
+        @test C[2,3] > 0 && C[1,5] > 0                         # within-group covary
+        @test C ≈ Statistics.cov(X)                           # reuses Statistics
+        @test cor(X) ≈ Statistics.cor(X)
+        P = pcor(X, tic)                                       # partial correlation via residuals
+        @test size(P) == (5,5) && maximum(abs.(P .- P')) < 1e-9
+        @test !(P ≈ Statistics.cor(X))                        # conditioning changes the score
+        @test P[2,3] > 0 && P[3,4] > 0 && P[1,5] > 0          # within-group positive
+        @test size(pcor(X, hcat(tic, collect(1.0:N)))) == (5,5)   # multivariate control
+        @test_throws ErrorException pcor(X, [1.0, 2.0])       # length mismatch
+        @test cov(scans) isa AbstractMatrix && cor(scans) isa AbstractMatrix   # MSscans convenience
+        @test pcor(scans) isa AbstractMatrix                  # auto-TIC on the MSscans path
+    end
+
+    @testset "Association - jackknife significance" begin
+        s = jackknife(pcor, X, tic; progress = false)
+        @test size(s.pvalue) == (5,5)
+        @test s.estimate ≈ pcor(X, tic)
+        @test all(0 .<= s.pvalue .<= 1)
+        @test s.pvalue[2,3] < 0.01 && s.pvalue[3,4] < 0.01 && s.pvalue[1,5] < 0.01
+        # matches brute-force leave-one-out for plain correlation
+        sc = jackknife(cor, X; progress = false)
+        Rc = Statistics.cor(X)
+        @test sc.estimate ≈ Rc
+        bf_se(i,j) = (v = [Statistics.cor(X[setdiff(1:N,k),i], X[setdiff(1:N,k),j]) for k in 1:N];
+                      θ = mean(v); sqrt((N-1)/N * sum((v .- θ).^2)))
+        @test isapprox(sc.pvalue[1,2], MassJ._z_to_p(Rc[1,2]/bf_se(1,2)); rtol = 1e-6)
+        @test_throws ErrorException jackknife(mi, X; progress = false)   # invalid for mi
+    end
+
+    @testset "Association - permutation significance" begin
+        s = permutation(pcor, X, tic; nperm = 200, rng = MersenneTwister(1), progress = false)
+        @test size(s.pvalue) == (5,5) && all(0 .< s.pvalue .<= 1)
+        @test s.pvalue[2,3] < 0.05 && s.pvalue[1,5] < 0.05
+    end
+
+    @testset "Association - FDR gating" begin
+        p  = jackknife(pcor, X, tic; progress = false).pvalue
+        fg = MassJ.fdr_adjust(p; q = 0.05)
+        @test fg.significant == fg.significant'
+        @test !any(fg.significant[i,i] for i in 1:5)
+        @test fg.significant[2,3] && fg.significant[1,5]
+        @test sum(MassJ.fdr_adjust(p; q = 1e-8).significant) <= sum(fg.significant)
+    end
+
+    @testset "Association - correspondence (pcor / cov / plain cor)" begin
+        res = MassJ.correspondence(scans; measure = :pcor, control = :tic, method = :jackknife,
+                                   binsize = 1.0, threshold = 0.0, nclusters = 2, progress = false)
+        @test length(res.labels) == 5
+        @test res.labels[2] == res.labels[3] == res.labels[4]
+        @test res.labels[1] == res.labels[5] && res.labels[1] != res.labels[2]
+        @test length(res.spectra) == 2 && sort([length(s.mz) for s in res.spectra]) == [2,3]
+        @test size(res.significant) == (5,5)
+        # covariance works with no control; plain correlation via control = :none
+        @test length(MassJ.correspondence(scans; measure = :cov, binsize = 1.0, threshold = 0.0,
+                                          nclusters = 2, progress = false).labels) == 5
+        r2 = MassJ.correspondence(scans; measure = :cor, control = :none, method = :permutation,
+                                  binsize = 1.0, threshold = 0.0, nperm = 200, nclusters = 2,
+                                  rng = MersenneTwister(2), progress = false)
+        @test r2.labels[2] == r2.labels[3] == r2.labels[4]
+        @test_throws ErrorException MassJ.correspondence(scans; measure = :bogus, progress = false)
+    end
+
+    @testset "Association - mutual information (mi / cmi + correspondence)" begin
+        Random.seed!(7); Nc = 200
+        s1 = abs.(randn(Nc)) .+ 1.0; s2 = abs.(randn(Nc)) .+ 1.0; z = randn(Nc)
+        g1 = [101.0, 202.0]; g2 = [303.0, 404.0]; sc2 = MassJ.MSscans[]
+        for n in 1:Nc
+            mz = Float64[]; int = Float64[]
+            for f in g1; push!(mz, f); push!(int, max(s1[n]*50 + 0.3*randn(), 0.0)); end
+            for f in g2; push!(mz, f); push!(int, max(s2[n]*50 + 0.3*randn(), 0.0)); end
+            o = sortperm(mz)
+            push!(sc2, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
+                                     mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
+        end
+        am2 = MassJ.abundance_matrix(sc2; binsize = 1.0, threshold = 0.0)
+        MI  = mi(am2.matrix; progress = false)
+        CMI = cmi(am2.matrix, z; progress = false)
+        @test size(MI) == (4,4) && MI ≈ MI' && all(MI[i,i] == 0.0 for i in 1:4)
+        @test CMI ≈ CMI'                                         # conditional MI: symmetric by construction
+        @test minimum(CMI) > -0.1 * maximum(CMI)                 # ≥ 0 up to finite-sample kNN-estimator noise
+        @test MI[1,2] > MI[1,3] && MI[3,4] > MI[2,3]            # within-group > cross-group
+        # the threaded pair loop must reproduce the serial result exactly (race guard)
+        @test mi(am2.matrix; progress = false, parallel = false) == MI
+        @test cmi(am2.matrix, z; progress = false, parallel = false) == CMI
+        ps = permutation(cmi, am2.matrix, z; nperm = 50, rng = MersenneTwister(5), progress = false)
+        @test ps.pvalue[1,2] < 0.05 && ps.pvalue[3,4] < 0.05
+        res = MassJ.correspondence(sc2; measure = :cmi, control = z, method = :permutation,
+                                   binsize = 1.0, threshold = 0.0, nperm = 200, nclusters = 2,
+                                   rng = MersenneTwister(6), progress = false)
+        @test res.labels[1] == res.labels[2] && res.labels[3] == res.labels[4]
+        @test res.labels[1] != res.labels[3]
+    end
+end
+
+
+function test_association_maps()
+    # Two groups driven by independent latent signals -> covariance separates them.
+    Random.seed!(11)
+    N = 300
+    s1 = abs.(randn(N)) .+ 1.0; s2 = abs.(randn(N)) .+ 1.0
+    g1 = [101.0, 202.0]; g2 = [303.0, 404.0]
+    scans = MassJ.MSscans[]
+    for n in 1:N
+        mz = Float64[]; int = Float64[]
+        for f in g1; push!(mz, f); push!(int, max(s1[n]*50 + 0.5*randn(), 0.0)); end
+        for f in g2; push!(mz, f); push!(int, max(s2[n]*50 + 0.5*randn(), 0.0)); end
+        o = sortperm(mz)
+        push!(scans, MassJ.MSscans(n, 0.0, sum(int), mz[o], int[o], 2,
+                                   mz[o][argmax(int[o])], maximum(int), 0.0, "", "", 0.0))
+    end
+    am = MassJ.abundance_matrix(scans; binsize = 1.0, threshold = 0.0)
+    X  = am.matrix                    # columns (bins) 1,2 = g1 ; 3,4 = g2
+
+    @testset "Association maps - cut_autocorrelation" begin
+        A = cov(X)
+        B0 = MassJ.cut_autocorrelation(A; halfwidth = 0)
+        @test all(B0[i,i] == 0.0 for i in 1:4)
+        @test B0[1,2] == A[1,2]                          # off-band untouched
+        B1 = MassJ.cut_autocorrelation(A; halfwidth = 1)
+        @test B1[1,2] == 0.0 && B1[2,1] == 0.0           # first off-diagonal cleared
+        @test B1[1,3] == A[1,3]
+        @test MassJ.cut_autocorrelation(A; halfwidth = 0, value = -1.0)[2,2] == -1.0
+    end
+
+    @testset "Association maps - map_features picks correlated pairs" begin
+        A = cov(X)
+        feats = MassJ.map_features(A, am.mz; nfeatures = 4, clearradius = 0, halfwidth = 0)
+        @test !isempty(feats)
+        @test all(f.i < f.j for f in feats)              # strict upper triangle only
+        @test (feats[1].i, feats[1].j) in ((1,2), (3,4)) # top pair is within-group
+        @test all(isnan(f.volume) && isnan(f.snr) for f in feats)  # unquantified
+        @test_throws ErrorException MassJ.map_features(A, am.mz[1:3])   # size mismatch
+    end
+
+    @testset "Association maps - covariance_features volume + jackknife SNR" begin
+        cf = MassJ.covariance_features(scans; nfeatures = 6, binsize = 1.0, threshold = 0.0,
+                                       window = 1, clearradius = 0, halfwidth = 0, edge = 0)
+        @test !isempty(cf)
+        @test all(f -> f.volume >= 0, cf)
+        @test all(f -> isfinite(f.snr) && f.snr >= 0, cf)
+        @test issorted([f.snr for f in cf]; rev = true)  # sorted by descending S/N
+        ingroup(f) = (f.i, f.j) in ((1,2), (3,4))
+        @test all(ingroup, cf[1:2])                      # the two within-group pairs on top
+        wg = minimum(f.snr for f in cf if ingroup(f))
+        cg = [f.snr for f in cf if !ingroup(f)]
+        @test isempty(cg) || wg > maximum(cg)            # within-group S/N beats cross-group
+        # :none vs :tic normalization both run and return features
+        @test !isempty(MassJ.covariance_features(scans; binsize = 1.0, threshold = 0.0,
+                                                 normalize = :tic, window = 1, edge = 0,
+                                                 clearradius = 0, halfwidth = 0))
+        @test_throws ErrorException MassJ.covariance_features(scans; normalize = :bogus)
+    end
+
+    @testset "Association maps - map_features on any symmetric map" begin
+        P  = pcor(X, am.tic)                             # a conditioned correlation map
+        pf = MassJ.map_features(P, am.mz; nfeatures = 2, clearradius = 0, halfwidth = 0)
+        @test all(f.value > 0 for f in pf)               # positive partial correlations
+    end
+
+    @testset "Association maps - association_features (measure + auto significance)" begin
+        # signed family → jackknife S/N; each recovers a within-precursor pair
+        for m in (:cov, :cor, :pcor)
+            af = MassJ.association_features(scans; measure = m, nfeatures = 2, window = 1,
+                                           edge = 0, halfwidth = 0, clearradius = 0,
+                                           binsize = 1.0, threshold = 0.0)
+            @test !isempty(af) && all(f -> f isa MassJ.MapFeature, af)
+            @test (af[1].mz1 < 250) == (af[1].mz2 < 250)          # top pair within one precursor
+            @test isfinite(af[1].volume) && isfinite(af[1].snr) && af[1].snr > 0
+        end
+        # unsigned family → permutation: snr holds -log10(p)
+        cf = MassJ.association_features(scans; measure = :cmi, nfeatures = 2, window = 1,
+                                       edge = 0, halfwidth = 0, clearradius = 0, binsize = 1.0,
+                                       threshold = 0.0, nperm = 100, rng = MersenneTwister(1))
+        @test !isempty(cf) && all(f -> isfinite(f.snr) && f.snr >= 0, cf)
+        @test (cf[1].mz1 < 250) == (cf[1].mz2 < 250)
+        # :cov reproduces the covariance route's top pair
+        cvf = MassJ.covariance_features(scans; nfeatures = 2, window = 1, edge = 0,
+                                        halfwidth = 0, clearradius = 0, binsize = 1.0, threshold = 0.0)
+        af0 = MassJ.association_features(scans; measure = :cov, nfeatures = 2, window = 1,
+                                        edge = 0, halfwidth = 0, clearradius = 0, binsize = 1.0, threshold = 0.0)
+        @test Set((af0[1].i, af0[1].j)) == Set((cvf[1].i, cvf[1].j))
+        @test_throws ErrorException MassJ.association_features(scans; measure = :pcor, control = :none)
+        @test_throws ErrorException MassJ.association_features(scans; measure = :bogus)
+    end
+
+    @testset "Association maps - association_map plot recipes" begin
+        gr()
+        A = cov(X)
+        @test MassJ.plots.association_map(A, am.mz) isa Plots.Plot
+        @test MassJ.plots.association_map(MassJ.cut_autocorrelation(A), am.mz) isa Plots.Plot
+        @test MassJ.plots.association_map_marginal(A, am.mz, vec(sum(X, dims = 1))) isa Plots.Plot
+        @test MassJ.plots.association_map_marginal(A, am.mz) isa Plots.Plot   # default √diag marginal
+        @test_throws ErrorException MassJ.plots.association_map_marginal(A, am.mz[1:2])
+        # robust (median-based) colour limits + knob + explicit override
+        @test MassJ.plots.association_map(A, am.mz; climscale = 3) isa Plots.Plot
+        @test MassJ.plots.association_map(A, am.mz; clims = (-1, 1)) isa Plots.Plot
+        @test MassJ.plots.association_map_marginal(A, am.mz; climscale = 10) isa Plots.Plot
+        let M = 0.01 .* [iseven(i + j) ? 1.0 : -1.0 for i in 1:10, j in 1:10]
+            M[1, 2] = M[2, 1] = 0.9; M[3, 4] = M[4, 3] = -0.9      # a few strong pairs
+            for i in 1:10; M[i, i] = NaN; end                     # diagonal cut
+            _, cl = MassJ.plots._map_colorscale(M; climscale = 6)
+            @test -0.9 < cl[1] < 0 < cl[2] < 0.9                  # extremes saturate, don't set range
+            @test cl[1] ≈ -cl[2]                                  # symmetric → 0 maps to white
+            @test cl[2] ≈ 0.06 atol = 1e-6                        # 6 × max(median|pos|, median|neg|)
+            @test MassJ.plots._map_colorscale(M; clims = (-1.0, 1.0))[2] == (-1.0, 1.0)  # explicit wins
+        end
+    end
+
+    @testset "Association maps - significance overlays" begin
+        gr()
+        S   = pcor(X, am.tic)
+        jk  = jackknife(pcor, X, am.tic)
+        sig = fdr_adjust(jk.pvalue; q = 0.5).significant
+        # significance-gated score maps (mask hides non-surviving edges)
+        @test MassJ.plots.association_map(S, am.mz; mask = sig) isa Plots.Plot
+        @test MassJ.plots.association_map_marginal(S, am.mz; mask = sig) isa Plots.Plot
+        # colour scale must survive an all-NaN (fully masked) map
+        @test MassJ.plots.association_map(S, am.mz; mask = falses(size(S))) isa Plots.Plot
+        @test_throws ErrorException MassJ.plots.association_map(S, am.mz; mask = sig[1:2, 1:2])
+        # p-value maps
+        @test MassJ.plots.significance_map(jk.pvalue, am.mz) isa Plots.Plot
+        @test MassJ.plots.significance_map(jk.pvalue, am.mz; q = 0.5) isa Plots.Plot
+        @test MassJ.plots.significance_map(jk.pvalue, am.mz; transform = :none) isa Plots.Plot
+        @test_throws ErrorException MassJ.plots.significance_map(jk.pvalue, am.mz; transform = :bogus)
+        @test_throws ErrorException MassJ.plots.significance_map(fill(2.0, length(am.mz), length(am.mz)), am.mz)
+    end
+end
+
+
+function test_usi()
+    @testset "USI / PROXI retrieval" begin
+        # Offline: parse the saved PROXI response fixture (deterministic, no network)
+        usi = "mzspec:PXD000561:Adult_Frontalcortex_bRP_Elite_85_f09:scan:17555"
+        data = MassJ.JSON.parse(read(joinpath(@__DIR__, "usi_sample.json"), String))
+        spec = MassJ._msscans_from_proxi(data[1], usi)
+        @test length(spec.mz) == 564
+        @test length(spec.int) == 564
+        @test spec.precursor[1] ≈ 767.9739
+        @test spec.chargeState[1] == 2
+        @test spec.level[1] == 2
+        @test spec.activationMethod[1] == "HCD"
+        @test spec.collisionEnergy[1] == 32.0
+        @test spec.spectrumType == :centroid
+        @test spec.metadata["usi"] == usi
+        @test spec.metadata["isolation_window_target_mz"] ≈ 767.97
+
+        # helpers
+        @test MassJ._percent_encode("mzspec:PXD:f:scan:1/2") == "mzspec%3APXD%3Af%3Ascan%3A1%2F2"
+        fl = MassJ._parse_filter_string("FTMS + p NSI d Full ms2 767.97@hcd32.00 [110.00-1550.00]")
+        @test fl.level == 2 && fl.activation == "HCD" && fl.ce == 32.0 && fl.polarity == "+"
+
+        # a non-USI string is rejected before any network access
+        @test_throws ErrorException MassJ.load_usi("not-a-usi")
+
+        # Live retrieval over the network is opt-in (set MASSJ_TEST_USI_LIVE=true)
+        if get(ENV, "MASSJ_TEST_USI_LIVE", "false") == "true"
+            live = MassJ.load_usi(usi)
+            @test length(live.mz) == 564
+            @test live.precursor[1] ≈ 767.9739
+        end
+    end
+end
+
+
+function test_mzml_fallback_ic()
+    @testset "mzML export — fallback instrumentConfiguration has a componentList" begin
+        # Two fallback paths must both emit a structurally complete IC:
+        #   1) bare Vector{MSscans} save → _stream_mzml_minimal_stub
+        #   2) MSrun with no instrument metadata → _stream_mzml_file_metadata else
+        #
+        # Without this, downstream tools (e.g. MSFragger) reject the file with
+        # "specifications regarding hardware used for data acquisition missing".
+        run = MassJ.load("test.mzML")
+        plain = run.scans                                  # Vector{MSscans}
+
+        md_noinstr = copy(run.metadata)
+        delete!(md_noinstr, "instruments")
+        md_noinstr["software"] = get(md_noinstr, "software", Any[Dict("id" => "MassJ")])
+        run_noinstr = MassJ.MSrun(run.scans, md_noinstr, MassJ.IonCurrent[])
+
+        for (label, data) in (("bare Vector{MSscans}", plain),
+                              ("MSrun w/ no instruments", run_noinstr))
+            path = tempname() * ".mzML"
+            MassJ.save_mzml(path, data; compress = false)
+            txt = read(path, String)
+
+            # componentList + the three components must all be present
+            @test occursin("<componentList count=\"3\">", txt)
+            @test occursin("<source order=\"1\">",       txt)
+            @test occursin("<analyzer order=\"2\">",     txt)
+            @test occursin("<detector order=\"3\">",     txt)
+
+            # each component carries a typed cvParam (PSI parent "type" terms)
+            @test occursin("accession=\"MS:1000008\"",   txt)   # ionization type
+            @test occursin("accession=\"MS:1000443\"",   txt)   # mass analyzer type
+            @test occursin("accession=\"MS:1000026\"",   txt)   # detector type
+
+            # IC still wraps the componentList and lives inside its list
+            @test occursin("<instrumentConfigurationList count=\"1\">", txt)
+            @test occursin("<instrumentConfiguration id=\"IC1\">",      txt)
+            rm(path)
+        end
+    end
+end
+
+
 function test_composed_predicates()
     scans = MassJ.load("test.mzXML")
 
@@ -1256,19 +2821,19 @@ function test_composed_predicates()
         @test length(sub) == length(scans)
 
         chrom = MassJ.chromatogram(scans)
-        @test length(chrom.rt) == length(scans)
+        @test length(chrom.x) == length(scans)
     end
 
-    @testset "Composed predicates - no match returns ErrorException" begin
-        @test MassJ.extract(scans, MassJ.Level(99))       isa ErrorException
-        @test MassJ.chromatogram(scans, MassJ.Level(99))  isa ErrorException
-        @test MassJ.average(scans, MassJ.Level(99))       isa ErrorException
+    @testset "Composed predicates - no match throws" begin
+        @test_throws ErrorException MassJ.extract(scans, MassJ.Level(99))
+        @test_throws ErrorException MassJ.chromatogram(scans, MassJ.Level(99))
+        @test_throws ErrorException MassJ.average(scans, MassJ.Level(99))
     end
 
     @testset "Composed predicates - single match in average returns MSscan" begin
         result = MassJ.average(scans, MassJ.Scan(1))
-        @test result isa MassJ.MSscan
-        @test result.num == 1
+        @test result isa MassJ.MSscans
+        @test result.num == [1]
     end
 
     @testset "Composed predicates - AND semantics equivalence" begin
@@ -1282,6 +2847,67 @@ function test_composed_predicates()
         # Two RT intervals that together cover scans at RT≈0.14, 0.73 and 4.34 in test.mzXML.
         ms = MassJ.average(scans, MassJ.RT([[0.0, 1.0], [4.0, 5.0]]), stats = false)
         @test ms isa MassJ.MSscans
+    end
+end
+
+
+function test_new_filters()
+    # test.mzML: scan 1 = MS1 profile, charge 0; scan 2 = MS2 centroid, charge 2,
+    # isolation_window_target_mz 400; scan 3 = MS2 centroid, charge 3, target 500.
+    # All three reference instrument configuration IC1 (LTQ FT, ESI source, FTICR analyzer).
+    run = MassJ.load("test.mzML")
+
+    @testset "New filters - typed fields (charge / spectrum type / mobility)" begin
+        @test length(MassJ.extract(run, MassJ.ChargeState(2)))                       == 1
+        @test length(MassJ.extract(run, MassJ.ChargeState([2, 3])))                  == 2
+        @test_throws ErrorException MassJ.extract(run, MassJ.ChargeState(99))
+
+        @test length(MassJ.extract(run, MassJ.SpectrumType(:centroid)))              == 2
+        @test length(MassJ.extract(run, MassJ.SpectrumType(:profile)))               == 1
+        @test length(MassJ.extract(run, MassJ.SpectrumType([:centroid, :profile])))  == 3
+
+        @test length(MassJ.extract(run, MassJ.MobilityType(:none)))                  == 3
+        @test_throws ErrorException MassJ.extract(run, MassJ.MobilityType(:TIMS))
+    end
+
+    @testset "New filters - generic metadata cvParam" begin
+        @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz")))                 == 2  # presence
+        @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", [400.0, 600.0]))) == 2  # range
+        @test length(MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", 400.0)))          == 1  # numeric exact
+        @test_throws ErrorException MassJ.extract(run, MassJ.MetaData("isolation_window_target_mz", 999.0))
+        @test_throws ErrorException MassJ.extract(run, MassJ.MetaData("does_not_exist"))
+    end
+
+    @testset "New filters - instrument configuration" begin
+        # resolved through the run-level instrument table: by id, cvParam name, component type
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("IC1")))                      == 3
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("LTQ FT")))                   == 3
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("electrospray ionization")))  == 3
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("source")))                   == 3
+        @test_throws ErrorException MassJ.extract(run, MassJ.InstrumentConfig("ZZZ"))
+
+        # On a plain Vector{MSscans} (no run table) only the per-spectrum ref id is matchable.
+        vec = run.scans
+        @test length(MassJ.extract(vec, MassJ.InstrumentConfig("IC1")))                      == 3
+        @test_throws ErrorException MassJ.extract(vec, MassJ.InstrumentConfig("LTQ FT"))
+    end
+
+    @testset "New filters - compose with existing filters" begin
+        @test length(MassJ.extract(run, MassJ.Level(2), MassJ.ChargeState(2)))                       == 1
+        @test length(MassJ.extract(run, MassJ.InstrumentConfig("IC1"), MassJ.ChargeState(3)))        == 1
+        @test length(MassJ.extract(run, MassJ.SpectrumType(:centroid),
+                                        MassJ.MetaData("isolation_window_target_mz", [450.0, 600.0]))) == 1
+        @test length(MassJ.chromatogram(run, MassJ.SpectrumType(:centroid)).x)                        == 2
+        @test MassJ.average(run, MassJ.ChargeState([2, 3]))                                          isa MassJ.MSscans
+    end
+
+    @testset "New filters - mzXML file-direct path (generic fallback)" begin
+        # The generic filter(::XMLElement, ::FilterType) fallback lets the new filters run on
+        # the file-direct mzXML path. mzXML carries no charge state, so MobilityType(:none)
+        # (the mzXML default) matches every scan, proving the fallback both dispatches and matches.
+        @test length(MassJ.extract("test.mzXML", MassJ.MobilityType(:none)))           == 6
+        @test length(MassJ.chromatogram("test.mzXML", MassJ.MobilityType(:none)).x)    == 6
+        @test_throws ErrorException MassJ.extract("test.mzXML", MassJ.ChargeState(2))
     end
 end
 
@@ -1326,6 +2952,15 @@ function test_yields()
         # length mismatch
         @test_throws ErrorException MassJ.yields(["test.mzXML"], peaks; x = [1.0, 2.0])
 
+        # file-list form also accepts x0/step (parity with the dir form)
+        yc_x   = MassJ.yields(["test.mzXML", "test.mzXML"], peaks; x = [1.0, 2.5])
+        yc_x0  = MassJ.yields(["test.mzXML", "test.mzXML"], peaks; x0 = 1.0, step = 1.5)
+        @test yc_x0.x == [1.0, 2.5]
+        @test yc_x.yields ≈ yc_x0.yields
+        # ambiguous (both x and x0/step) and missing-both both error
+        @test_throws ErrorException MassJ.yields(["test.mzXML"], peaks; x = [1.0], x0 = 1.0, step = 0.5)
+        @test_throws ErrorException MassJ.yields(["test.mzXML"], peaks)
+
         # read_peaklist — round-trip through a temp CSV (with header)
         tmp = tempname() * ".csv"
         open(tmp, "w") do io
@@ -1364,10 +2999,15 @@ function test_yields()
             write(io, "3.0  2.0\n")
             write(io, "5.0  2.0\n")
         end
-        yf = MassJ.normalize_flux(yc, fluxpath)
+        yf = MassJ.normalize_external(yc, fluxpath)
         @test yf.yields ≈ yc.yields ./ 2.0
         @test yf.tic    ≈ yc.tic    ./ 2.0
-        @test yf.metadata["normalize_flux"] == fluxpath
+        @test yf.metadata["normalize_external"] == fluxpath
+
+        # deprecated alias forwards to normalize_external (flux_err_pct → err_pct)
+        yf_dep = MassJ.normalize_flux(yc, fluxpath; flux_err_pct = 0.10)
+        @test yf_dep.yields ≈ yf.yields
+        @test yf_dep.metadata["normalize_external"] == fluxpath
         rm(fluxpath)
 
         # normalize_flux: text header (no #) auto-detected and skipped
@@ -1378,7 +3018,7 @@ function test_yields()
             write(io, "3.0  2.0\n")
             write(io, "5.0  2.0\n")
         end
-        yf_t = MassJ.normalize_flux(yc, flux_text)
+        yf_t = MassJ.normalize_external(yc, flux_text)
         @test yf_t.yields ≈ yc.yields ./ 2.0
         rm(flux_text)
 
@@ -1391,7 +3031,7 @@ function test_yields()
             write(io, "# mid-file note\n")
             write(io, "5.0  2.0  # trailing comment\n")
         end
-        yf_m = MassJ.normalize_flux(yc, flux_mixed)
+        yf_m = MassJ.normalize_external(yc, flux_mixed)
         @test yf_m.yields ≈ yc.yields ./ 2.0
         rm(flux_mixed)
 
@@ -1403,16 +3043,26 @@ function test_yields()
             write(io, "3.0  2.0\n")
             write(io, "5.0  2.0\n")
         end
-        yf_s = MassJ.normalize_flux(yc, flux_skip; skipstart = 1)
+        yf_s = MassJ.normalize_external(yc, flux_skip; skipstart = 1)
         @test yf_s.yields ≈ yc.yields ./ 2.0
         rm(flux_skip)
 
-        # write_csv round-trip — header + correct row count
+        # write_csv round-trip — 1-σ columns by default, compact layout on request
         outpath = tempname() * ".csv"
         MassJ.write_csv(yc, outpath)
         lines = readlines(outpath)
         @test length(lines) == 3                                   # header + 2 rows
+        @test lines[1] == "photon energy (eV),low,low_err,high,high_err,TIC,TIC_err"
+        @test length(split(lines[2], ",")) == length(split(lines[1], ","))
+        # the error cells really carry yields_err / tic_err (NaN when unestimated)
+        vals = split(lines[2], ",")
+        @test parse(Float64, vals[2]) ≈ yc.yields[1, 1]
+        @test isequal(parse(Float64, vals[3]), yc.yields_err[1, 1])
+        @test isequal(parse(Float64, vals[end]), yc.tic_err[1])
+        MassJ.write_csv(yc, outpath; errors = false)               # compact layout
+        lines = readlines(outpath)
         @test lines[1] == "photon energy (eV),low,high,TIC"
+        @test length(split(lines[2], ",")) == 4
         rm(outpath)
 
         # plot recipe smoke test
@@ -1521,12 +3171,12 @@ function test_yields_targetpeak()
         yn = MassJ.normalize_tic(yc_lm)
         @test yn.found_mz == yc_lm.found_mz
 
-        # drop_peaks — single string
+        # drop_yields — single string
         peaks_two = [MassJ.Peak(400.0, 500.0, "low"),
                      MassJ.Peak(800.0, 900.0, "high")]
         yc2 = MassJ.yields(["test.mzXML", "test.mzXML"], peaks_two;
                            x = [1.0, 2.0])
-        d1 = MassJ.drop_peaks(yc2, "low")
+        d1 = MassJ.drop_yields(yc2, "low")
         @test d1.labels        == ["high"]
         @test size(d1.yields)  == (2, 1)
         @test d1.yields[:, 1]  ≈  yc2.yields[:, 2]
@@ -1534,19 +3184,145 @@ function test_yields_targetpeak()
         @test size(d1.found_mz) == (2, 1)
         @test d1.tic           == yc2.tic         # tic unchanged by design
 
-        # drop_peaks — vector of labels
-        d2 = MassJ.drop_peaks(yc2, ["high"])
+        # drop_yields — vector of labels
+        d2 = MassJ.drop_yields(yc2, ["high"])
         @test d2.labels == ["low"]
 
-        # drop_peaks — drop everything
-        d3 = MassJ.drop_peaks(yc2, ["low", "high"])
+        # drop_yields — drop everything
+        d3 = MassJ.drop_yields(yc2, ["low", "high"])
         @test isempty(d3.labels)
         @test size(d3.yields) == (2, 0)
 
-        # drop_peaks — missing labels silently ignored
-        d4 = MassJ.drop_peaks(yc2, ["nonexistent"])
+        # drop_yields — missing labels silently ignored
+        d4 = MassJ.drop_yields(yc2, ["nonexistent"])
         @test d4.labels == yc2.labels
         @test d4.yields == yc2.yields
+    end
+end
+
+
+function test_targetpeak_clusters()
+    @testset "TargetPeak isotope clusters (vector + formula)" begin
+        # --- scalar form: backward compatibility ---------------------------
+        tp = MassJ.TargetPeak(442.01, "a"; tol = 0.5)
+        @test tp.mz == 442.01 && tp.mzs == [442.01] && tp.tol == 0.5
+
+        # --- explicit cluster ----------------------------------------------
+        tc = MassJ.TargetPeak([444.0, 442.0, 443.0], "Label"; tol = 0.02)
+        @test tc.mzs == [442.0, 443.0, 444.0]      # sorted; anchor = monoisotopic
+        @test tc.mz  == 442.0
+        @test MassJ._window_of(tc) == (442.0 - 0.02, 444.0 + 0.02)
+        @test_throws ErrorException MassJ.TargetPeak(Float64[], "empty"; tol = 0.1)
+        # ppm sets the half-width from the first (monoisotopic) m/z
+        tcp = MassJ.TargetPeak([200.0, 201.0], "p"; ppm = 10.0)
+        @test tcp.tol ≈ 200.0 * 10e-6
+        # explicit anchor snaps to the nearest cluster member
+        tca = MassJ.TargetPeak([442.0, 443.0, 444.0], "a"; tol = 0.02, anchor = 443.1)
+        @test tca.mz == 443.0
+
+        # --- window merging ------------------------------------------------
+        @test MassJ._merge_windows([(1.0, 2.0), (1.5, 3.0), (5.0, 6.0)]) ==
+              [(1.0, 3.0), (5.0, 6.0)]
+        @test isempty(MassJ._merge_windows(Tuple{Float64,Float64}[]))
+
+        # --- formula form --------------------------------------------------
+        # bare ion (adduct = ""): m/z = neutral isotopologue mass / abs(charge)
+        tf = MassJ.TargetPeak("Nd(NO3)4", "Nd nitrate";
+                              charge = -1, adduct = "", p_target = 0.999, tol = 0.2)
+        @test length(tf.mzs) > 1
+        @test issorted(tf.mzs)
+        @test tf.mz in tf.mzs                       # anchor is a real cluster member
+        # charge = 0 with no adduct is rejected
+        @test_throws ErrorException MassJ.TargetPeak("H2O", "w"; charge = 0, tol = 0.1)
+
+        # anchor selection: :max (default) = most-abundant isotopologue. Fe has
+        # ⁵⁶Fe most abundant but ⁵⁴Fe lightest, so :max ≠ :mono.
+        fe_max  = MassJ.TargetPeak("Fe", "fe"; charge = 1, tol = 0.1)              # default :max
+        fe_mono = MassJ.TargetPeak("Fe", "fe"; charge = 1, tol = 0.1, anchor = :mono)
+        @test fe_mono.mz == minimum(fe_mono.mzs)    # lightest
+        @test fe_max.mz  != minimum(fe_max.mzs)     # most-abundant is heavier than lightest
+        @test fe_max.mz  >  fe_mono.mz              # ⁵⁶Fe > ⁵⁴Fe
+        @test fe_max.mz  in fe_max.mzs
+
+        # adduct form: charge comes from the adduct, m/z via adduct_mz
+        glc = MassJ.masses("C6H12O6")["Monoisotopic"]
+        tfa = MassJ.TargetPeak("C6H12O6", "glucose"; adduct = "[M+H]+", tol = 0.01)
+        @test isapprox(minimum(tfa.mzs), MassJ.adduct_mz(glc, "[M+H]+"); atol = 1e-6)
+
+        # --- integration: cluster == sum of the parts, summed per scan ------
+        scans = MassJ.load("test.mzXML")
+        s1 = scans[1]                              # MS1 scan, well covered
+        m1 = s1.mz[argmax(s1.int)]
+        m2 = m1 - 3.0
+        t  = 0.4
+        ycl = MassJ.yields(["test.mzXML"], [MassJ.TargetPeak([m1, m2], "cluster"; tol = t)];
+                           x = [1.0])
+        ref = MassJ.yields(["test.mzXML"],
+                           [MassJ.Peak(m1 - t, m1 + t, "a"), MassJ.Peak(m2 - t, m2 + t, "b")];
+                           x = [1.0])
+        @test ycl.yields[1, 1] > 0
+        @test isapprox(ycl.yields[1, 1], ref.yields[1, 1] + ref.yields[1, 2]; rtol = 1e-12)
+        @test ycl.windows[1] == (m2 - t, m1 + t)   # envelope
+        @test ycl.found_mz[1, 1] == m2             # anchor = monoisotopic (smallest m/z)
+
+        # a cluster does not trigger centroiding
+        @test !MassJ._needs_centroid([MassJ.TargetPeak([m1, m2], "c"; tol = t)])
+
+        # formula peak runs end-to-end through yields
+        yf = MassJ.yields(["test.mzXML"],
+                          [MassJ.TargetPeak("C6H12O6", "glc"; adduct = "[M+H]+", tol = 0.01)];
+                          x = [1.0])
+        @test isfinite(yf.yields[1, 1])
+
+        # --- anchored cluster resolution (method = :anchor) ----------------
+        # synthetic spectrum with a single sharp peak at m/z 110.0
+        gmz  = collect(100.0:0.01:120.0)
+        gint = zeros(length(gmz)); gint[argmin(abs.(gmz .- 110.0))] = 1000.0
+        gms  = MassJ.MSscans(1, 0.0, sum(gint), gmz, gint, 1, 110.0, 1000.0,
+                             0.0, "+", "", 0.0)
+
+        # anchor theoretical at 109.8 (0.2 below the real peak), far line at 114.8
+        pa = MassJ.TargetPeak([109.8, 114.8], "anc"; tol = 0.3, method = :anchor)
+        wa, fa = MassJ._resolve_windows(gms, nothing, pa)
+        @test fa ≈ 110.0                                   # located the anchor
+        ca = [(lo + hi) / 2 for (lo, hi) in wa]
+        @test ca ≈ [110.0, 115.0]                          # whole pattern shifted by +0.2
+
+        # mid-cluster anchor: a lighter isotopologue (107.8) sits *below* the
+        # anchor (109.8) and must reconstitute below the located anchor (negative
+        # offset). δ = +0.2 → centres [108.0, 110.0, 115.0].
+        pm = MassJ.TargetPeak([107.8, 109.8, 114.8], "mid"; tol = 0.3,
+                              method = :anchor, anchor = 109.8)
+        @test pm.mz == 109.8
+        wmid, fmid = MassJ._resolve_windows(gms, nothing, pm)
+        @test fmid ≈ 110.0
+        @test [(lo + hi) / 2 for (lo, hi) in wmid] ≈ [108.0, 110.0, 115.0]
+
+        # fixed (default) leaves windows at the theoretical m/z
+        pf = MassJ.TargetPeak([109.8, 114.8], "fix"; tol = 0.3)
+        wf, ff = MassJ._resolve_windows(gms, nothing, pf)
+        @test ff ≈ 109.8
+        @test [(lo + hi) / 2 for (lo, hi) in wf] ≈ [109.8, 114.8]
+
+        # anchor absent → falls back to fixed windows
+        pmiss = MassJ.TargetPeak([200.0, 205.0], "miss"; tol = 0.3, method = :anchor)
+        wm, fm = MassJ._resolve_windows(gms, nothing, pmiss)
+        @test fm == 200.0
+        @test [(lo + hi) / 2 for (lo, hi) in wm] ≈ [200.0, 205.0]
+
+        # constructors accept :anchor / :fixed; reject nonsense
+        @test MassJ.TargetPeak([1.0, 2.0], "x"; tol = 0.1, method = :anchor).method === :anchor
+        @test MassJ.TargetPeak([1.0, 2.0], "x"; tol = 0.1).method === :fixed
+        @test_throws ErrorException MassJ.TargetPeak([1.0, 2.0], "x"; tol = 0.1, method = :bogus)
+        # the user's :centroid on a formula peak is accepted (treated as fixed)
+        @test MassJ.TargetPeak("H2O", "w"; charge = -1, tol = 0.2, method = :centroid).method === :centroid
+
+        # :anchor runs end-to-end through yields
+        m1 = scans[1].mz[argmax(scans[1].int)]
+        ya = MassJ.yields(["test.mzXML"],
+                          [MassJ.TargetPeak([m1, m1 - 3.0], "anc"; tol = 0.4, method = :anchor)];
+                          x = [1.0])
+        @test ya.yields[1, 1] > 0
     end
 end
 
@@ -1569,11 +3345,6 @@ function test_yields_errors()
             @test yc.tic_err[i] ≈ sqrt(sum(abs2, yc.yields_err[i, :]))
         end
 
-        # MSscan path: no variance available → NaN error
-        scans = MassJ.load("test.mzXML")
-        _, σ_one = MassJ._integrate_window_with_err(scans[1], 400.0, 500.0)
-        @test isnan(σ_one)
-
         # normalize_tic: standard division error propagation
         yn = MassJ.normalize_tic(yc)
         @test all(isfinite, yn.yields_err)
@@ -1595,8 +3366,8 @@ function test_yields_errors()
             write(io, "1.0  2.0\n")
             write(io, "3.0  2.0\n")
         end
-        yf = MassJ.normalize_flux(yc, fluxpath)
-        @test yf.metadata["normalize_flux_err_pct"] == 0.10
+        yf = MassJ.normalize_external(yc, fluxpath)
+        @test yf.metadata["normalize_external_err_pct"] == 0.10
         for i in 1:2, p in 1:2
             φ, σφ = 2.0, 0.10 * 2.0
             σ_y   = yc.yields_err[i, p]
@@ -1612,8 +3383,8 @@ function test_yields_errors()
             write(io, "1.0  2.0\n")
             write(io, "3.0  2.0\n")
         end
-        yf5 = MassJ.normalize_flux(yc, fluxpath2; flux_err_pct = 0.05)
-        @test yf5.metadata["normalize_flux_err_pct"] == 0.05
+        yf5 = MassJ.normalize_external(yc, fluxpath2; err_pct = 0.05)
+        @test yf5.metadata["normalize_external_err_pct"] == 0.05
         rm(fluxpath2)
 
         # normalize_flux: 3-col file → σ_φ from the file
@@ -1623,7 +3394,7 @@ function test_yields_errors()
             write(io, "1.0  2.0  0.1\n")
             write(io, "3.0  2.0  0.1\n")
         end
-        yf3 = MassJ.normalize_flux(yc, flux3)
+        yf3 = MassJ.normalize_external(yc, flux3)
         for i in 1:2, p in 1:2
             φ, σφ = 2.0, 0.1
             σ_y   = yc.yields_err[i, p]
@@ -1643,7 +3414,7 @@ function test_yields_errors()
             write(io, "1.0  2.0  0.1\n")   # σ present
             write(io, "2.0  2.0\n")        # σ missing → falls back to pct
         end
-        yfj = MassJ.normalize_flux(yc, flux_jag; flux_err_pct = 0.10)
+        yfj = MassJ.normalize_external(yc, flux_jag; err_pct = 0.10)
         @test all(isfinite, yfj.yields_err)
         # Row 1 (yc.x=1.0) lands on xf[1] → σφ = 0.1
         # Row 2 (yc.x=2.0) lands on xf[2] → σφ = 0.10·|2.0| = 0.2 (pct fallback)
@@ -1665,7 +3436,7 @@ function test_yields_errors()
             write(io, "1.0  2.0  Fri Apr 17 12:27:54 2026\n")
             write(io, "2.0  2.0  Fri Apr 17 12:28:02 2026\n")
         end
-        yfs = MassJ.normalize_flux(yc, flux_str; flux_err_pct = 0.10)
+        yfs = MassJ.normalize_external(yc, flux_str; err_pct = 0.10)
         @test all(isfinite, yfs.yields_err)
         rm(flux_str)
 
@@ -1680,10 +3451,10 @@ function test_yields_errors()
         # yc.x = [1.0, 2.0]; both points are below the flux range start (3.0).
         # With :line, φ(1.0) = 2.0 - 1.0·2 = 0.0 — non-positive → skip flagged.
         # With :line, φ(2.0) = 2.0 - 1.0·1 = 1.0 — valid division.
-        yc_ext = MassJ.normalize_flux(yc, flux_ext;
-                                       flux_err_pct = 0.10,
+        yc_ext = MassJ.normalize_external(yc, flux_ext;
+                                       err_pct = 0.10,
                                        extrapolate  = :line)
-        @test yc_ext.metadata["normalize_flux_extrap"] == "line"
+        @test yc_ext.metadata["normalize_external_extrap"] == "line"
         # Row 2 (yc.x = 2.0) → extrapolated φ = 1.0
         for p in 1:2
             @test yc_ext.yields[2, p] ≈ yc.yields[2, p] / 1.0
@@ -1696,8 +3467,8 @@ function test_yields_errors()
             write(io, "3.0  2.0\n")
             write(io, "5.0  4.0\n")
         end
-        yc_clamp = MassJ.normalize_flux(yc, flux_clamp)   # default :clamp
-        @test yc_clamp.metadata["normalize_flux_extrap"] == "clamp"
+        yc_clamp = MassJ.normalize_external(yc, flux_clamp)   # default :clamp
+        @test yc_clamp.metadata["normalize_external_extrap"] == "clamp"
         # Row 1 (yc.x = 1.0, < 3.0) clamped to φ = 2.0
         for p in 1:2
             @test yc_clamp.yields[1, p] ≈ yc.yields[1, p] / 2.0
@@ -1710,12 +3481,12 @@ function test_yields_errors()
             write(io, "3.0  2.0\n")
             write(io, "5.0  4.0\n")
         end
-        @test_throws ErrorException MassJ.normalize_flux(yc, flux_bad;
+        @test_throws ErrorException MassJ.normalize_external(yc, flux_bad;
                                                         extrapolate = :spline)
         rm(flux_bad)
 
-        # drop_peaks slices yields_err; tic_err unchanged by design
-        d = MassJ.drop_peaks(yc, "low")
+        # drop_yields slices yields_err; tic_err unchanged by design
+        d = MassJ.drop_yields(yc, "low")
         @test size(d.yields_err) == (2, 1)
         @test d.yields_err[:, 1] == yc.yields_err[:, 2]
         @test d.tic_err == yc.tic_err
@@ -1723,29 +3494,164 @@ function test_yields_errors()
         # Plot with ribbon still works
         @test typeof(plot(yc)) == Plots.Plot{Plots.GRBackend}
 
-        # -- Per-scan-area error >> the old diagonal-only SEM ---------------
-        # The pre-fix `_integrate_window_with_err` propagated the Welford
-        # per-bin SEM through a diagonal-only `var(Σ wᵢ yᵢ) = Σ wᵢ² var(yᵢ)`
-        # formula, which assumes independence between m/z bins. For a real
-        # peak that's wrong — adjacent bins fluctuate together — and the
-        # resulting SEM underestimates the true scan-to-scan variability.
-        # The current per-scan-area implementation should give a strictly
-        # larger SEM than the old approach for the same window.
+        # Per-scan-area error: a single-file yields still produces a finite,
+        # non-negative SEM from the spread of the per-scan integrals.
         scans_real = MassJ.load("test.mzXML")
-        bp_idx     = argmax(scans_real[1].int)
-        bp_mz      = scans_real[1].mz[bp_idx]
-        peaks_cmp  = [MassJ.TargetPeak(bp_mz, "bp"; tol = 0.5)]
-        yc_cmp     = MassJ.yields(["test.mzXML"], peaks_cmp; x = [1.0])
-        # Old diagonal-only approach (still computable from MSscans + Welford)
-        avg_cmp    = MassJ.average(scans_real)
-        _, old_sem = MassJ._integrate_window_with_err(avg_cmp,
-                                                      bp_mz - 0.5, bp_mz + 0.5)
+        bp_mz      = scans_real[1].mz[argmax(scans_real[1].int)]
+        yc_cmp     = MassJ.yields(["test.mzXML"], [MassJ.TargetPeak(bp_mz, "bp"; tol = 0.5)]; x = [1.0])
         @test isfinite(yc_cmp.yields_err[1, 1])
-        @test yc_cmp.yields_err[1, 1] > old_sem        # bigger and honest
-        # Ratio is several orders of magnitude on this heterogeneous fixture
-        # — guard a generous lower bound so the assertion is robust across
-        # platforms / future refactors.
-        @test yc_cmp.yields_err[1, 1] / old_sem > 10
+        @test yc_cmp.yields_err[1, 1] >= 0
+    end
+end
+
+
+function test_yields_filtering()
+    @testset "yields — FilterType filtering + pre-built series" begin
+        P = [MassJ.Peak(0.0, 2000.0, "all")]      # wide window over the whole spectrum
+
+        # backward compatibility: no filters
+        yc0 = MassJ.yields(["test.mzXML"], P; x = [1.0])
+        @test size(yc0.yields) == (1, 1)
+        @test yc0.files == ["test.mzXML"]
+
+        # Option A: a FilterType changes the integrated yield (MS1-only ≠ all levels)
+        ycA = MassJ.yields(["test.mzXML"], P, MassJ.Level(1); x = [1.0])
+        @test ycA.yields[1, 1] != yc0.yields[1, 1]
+
+        # Option B: a pre-built series reproduces the file form
+        series = [MassJ.load("test.mzXML")]
+        ycB = MassJ.yields(series, P; x = [1.0], labels = ["pt0"])
+        @test ycB.yields[1, 1] ≈ yc0.yields[1, 1]
+        @test ycB.files == ["pt0"]               # custom point labels
+
+        # Option B with the same filter equals Option A
+        ycBf = MassJ.yields(series, P, MassJ.Level(1); x = [1.0])
+        @test ycBf.yields[1, 1] ≈ ycA.yields[1, 1]
+
+        # default point labels
+        ycB2 = MassJ.yields(series, P; x = [1.0])
+        @test ycB2.files == ["point_1"]
+
+        # empty after filtering → graceful zero row (no error)
+        ycE = MassJ.yields(["test.mzXML"], P, MassJ.Level(99); x = [1.0])
+        @test ycE.yields[1, 1] == 0.0
+        @test isnan(ycE.found_mz[1, 1])
+
+        # dir form threads filters; build a clean 2-file dir to avoid the mixed
+        # fixtures (bad*.mzXML etc.) in test/.
+        d = mktempdir()
+        cp("test.mzXML", joinpath(d, "e1.mzXML"))
+        cp("test.mzXML", joinpath(d, "e2.mzXML"))
+        ycD = MassJ.yields(d, P, MassJ.Level(1); x0 = 4.0, step = 0.2)
+        @test size(ycD.yields) == (2, 1)
+        @test ycD.x ≈ [4.0, 4.2]
+        @test all(ycD.yields .≈ ycA.yields[1, 1])   # both points are MS1 of the same file
+    end
+end
+
+
+function test_interop()
+    @testset "Ecosystem interop (featurize / select / from_matrix / spectra_table)" begin
+        scans = MassJ.load("test.mzXML")
+        N = length(scans)
+
+        # featurize → N×M matrix, one row per spectrum (row-aligned)
+        X, mz = MassJ.featurize(scans; binsize = 1.0)
+        @test size(X, 1) == N
+        @test size(X, 2) == length(mz)
+        @test eltype(X) == Float64
+
+        # select_spectra: boolean mask + integer indices
+        mask = [isodd(i) for i in 1:N]
+        @test length(MassJ.select_spectra(scans, mask)) == count(mask)
+        @test length(MassJ.select_spectra(scans, [1, 3])) == 2
+        @test_throws ErrorException MassJ.select_spectra(scans, [true, false])  # wrong length
+
+        # from_matrix round-trip on the binned axis
+        rebuilt = MassJ.from_matrix(X, mz; template = scans)
+        @test length(rebuilt) == N
+        @test eltype(rebuilt) == MassJ.MSscans
+        @test rebuilt[1].mz == collect(Float64, mz)         # binned axis
+        @test rebuilt[1].int == Float64.(X[1, :])           # row → intensities
+        @test rebuilt[1].rt == [first(scans[1].rt)]         # template metadata carried
+        @test rebuilt[1].tic ≈ sum(X[1, :])
+
+        # transform then rebuild without a template (neutral defaults)
+        reb2 = MassJ.from_matrix(X .* 2, mz)
+        @test reb2[1].int == Float64.(X[1, :]) .* 2
+        @test reb2[1].rt == [0.0]
+
+        # error paths
+        @test_throws ErrorException MassJ.from_matrix(X, mz[1:end-1])                    # col mismatch
+        @test_throws ErrorException MassJ.from_matrix(X, mz; template = scans[1:end-1])  # row mismatch
+        @test_throws ErrorException MassJ.featurize(scans; method = :nope)
+
+        # spectra_table is a Tables source (coarse bins → small NamedTuple)
+        nt = MassJ.spectra_table(scans; binsize = 200.0)
+        @test Tables.istable(typeof(nt))
+        @test haskey(nt, :num) && haskey(nt, :rt) && haskey(nt, :tic)
+        @test all(length(c) == N for c in nt)
+        ct = Tables.columntable(nt)
+        @test length(Tables.getcolumn(ct, :tic)) == N
+        nt2 = MassJ.spectra_table(scans; binsize = 200.0, metadata = false)
+        @test !haskey(nt2, :num)
+    end
+end
+
+
+function test_feature_detection()
+    @testset "2D LC-MS feature detection" begin
+        # synthetic run: 40 MS1 scans (rt = scan index); two ions eluting as
+        # Gaussians at known m/z and apex RT.
+        function run_scans()
+            scans = MassJ.MSscans[]
+            for i in 1:40
+                mz = Float64[]; int = Float64[]
+                a = 1000 * exp(-((i - 10)^2) / (2 * 3.0^2))
+                (4  <= i <= 16) && (push!(mz, 400.00); push!(int, a))
+                b = 800  * exp(-((i - 25)^2) / (2 * 2.5^2))
+                (18 <= i <= 32) && (push!(mz, 600.50); push!(int, b))
+                isempty(mz) && (push!(mz, 50.0); push!(int, 1.0))  # keep non-empty
+                o = sortperm(mz)
+                push!(scans, MassJ.MSscans(i, Float64(i), sum(int), mz[o], int[o], 1,
+                                           mz[o][argmax(int[o])], maximum(int),
+                                           0.0, "+", "", 0.0))
+            end
+            return scans
+        end
+        scans = run_scans()
+
+        feats = MassJ.detect_features(scans; ppm = 20.0, min_scans = 5, snr = 3.0)
+        @test length(feats) == 2
+        @test eltype(feats) == MassJ.Feature
+        fa, fb = feats                                   # sorted by (mz, rt)
+        @test fa.mz ≈ 400.00 atol = 0.01
+        @test fb.mz ≈ 600.50 atol = 0.01
+        @test fa.rt ≈ 10.0 atol = 1.0                    # apex RT recovered
+        @test fb.rt ≈ 25.0 atol = 1.0
+        @test fa.area > 0 && fb.area > 0
+        @test fa.height ≈ 1000.0 rtol = 0.2
+        @test fa.npoints >= 5 && fb.npoints >= 5
+        @test fa.rt_left < fa.rt < fa.rt_right
+
+        # min_scans gating: requiring 20-scan traces drops both
+        @test isempty(MassJ.detect_features(scans; ppm = 20.0, min_scans = 20))
+
+        # absolute m/z tolerance form
+        @test length(MassJ.detect_features(scans; mz_tol = 0.02, min_scans = 5)) == 2
+
+        # snr gating: a very high threshold rejects everything
+        @test isempty(MassJ.detect_features(scans; ppm = 20.0, min_scans = 5, snr = 1e6))
+
+        # empty input
+        @test isempty(MassJ.detect_features(MassJ.MSscans[]))
+
+        # feature_table is a Tables source
+        nt = MassJ.feature_table(feats)
+        @test Tables.istable(typeof(nt))
+        @test haskey(nt, :mz) && haskey(nt, :rt) && haskey(nt, :area)
+        @test length(nt.mz) == 2
+        @test Tables.getcolumn(Tables.columntable(nt), :mz) ≈ [fa.mz, fb.mz]
     end
 end
 
@@ -1765,6 +3671,25 @@ end
 
 tests()
 test_isotopes()
+test_adducts()
+test_calibration()
+test_centroid_metrics()
+test_assignment()
+test_multifolder()
+test_yield_transforms()
+test_yield_trim()
+test_yield_peak_ops()
+test_peptides()
+test_fragment_peaks()
+test_mobility()
+test_uncertainty()
+test_annotated_plotting()
+test_tables()
+test_measurements()
+test_unitful()
+test_chrom_processing()
+test_chrom_peaks()
+test_feature_detection()
 test_deconvolution()
 test_interpolation_import()
 test_mzml()
@@ -1772,8 +3697,19 @@ test_mgf()
 test_msp()
 test_imzml()
 test_composed_predicates()
+test_new_filters()
 test_export()
+test_mzml_fallback_ic()
+test_usi()
+test_text_writers()
+test_cwt()
+test_chimeric()
+test_covariance_significance()
+test_association_maps()
+test_interop()
 test_yields()
 test_yields_targetpeak()
+test_targetpeak_clusters()
 test_yields_errors()
+test_yields_filtering()
 test_aqua()

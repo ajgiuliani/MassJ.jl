@@ -12,7 +12,7 @@ include("isotopes-data.jl")
 # ---------------
 
 
-export isotopic_distribution, masses, simulate, formula
+export isotopic_distribution, masses, simulate, formula, isotope_table
 
 
 """
@@ -67,11 +67,13 @@ end
 
 """
     simulate(I::Array{Union{Float64, Int, String}}, ∆mz::Real; model::Symbol=:gauss, Npoints::Int=1000)
-From an isotopic distribution and a peak width returns a mass spectrum (MSScan). The number of points of the resulting mass spectrum is passed as an optional argument. Peak shape are :gauss (default), :lorentz, :voigt.
+From an isotopic distribution and a peak width returns a mass spectrum (`MSscans`). The number of points of the resulting mass spectrum is passed as an optional argument. Peak shape are :gauss (default), :lorentz, :voigt.
 # Examples
 ```julia-repl
-julia>  a = simulate(I, 0.4)
-MassJ.MSscan(1, 0.0, 30898.192348114364, [5727.102517458742 ..., "", "", 0.0)
+julia> I = isotopic_distribution("C254 H377 N65 O75 S6", 0.5);
+
+julia> a = simulate(I, 0.4)
+MSscans(num=1, MS0, 1000 pts m/z=[5727.103, 5737.126], rt=0.0 min, tic=17013.55367377173)
 ```
 """
 function simulate(I::Array{Union{Float64, Int, String}}, ∆mz::Real; model::Symbol=:gauss , Npoints::Int=1000)
@@ -98,14 +100,14 @@ function simulate(I::Array{Union{Float64, Int, String}}, ∆mz::Real; model::Sym
         elseif model == :voigt
             peak = [voigt(x,param) for x in mz]
         else
-            ErrorException("Unsupported peak profile. Use :gauss, :lorentz or :voigt.")
+            error("Unsupported peak profile. Use :gauss, :lorentz or :voigt.")
         end            
         p = p .+ peak
     end
     p /= maximum(p)
     p *= 100.0
     basePeakMz = mz[num2pnt(p, 100.0)]
-    MSscan(1, 0.0, sum(p), mz, p, 0, basePeakMz, 100.0, 0.0, "", "", 0.0)
+    MSscans(1, 0.0, sum(p), mz, p, 0, basePeakMz, 100.0, 0.0, "", "", 0.0)
 end
 
 """
@@ -140,8 +142,6 @@ Dict("S" => 6,"C" => 254,"N" => 65,"H" => 377,"O" => 75)
 ```
 """
 function isotopic_distribution(input::String, p_target::Real; charge::Int = +1, tau::Real = 0.1, Elements::Dict{String,Array{MassJ.Isotope,1}} = MassJ.Elements)
-    f = formula(input)
-    println(f)
     isotopic_distribution(formula(input), p_target, charge = charge, tau = tau)
 end
 
@@ -194,6 +194,41 @@ function isotopic_distribution(form::Dict{String,Int}, p_target::Real; charge::I
     end
     result[M+1,:] = labels
     result[end:-1:1,:]
+end
+
+
+"""
+    isotope_table(dist::AbstractMatrix) -> NamedTuple
+Convert the matrix returned by [`isotopic_distribution`](@ref) into a column
+table (a `NamedTuple` of vectors): columns `Masses`, `Probability`, and one per
+isotope (`Symbol("12C")`, `Symbol("13C")`, …), one row per isotopologue. Being a
+`NamedTuple` of vectors it is already a valid [Tables.jl](https://github.com/JuliaData/Tables.jl)
+source, so it drops straight into `DataFrame`, `CSV.write`, and the rest of the
+data ecosystem — no extra dependency on MassJ's side.
+
+# Examples
+```julia-repl
+julia> using DataFrames
+
+julia> dist = isotopic_distribution(formula("C6H12O6"), 0.99);
+
+julia> df = DataFrame(isotope_table(dist));
+```
+"""
+function isotope_table(dist::AbstractMatrix)
+    labels = String.(@view dist[1, :])
+    syms   = Symbol[]
+    cols   = Any[]
+    for j in eachindex(labels)
+        push!(syms, Symbol(labels[j]))
+        raw = @view dist[2:end, j]
+        if labels[j] == "Masses" || labels[j] == "Probability"
+            push!(cols, Float64.(raw))
+        else
+            push!(cols, round.(Int, Float64.(raw)))
+        end
+    end
+    return NamedTuple{Tuple(syms)}(Tuple(cols))
 end
 
 
@@ -447,21 +482,21 @@ function most_probable_isotopologue(formula::Dict{String,Int}, Elements::Dict{St
         if length(E) > 1
             # # start with the mean of the multimodal distribution
             P0 = Int.(map(round, val .* [el.f for el in E]))
-            counts = 1
-            while sum(P0) != val               # checking for mismatch between distri & formula
-                for i=length(P0):-1:1
-                    if P0[i] > 0               # found a non negative element                 
-                        if sum(P0) > val       
-                            P0[i] -= 1
-                        elseif sum(P0) < val   
-                            P0[i] +=1
-                        end
-                    end
+            # Largest-remainder repair so that sum(P0) == val exactly. Independent
+            # rounding of each term can leave a deficit or surplus; in particular a
+            # single atom of an element whose most abundant isotope is below 50 %
+            # (e.g. Nd, Eu, Sn) rounds every term to zero. Add the missing atoms to
+            # (or remove the surplus from) the most abundant isotopes in turn.
+            order = sortperm([el.f for el in E], rev = true)
+            k = 1
+            while sum(P0) != val
+                i = order[mod1(k, length(order))]
+                if sum(P0) < val
+                    P0[i] += 1
+                elseif P0[i] > 0
+                    P0[i] -= 1
                 end
-                if counts < 10
-                    break
-                end
-                counts += 1
+                k += 1
             end
             # Objective function isotopologue_probability(Dict(key => val), x::AbstractArray)
             f(x) = isotopologue_probability(Dict(key => val), Dict(key => x), Elements)

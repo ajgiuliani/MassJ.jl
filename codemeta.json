@@ -7,8 +7,8 @@
   "codeRepository": "https://github.com/ajgiuliani/MassJ.jl",
   "url": "https://ajgiuliani.github.io/MassJ.jl/stable",
   "issueTracker": "https://github.com/ajgiuliani/MassJ.jl/issues",
-  "version": "1.0.0",
-  "softwareVersion": "1.0.0",
+  "version": "2.0.0",
+  "softwareVersion": "2.0.0",
   "license": "https://spdx.org/licenses/GPL-3.0-or-later",
   "programmingLanguage": {
     "@type": "ComputerLanguage",

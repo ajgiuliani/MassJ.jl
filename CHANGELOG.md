@@ -1,5 +1,107 @@
 # MassJ.jl changelog
 
+## Version `v2.0.0`
+
+A type-system unification. This is a **breaking** release: the public container
+types changed shape. Functionality is otherwise unchanged.
+
+* ![BREAKING][badge-breaking] ![Enhancement][badge-enhancement] The two spectrum
+  types `MSscan` (single scan) and `MSscans` (composite) are merged into a single
+  type, `MSscans`. Every per-scan provenance field (`num`, `rt`, `level`,
+  `precursor`, `polarity`, `activationMethod`, `collisionEnergy`, `chargeState`,
+  `driftTime`, `compensationVoltage`) is now a `Vector`. A raw scan is simply an
+  `MSscans` with length-1 provenance, and the variance accumulator `s` is empty
+  until two or more scans are combined.
+
+* ![BREAKING][badge-breaking] ![Enhancement][badge-enhancement] The three trace
+  types `Chromatogram`, `Mobilogram`, and `Ionogram` are merged into a single
+  type, `IonCurrent`, with an `axis` field (`:rt`, `:drift`, or `:cv`) recording
+  what the abscissa `x` represents. The maximum ion current is now obtained with
+  the function `maxic(trace)` instead of the stored `.maxic` field.
+
+* ![BREAKING][badge-breaking] `load` now returns the same type for every
+  multi-spectrum format: an `MSrun` (an `AbstractVector{MSscans}`). Previously
+  only mzML returned `MSrun` while mzXML/MGF/MSP/imzML returned a bare
+  `Vector{MSscans}`. For the non-mzML formats the `MSrun`'s metadata and
+  chromatogram fields are empty. A TXT file (a single spectrum) and a spectrum
+  saved as a scalar still load as a bare `MSscans`. The filter/processing
+  functions (`extract`, `chromatogram`, `average`, `retention_time`, `smooth`,
+  `centroid`, `baseline_correction`) accept any `AbstractVector{MSscans}`, so
+  they work on an `MSrun` directly.
+
+* ![Feature][badge-feature] `load_usi`: retrieve a single spectrum by its Universal Spectrum
+  Identifier (USI) from a PROXI-compliant server (default the ProteomeCentral aggregator),
+  returning an `MSscans` with precursor / charge / activation / collision-energy /
+  isolation-window metadata. Lets a spectrum be loaded by reference from a public proteomics
+  or metabolomics repository rather than from a local file. Adds `JSON` and `Downloads`
+  dependencies.
+
+* ![Feature][badge-feature] New filters for the per-spectrum information exposed by the mzML
+  reader, all composable with the existing filters in a single pass: `ChargeState`,
+  `SpectrumType` (`:centroid`/`:profile`), `MobilityType`, a generic `MetaData(key[, value])`
+  filter over any acquisition cvParam (exact / range / substring / presence), and
+  `InstrumentConfig` (match by configuration id, cvParam name, or component type, resolved
+  through the run-level instrument table). Each spectrum's `instrumentConfigurationRef` is now
+  read into its `metadata`.
+
+* ![Feature][badge-feature] Writers for the remaining open text formats — `save_mgf` (Mascot
+  Generic Format), `save_msp` (NIST spectral library), and `save_txt` (two-column m/z/intensity,
+  single spectrum) — wired into `save` by extension. Read/write is now symmetric for every
+  format except imzML (still read-only).
+
+* ![Feature][badge-feature] Statistical decomposition of chimeric (multiplexed) tandem mass
+  spectra, after Truong, Nahon & Giuliani (*J. Am. Soc. Mass Spectrom.* 2026, 37, 649):
+  `abundance_matrix` (series → binned abundance matrix + TIC), `partial_correlation` (TIC-
+  controlled partial Pearson, via `Statistics`), `cmi_matrix` (conditional mutual information,
+  via `EntropyInvariant`), `cluster_ions` (Ward hierarchical clustering + elbow, via
+  `Clustering`), and `cluster_spectra` (per-cluster reconstructed spectra). `cmi_matrix` and
+  `cluster_ions` ship as **package extensions** — they activate when `EntropyInvariant` /
+  `Clustering` are loaded, so neither becomes a hard dependency.
+
+* ![Feature][badge-feature] Continuous Wavelet Transform centroiding (`centroid(scan;
+  method = CWT())`), a Ricker-wavelet ridge-line peak detector after Du, Kibbe & Lin
+  (*Bioinformatics* 2006). Replaces the former unimplemented `CWT` stub; joins the existing
+  `SNRA` and `TBPD` centroiding methods.
+
+* ![Feature][badge-feature] imzML writer (`save_imzml`) for imaging mass spectrometry — emits the
+  paired `.imzML` (XML) + `.ibd` (binary, 16-byte UUID + raw little-endian arrays + SHA-1
+  checksum) in processed mode, preserving per-pixel coordinates. Read **and** write are now
+  supported for every format MassJ reads.
+
+* ![Feature][badge-feature] Peak-column operations on a `YieldCurve`. `keep_yields` /
+  `drop_yields` select peaks by *label selector* (a label, a list, a `Regex`, or a
+  predicate) and `yc["y5"]` returns one peak's columns; `sum_yields` adds all peaks, a
+  selection, or everything but an exclusion into one column; `group_yields` produces one
+  summed column per group named by a criterion on the labels (e.g. one column per ion
+  series, `r"^([abxy])\d"`, or per neutral loss, `r"-(\w+)$"`); `with_yields` puts columns
+  computed by hand back into the curve, splitting `Measurement`s into value / 1-σ when
+  Measurements.jl is loaded. Summed errors add in quadrature (the `tic_err` rule);
+  `tic`/`tic_err` are never touched and every operation is logged in
+  `metadata["yield_ops"]`. The column operations are named `*_yields`, matching
+  `combine_yields` / `scale_yields` / `trim_yields` and leaving `*_peaks` to the
+  functions that build or detect `Peak`s; `drop_peaks` stays as a deprecated alias
+  of `drop_yields`.
+
+* ![Enhancement][badge-enhancement] `write_csv` now writes the 1-σ uncertainty of every
+  peak column (and of the TIC) alongside its value, as `<label>, <label>_err, …, TIC,
+  TIC_err` — matching the Tables.jl view, and making the output usable as the source data
+  behind a published figure. Pass `errors = false` for the previous compact layout.
+
+### Migration from v1.x
+
+| v1.x                                   | v2.0                                       |
+|----------------------------------------|--------------------------------------------|
+| `scan::MSscan`                         | `scan::MSscans` (provenance is now a vector)|
+| `scans[1].num` → `1`                   | `scans[1].num` → `[1]` (use `scans[1].num[1]`) |
+| `chrom::Chromatogram`, `chrom.rt`      | `chrom::IonCurrent`, `chrom.x`             |
+| `chrom.maxic`                          | `maxic(chrom)`                             |
+| `Mobilogram`, `Ionogram`               | `IonCurrent` with `axis = :drift` / `:cv`  |
+
+The scalar `MSscans(num, rt, tic, mz, int, level, …)` constructors mirror the
+former `MSscan` signatures, so code that *constructed* scans needs only the type
+name changed; code that *read* a scalar provenance field must index `[1]`.
+
+
 ## Version `v0.3.1`
 
 * [Enhacement][badge-enhancement]: documentation has been updated.

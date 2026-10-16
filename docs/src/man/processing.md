@@ -1,10 +1,10 @@
 # Processing
 ## Smooth
-The [`smooth`](@ref) function is public and applies on `MSscan`or `MSscans` objects, with an optional `method` argument set to `MassJ.SG(5, 9, 0)`.  Smoothing is performed on the `int` field using the [Savinsky and Golay](https://en.wikipedia.org/wiki/Savitzky%E2%80%93Golay_filter). The first argument is the order (5 by default), the second is the number of points (default 9)  and the last, is the derivative level (0).
+The [`smooth`](@ref) function is public and applies on `MSscans`or `MSscans` objects, with an optional `method` argument set to `MassJ.SG(5, 9, 0)`.  Smoothing is performed on the `int` field using the [Savinsky and Golay](https://en.wikipedia.org/wiki/Savitzky%E2%80%93Golay_filter). The first argument is the order (5 by default), the second is the number of points (default 9)  and the last, is the derivative level (0).
 The function returns an `MScontainer` type identical to the input. 
 	
 ## Base line correction
-Base line correction is performed using the [`baseline_correction`](@ref) function. This function as two methods and operates either on [`MScontainer`](@ref) or on Array of [`MSscan`](@ref) such as obtained after [importing data](Importing data).
+Base line correction is performed using the [`baseline_correction`](@ref) function. This function as two methods and operates either on [`MassJ.MScontainer`](@ref) or on Array of [`MassJ.MSscans`](@ref) such as obtained after [importing data](importing.md).
 ```julia
 baseline_correction(scans)
 baseline_correction(scans, method = MassJ.IPSA(51, 100))
@@ -24,7 +24,7 @@ This algorithm takes the number of iteration to be performed. Usually 3 iteratio
 
 
 ## Peak picking
-Pick-picking is performed using the public [`centroid`](@ref) function. It operates on `MSscan`or `MSscans`type of data and return a similar type. It takes a method argument, set by default to the Signal to Noise Analysis method: `MassJ.SNRA`.
+Pick-picking is performed using the public [`centroid`](@ref) function. It operates on `MSscans`or `MSscans`type of data and return a similar type. It takes a method argument, set by default to the Signal to Noise Analysis method: `MassJ.SNRA`.
 ```julia
 centroid(scan)
 ```
@@ -50,10 +50,17 @@ centroid(scan, method = MassJ.TBPD(:lorentz, 1000., 0.1)
 centroid(scan, method = MassJ.TBPD(:voight,  1000., 0.1)
 ```
 
+#### Continuous Wavelet Transform (CWT)
+The CWT method ([Du, Kibbe & Lin, *Bioinformatics* 2006](https://doi.org/10.1093/bioinformatics/btl355)) transforms the spectrum with a Ricker ("Mexican hat") wavelet over a range of `scales` (in points), links the local maxima into ridge lines, and keeps the ridges that persist across scales with a signal-to-noise ratio above `threshold`. It needs no explicit noise/template model and adapts to peaks of different widths. Defaults: `scales = 1:32`, `threshold = 3`, `min_length` = one third of the scales.
+```julia
+centroid(scan, method = MassJ.CWT())
+centroid(scan, method = MassJ.CWT(scales = 1.0:1.0:48.0, threshold = 5.0))
+```
+
 ## Deconvolution
 Charge state deconvolution is performed using the [`deconv`](@ref) function. It implements the [UniDec](https://doi.org/10.1021/acs.analchem.5b00140) algorithm to deconvolve multiply charged mass spectra into zero-charge mass spectra.
 
-The function operates on `MSscan` or `MSscans` objects and returns an object of the same type with the deconvolved mass spectrum.
+The function operates on `MSscans` or `MSscans` objects and returns an object of the same type with the deconvolved mass spectrum.
 
 ```julia
 deconv(scan, Charges(adduct="H", range=(1,10)))
@@ -82,3 +89,78 @@ deconv_data = deconv(scans, Charges(adduct="H", range=(5,15), width=2), R=5000)
 deconv_data = deconv(scans, Charges(adduct="H", range=(1,10)), FWHM=0.5, shape=:gauss)
 ```
 
+
+## Chromatographic peak analysis
+
+Ion-current traces ([`MassJ.IonCurrent`](@ref) — chromatograms, mobilograms, or
+ionograms produced by [`chromatogram`](@ref) / `mobilogram` / `ionogram`) can be
+smoothed, background-corrected, and analysed for peaks.
+
+`smooth` and `baseline_correction` accept an `IonCurrent` directly, returning a
+new trace on the same axis:
+
+```julia
+chr = chromatogram(load("run.mzML"))
+chr = smooth(chr; method = MassJ.SG(2, 9, 0))            # Savitzky-Golay
+chr = baseline_correction(chr; method = MassJ.TopHat(40)) # background removal (TopHat/LOESS/IPSA)
+```
+
+[`chrom_peaks`](@ref) then detects peaks and returns a `Vector{`[`ChromPeak`](@ref)`}`
+carrying the standard chromatography metrics. Local maxima are found, boundaries
+are placed valley-to-valley (splitting adjacent peaks), and a candidate is kept
+when its baseline-subtracted `height/noise ≥ snr`:
+
+```julia
+peaks = chrom_peaks(chr; snr = 3.0)        # noise estimated from the trace
+for p in peaks
+    @show p.apex p.area p.height p.fwhm p.asymmetry p.tailing p.plates p.snr
+end
+```
+
+Each [`ChromPeak`](@ref) reports the apex position, baseline-subtracted **area**
+and **height**, **FWHM**, **asymmetry factor** (Aₛ = B/A at 10 % height), **USP
+tailing factor** (T at 5 %), **theoretical plates** (N = 5.54·(apex/FWHM)²), the
+statistical moments (centroid, variance, skewness), and the **signal-to-noise**
+ratio. For a known window, [`chrom_peak`](@ref) analyses a single peak directly:
+
+```julia
+p = chrom_peak(chr, 4.5, 5.5)              # targeted integration over [4.5, 5.5]
+```
+
+Detection works best on a smoothed, baseline-corrected trace. The metrics are
+axis-agnostic, so they apply equally to drift-time (mobilogram) and
+compensation-voltage (ionogram) peaks.
+
+## 2-D LC-MS feature detection
+
+[`detect_features`](@ref) extends one-dimensional chromatographic peak detection
+to a full LC-MS run: it finds **features** — ions (a narrow m/z) that elute as a
+chromatographic peak over a range of retention times. Detection follows the
+standard two-step recipe: build *mass traces* (regions of interest that persist
+across consecutive scans at roughly constant m/z), then run [`chrom_peaks`](@ref)
+on each trace, so every shape/quality metric comes for free.
+
+```julia
+feats = detect_features("run.mzML"; ppm = 8, min_scans = 6, snr = 5)
+# or on already-loaded scans:
+feats = detect_features(load("run.mzML"); ppm = 8)
+```
+
+Each [`Feature`](@ref) reports the trace m/z (intensity-weighted), the apex
+retention time and its boundaries, the **area**, **height**, **FWHM**, the number
+of contributing scans, the **S/N**, and the m/z spread of the trace. Key
+parameters: `ppm` (or absolute `mz_tol`) sets the trace-matching tolerance,
+`min_scans` the minimum trace length, `max_gap` the allowed scan gap, and `snr`
+the peak-detection threshold. By default the MS1 scans are used as-is; pass
+`centroid_method` (e.g. `SNRA(...)`) to centroid profile scans first.
+
+[`feature_table`](@ref) gives a [Tables.jl](https://github.com/JuliaData/Tables.jl)
+view of the result, so a feature list drops straight into a `DataFrame` or CSV:
+
+```julia
+using DataFrames
+df = DataFrame(feature_table(feats))
+```
+
+This is a single-run detector; cross-sample alignment / correspondence is future
+work.

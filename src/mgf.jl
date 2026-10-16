@@ -6,11 +6,11 @@ MGF is a text-based peak list format that stores centroided MS/MS data.
 
 """
     load_mgf_all(filename::String)
-Load all spectra from an MGF file. Returns a Vector{MSscan}.
-Each BEGIN IONS...END IONS block becomes one MSscan.
+Load all spectra from an MGF file. Returns a Vector{MSscans}.
+Each BEGIN IONS...END IONS block becomes one `MSscans`.
 """
 function load_mgf_all(filename::String)
-    scans = Vector{MSscan}(undef, 0)
+    scans = Vector{MSscans}(undef, 0)
     scan_index = 0
 
     open(filename, "r") do io
@@ -69,13 +69,13 @@ function load_mgf_all(filename::String)
         end
     end
 
-    return scans
+    return MSrun(scans)
 end
 
 
 """
     build_mgf_scan(params::Dict{String,String}, mz::Vector{Float64}, int::Vector{Float64}, index::Int)
-Build an MSscan from parsed MGF ion block parameters and peak data.
+Build an `MSscans` from parsed MGF ion block parameters and peak data.
 """
 function build_mgf_scan(params::Dict{String,String}, mz::Vector{Float64},
                         int::Vector{Float64}, index::Int)
@@ -170,7 +170,7 @@ function build_mgf_scan(params::Dict{String,String}, mz::Vector{Float64},
         metadata["scans"] = params["SCANS"]
     end
 
-    return MSscan(num, rt, tic, mz_copy, int_copy, msLevel,
+    return MSscans(num, rt, tic, mz_copy, int_copy, msLevel,
                   basePeakMz, basePeakIntensity, precursorMz, polarity,
                   activationMethod, collisionEnergy,
                   chargeState, :centroid, -1.0, 0.0, :none, metadata)
