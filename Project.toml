@@ -1,8 +1,8 @@
 name = "MassJ"
 uuid = "29d00ee4-54c8-43d9-be5a-d01c626e7957"
-authors = ["Alex Giuliani <giuliani@synchrotron-soleil.fr>"]
-version = "2.0.0"
 license = "GPL-3.0-or-later"
+version = "2.0.0"
+authors = ["Alex Giuliani <giuliani@synchrotron-soleil.fr>"]
 
 [deps]
 Codecs = "19ecbf4d-ef7c-5e4b-b54a-0a0ff23c5aed"
@@ -44,10 +44,10 @@ MassJUnitfulExt = "Unitful"
 Clustering = "0.15"
 Codecs = "0.5"
 Combinatorics = "1"
-EntropyInvariant = "1.1.1"
 DataStructures = "0.18, 0.19"
 DelimitedFiles = "1"
 Downloads = "1"
+EntropyInvariant = "1.1.1, 2"
 FFTViews = "0.3"
 Interpolations = "0.14, 0.15, 0.16"
 JSON = "0.21, 1"
